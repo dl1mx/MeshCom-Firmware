@@ -1248,7 +1248,7 @@ void tdeck_update_batt_label(float batt, int proz)
         snprintf(vChar, sizeof(vChar), "Batt: %.2fV (%i%%)", batt, proz);
     }
 
-    if(batt > meshcom_settings.node_maxv)
+    if(batt > 4.2)
     {
         if(posinfo_fix > 0)
         {
@@ -1630,8 +1630,8 @@ void tdeck_add_MSG(String callsign, String path, String message)
     }
 
     // play_sound
-    if (!play_file_from_sd_blocking(meshcom_settings.node_audio_msg.c_str(), 20))
+    if (!play_file_from_sd(meshcom_settings.node_audio_msg.c_str(), 12))
     {
-        // playback not possible - SD available?
+        play_cw_start();
     }
 }

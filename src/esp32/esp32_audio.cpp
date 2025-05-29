@@ -7,6 +7,8 @@
  * @date        2025-05-28
  */
 
+#if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+
 #include "esp32_audio.h"
 #include <configuration.h>
 #include <Audio.h>
@@ -75,16 +77,27 @@ bool play_file_from_sd(const char *filename, int volume)
         }
         return true;
     }
+
     if (xSemaphoreTake(audioSemaphore, 0) == pdTRUE)
     {
-        if (SD.exists(filename))
+        String strAudioWithType = filename;
+        if(!strAudioWithType.startsWith("/"))
+        {
+            strAudioWithType = "/";
+            strAudioWithType.concat(filename);
+        }
+
+        if(strAudioWithType.indexOf('.') <= 0)
+            strAudioWithType.concat(".mp3");
+
+        if (SD.exists(strAudioWithType.c_str()))
         {
             audio.setVolume(volume);
-            audio.connecttoFS(SD, filename);
+            audio.connecttoFS(SD, strAudioWithType.c_str());
 
-            if (bDEBUG)
+            if (bDisplayCont)
             {
-                Serial.printf("[audio]...playing %s in background\n", filename);
+                Serial.printf("[audio]...playing %s in background\n", strAudioWithType.c_str());
             }
 
             xTaskCreatePinnedToCore(
@@ -132,19 +145,22 @@ bool play_file_from_sd_blocking(const char *filename, int volume)
         }
         return true;
     }
+    
     if (SD.exists(filename))
     {
         audio.setVolume(volume);
         audio.connecttoFS(SD, filename);
-
         if (bDEBUG)
         {
             Serial.printf("[audio]...playing %s\n", filename);
         }
-        while (audio.isRunning()) {
+
+        while (audio.isRunning())
+        {
             audio.loop();
         }
         audio.stopSong();
+
         return true;
     }
     else
@@ -437,3 +453,4 @@ void play_function(void *parameter)
 
     vTaskSuspend(NULL);
 }
+#endif

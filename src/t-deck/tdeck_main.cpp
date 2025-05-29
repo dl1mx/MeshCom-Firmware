@@ -150,15 +150,13 @@ void initTDeck()
     Serial.print("[INIT]...Keyboard: ");
     Serial.println(kbDected == true ? "OK" : "ERROR");
     
-    // if (!play_file_from_sd(meshcom_settings.node_audio_start.c_str(), 12))
-    if (!play_file_from_sd_blocking(meshcom_settings.node_audio_start.c_str(), 12))
+    if (!play_file_from_sd(meshcom_settings.node_audio_start.c_str(), 12))
     {
         play_cw_start();
     }
 
     // SET Map
     set_map(meshcom_settings.node_map);
-
 
     pinMode(TDECK_BOOT_PIN, INPUT);
 
@@ -187,10 +185,10 @@ bool setupSD()
     if (SD.begin(TDECK_SDCARD_CS, SPI, 800000U)) {
         uint8_t cardType = SD.cardType();
         if (cardType == CARD_NONE) {
-            Serial.println("No SD_MMC card attached");
+            Serial.println("[INIT]...No SD_MMC card attached");
             return false;
         } else {
-            Serial.print("SD_MMC Card Type: ");
+            Serial.print("[INIT]...SD_MMC Card Type: ");
             if (cardType == CARD_MMC) {
                 Serial.println("MMC");
             } else if (cardType == CARD_SD) {
@@ -203,8 +201,8 @@ bool setupSD()
             uint32_t cardSize = SD.cardSize() / (1024 * 1024);
             uint32_t cardTotal = SD.totalBytes() / (1024 * 1024);
             uint32_t cardUsed = SD.usedBytes() / (1024 * 1024);
-            Serial.printf("SD Card Size: %lu MB\n", cardSize);
-            Serial.printf("Total space: %lu MB\n",  cardTotal);
+            Serial.printf("[INIT]...SD Card Size: %lu MB\n", cardSize);
+            Serial.printf("[INIT]...Total space: %lu MB\n",  cardTotal);
             //Serial.printf("Used space: %lu MB\n",   cardUsed);
             return true;
         }
@@ -301,11 +299,11 @@ void setupLvgl()
 #endif
 
 
-    String LVGL_Arduino = "T-DECK based on Arduino ";
+    String LVGL_Arduino = "[INIT]...T-DECK based on Arduino ";
     LVGL_Arduino += String('V') + lv_version_major() + "." + lv_version_minor() + "." + lv_version_patch();
 
     Serial.println( LVGL_Arduino );
-    Serial.println( "using LVGL_Arduino_Display_LIB" );
+    Serial.println( "[INIT]...using LVGL_Arduino_Display_LIB" );
 
     lv_init();
 
@@ -355,7 +353,7 @@ void setupLvgl()
 
     if (kbDected)
     {
-        Serial.println("Keyboard registered");
+        Serial.println("[INIT]...Keyboard registered");
         /*Register a keypad input device*/
         static lv_indev_drv_t indev_keypad;
         lv_indev_drv_init(&indev_keypad);
@@ -667,3 +665,4 @@ void tdeck_clear_text_ta()
 {
     lv_textarea_set_text(text_ta, "");
 }
+

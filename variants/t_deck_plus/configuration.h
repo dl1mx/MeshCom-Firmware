@@ -116,6 +116,10 @@
 #define TDECK_ES7210_SCK    47
 #define TDECK_ES7210_DIN    14
 
+#define BOARD_I2S_WS        I2S_LRC
+#define BOARD_I2S_BCK       I2S_BCLK
+#define BOARD_I2S_DOUT      I2S_DOUT
+
 // T-Deck GUI configuration
 #define MAX_MAP 5                          // max count of maps
 #define MAX_POINTS 30                      // max count of points

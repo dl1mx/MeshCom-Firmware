@@ -229,6 +229,10 @@ void init_batt(void)
 	analogSetAttenuation(ADC_0db);
 
 	analogReadResolution(12);
+
+#elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+// NONE
+
 #else
 	//only for Test check_efuse();
 

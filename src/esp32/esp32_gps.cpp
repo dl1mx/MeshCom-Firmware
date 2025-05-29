@@ -374,11 +374,17 @@ unsigned int readGPS(void)
   
     bool newData = false;
     unsigned long start = millis();
+    unsigned long GPStimeout = millis();
+    bool BurstStart = false;
+
+    GPS.flush();
 
     while ((millis() - start) < 1000)
     {
         while (GPS.available())
         {
+            BurstStart = true;
+            GPStimeout = millis();
             char c = GPS.read();
             if(((c>=0x20) && (c<0x7f)) || (c==0x0A) || (c==0x0D))
             {
@@ -389,8 +395,8 @@ unsigned int readGPS(void)
                     Serial.print(c);
             }
         }
+        if (BurstStart && (GPStimeout+20) < millis()) break;
     }
-
 
     if(bGPSDEBUG)
         Serial.printf("newData:%i SAT:%d Fix:%d UPD:%d VAL:%d HDOP:%i\n", newData, tinyGPSPlus.satellites.value(), tinyGPSPlus.sentencesWithFix(), tinyGPSPlus.location.isUpdated(), tinyGPSPlus.location.isValid(), tinyGPSPlus.hdop.value());
