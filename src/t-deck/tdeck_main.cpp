@@ -31,6 +31,10 @@ using namespace ace_button;
 #include <loop_functions_extern.h>
 #include <batt_functions.h>
 
+#if defined(ENABLE_AUDIO)
+#include <esp32/esp32_audio.h>
+#endif
+
 #define I2S_CH I2S_NUM_1
 
 TFT_eSPI            tft;
@@ -146,7 +150,11 @@ void initTDeck()
     Serial.print("[INIT]...Keyboard: ");
     Serial.println(kbDected == true ? "OK" : "ERROR");
     
-    // play_start_sound();
+    // if (!play_file_from_sd(meshcom_settings.node_audio_start.c_str(), 12))
+    if (!play_file_from_sd_blocking(meshcom_settings.node_audio_start.c_str(), 12))
+    {
+        play_cw_start();
+    }
 
     // SET Map
     set_map(meshcom_settings.node_map);
@@ -161,8 +169,6 @@ void initTDeck()
     }
 
     tdeck_refresh_SET_view();
-
-    lv_textarea_set_text(text_ta, "");
 
     lv_table_set_cell_value(position_ta, 0, 0, (char*)"Call");
     lv_table_set_cell_value(position_ta, 0, 1, (char*)"Time");
@@ -631,6 +637,9 @@ static void touchpad_read( lv_indev_drv_t *indev_driver, lv_indev_data_t *data )
     }
 }
 
+/**
+ * adds initialization messages to message text area
+ */
 void tdeck_addMessage(bool bSuccess)
 {
     char buf[50];
@@ -649,4 +658,12 @@ void tdeck_addMessage(bool bSuccess)
 
     snprintf(buf, 50, "%s: %s\n", "Radio", bSuccess == true ? "OK" : "ERROR");
     addMessage(buf);
+}
+
+/**
+ * clears the message text area
+ */
+void tdeck_clear_text_ta()
+{
+    lv_textarea_set_text(text_ta, "");
 }

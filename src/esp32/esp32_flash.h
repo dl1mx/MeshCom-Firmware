@@ -169,6 +169,9 @@ struct s_meshcom_settings
 	bool node_keyboardlock = false;
 	bool node_backlightlock = false;
 	int node_modus = 0;
+	#endif
+
+	#if defined(BOARD_T_DECK) || defined (BOARD_T_DECK_PLUS)
 	bool node_mute = false;
 	#endif
 };
