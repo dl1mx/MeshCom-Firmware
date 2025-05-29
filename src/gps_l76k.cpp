@@ -28,7 +28,7 @@ bool l76kProbe()
     delay(5);
     // Get version information
     startTimeout = millis() + 3000;
-    Serial.print("Try to init L76K . Wait stop .");
+    Serial.print("[GPSL]...Try to init L76K . Wait stop .");
     // SerialGPS.flush();
     while (SerialGPS.available()) {
         int c = SerialGPS.read();
@@ -37,7 +37,7 @@ bool l76kProbe()
         // Serial.flush();
         // SerialGPS.flush();
         if (millis() > startTimeout) {
-            Serial.println("Wait L76K stop NMEA timeout!");
+            Serial.println("[GPSL]...Wait L76K stop NMEA timeout!");
             return false;
         }
     };
@@ -50,14 +50,14 @@ bool l76kProbe()
     String ver = "";
     while (!SerialGPS.available()) {
         if (millis() > startTimeout) {
-            Serial.println("Get L76K timeout!");
+            Serial.println("[GPSL]...Get L76K timeout!");
             return false;
         }
     }
     SerialGPS.setTimeout(10);
     ver = SerialGPS.readStringUntil('\n');
     if (ver.startsWith("$GPTXT,01,01,02")) {
-        Serial.println("L76K GNSS init succeeded, using L76K GNSS Module\n");
+        Serial.println("[GPSL]...L76K GNSS init succeeded, using L76K GNSS Module\n");
         result = true;
     }
     delay(500);

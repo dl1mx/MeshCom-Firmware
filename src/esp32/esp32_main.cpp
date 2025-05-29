@@ -344,6 +344,9 @@ volatile bool scanFlag = false;
 // flag to indicate one second 
 unsigned long retransmit_timer = 0;
 
+// blink frequency for board_led
+unsigned long led_timer = 0;
+
 // flag to update NTP Time
 unsigned long updateTimeClient = 0;
 
@@ -699,6 +702,7 @@ void esp32setup()
 
     Serial.printf("[INIT].._GW_ID: %08X\n", _GW_ID);
 
+ 
     ////////////////////////////////////////////////////////////////////
     // Initialize time
 	bool boResult;
@@ -1231,11 +1235,17 @@ void esp32loop()
     #ifdef BOARD_LED
         if(bUSER_BOARD_LED)
         {
-            if(bLED)
-                digitalWrite(BOARD_LED, HIGH);
-            else
-                digitalWrite(BOARD_LED, LOW);
-            bLED = !bLED;
+            if ((led_timer + 1000) < millis())   // repeat 1 seconds
+            {
+                if(bLED)
+                    digitalWrite(BOARD_LED, HIGH);
+                else
+                    digitalWrite(BOARD_LED, LOW);
+                bLED = !bLED;
+
+                led_timer = millis();
+            }
+
         }
     #endif
 
@@ -1946,7 +1956,7 @@ void esp32loop()
                 if(bDisplayCont)
                 {
             		Serial.print("[readBatteryVoltage]...");
-                    Serial.printf("volt %.1f proz %i max_batt %.1f\n", global_batt, global_proz, meshcom_settings.node_maxv*1000.0);
+                    Serial.printf("volt %.2f proz %i max_batt %.3f\n", global_batt/1000., global_proz, meshcom_settings.node_maxv);
                 }
 
                 #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
