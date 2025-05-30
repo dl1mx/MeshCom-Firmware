@@ -1235,7 +1235,7 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     
-    tdeck_add_MSG(aprsmsg);
+    tdeck_add_MSG(aprsmsg, true);
     
     #else
     
@@ -1908,7 +1908,7 @@ void sendMessage(char *msg_text, int len)
     }
 
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-    tdeck_add_MSG(aprsmsg);
+    tdeck_add_MSG(aprsmsg, false);
     #endif
     
     // store last message to compare later on

@@ -1,3 +1,4 @@
+
 #include <Arduino.h>
 
 #include <configuration.h>
@@ -213,36 +214,13 @@ void web_client_html(EthernetClient web_client)
         bPasswordOk = true;
     // no connection via password or no password need
     if (!bPasswordOk)
+    {
         work_webpage(true, inext_free);
+    }
     else
+    {
         work_webpage(false, iwebid);
-}
-
-/**
- * ###########################################################################################################################
- * show Login Page
- */
-void pwd_webpage()
-{
-    web_client.println("<table class=\"table\">");
-
-    web_client.println("<colgroup>");
-    web_client.println("<col style=\"width: 25%;\">");
-    web_client.println("<col style=\"width: 75%;\">");
-    web_client.println("</colgroup>");
-
-    web_client.println("<form action=\"/#\">");
-    web_client.println("<tr><td>");
-    web_client.println("<label for=\"fname\"><b>LOGIN Password</b></label>");
-    web_client.println("</td><td>");
-    web_client.printf("<input type=\"text\" maxlength=\"20\" size=\"20\" id=\"nodepassword\" name=\"nodepassword\">\n");
-    web_client.println("<input type=\"submit\" value=\"LOGIN\">");
-    web_client.println("</td></tr>");
-    web_client.println("</form>");
-
-    web_client.println("</table>");
-
-    web_client.println("</body></html>");
+    }
 }
 
 /**
@@ -251,11 +229,10 @@ void pwd_webpage()
  */
 String work_webpage(bool bget_password, int webid)
 {
-    String password_message = "";
-
     web_header = "";
     web_currentTime = millis();
     web_previousTime = web_currentTime;
+    String password_message = "";
     String web_currentLine = ""; // make a String to hold incoming data from the client
 
     if (bDEBUG)
@@ -285,85 +262,128 @@ String work_webpage(bool bget_password, int webid)
 
                     // Serial.println(web_header);
 
-                    if (web_header.indexOf("/callfunction/") >= 0)
-                    { // user requested to invoke a function
-                        // ### !!function will generate a HTML header itself
-                        call_function(web_header);
-                    }
-                    else if (web_header.indexOf("/?sendmessage") >= 0)
-                    { // user requested to send a message to the mesh
+                    // user sends authentication
+                    if (web_header.indexOf("/?nodepassword") >= 0)
+                    {
+                        web_header = web_header.substring(web_header.indexOf("/?nodepassword=") + 15, web_header.indexOf("HTTP/1.1"));
+                        web_header.trim();
+                        if (web_header.length() == 0)
+                        {
+                            web_ip_passwd_time[webid] = 0; // logging out
+                            if (bDEBUG)
+                                Serial.println("WebUI requested logout");
+                        }
+                        else
+                        {
+                            password_message = decodeURLPercentCoding(web_header); // try logging in using password
+                            if (bDEBUG)
+                                Serial.println("WebUI requested login");
+                        }
                         send_http_header(200, RESPONSE_TYPE_TEXT);
-                        send_message(web_header);
                     }
-                    else if (web_header.indexOf("/?getmessages") >= 0)
-                    { // user requested to retrieve the stored messages
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_content_messages();
-                    }
-                    else if (web_header.indexOf("/setparam/") >= 0)
-                    { // user requested to set a parameter
-                        // ### !!function will generate a HTML header itself
-                        setparam(web_header);
-                    }
-                    else if (web_header.indexOf("/getparam/") >= 0)
-                    { // user requested to get a parameter
-                        // ### !!function will generate a HTML header itself
-                        getparam(web_header);
-                    }
-                    else if (web_header.indexOf("/?page=setup") >= 0)
-                    { // user requested the position page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_setup();
-                    }
-                    else if (web_header.indexOf("/?page=position") >= 0)
-                    { // user requested the position page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_position();
-                    }
-                    else if (web_header.indexOf("/?page=wx") >= 0)
-                    { // user requested the weather page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_wx();
-                    }
-                    else if (web_header.indexOf("/?page=mheard") >= 0)
-                    { // user requested the mheard page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_mheard();
-                    }
-                    else if (web_header.indexOf("/?page=messages") >= 0)
-                    { // user requested the messages page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_messages();
-                    }
-                    else if (web_header.indexOf("/?page=rxlog") >= 0)
-                    { // user requested the rx log page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_rxlog();
-                    }
-                    else if (web_header.indexOf("/?page=path") >= 0)
-                    { // user requested the path page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_path();
-                    }
-                    else if (web_header.indexOf("/?page=spectrum") >= 0)
-                    { // user requested the path page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_spectrum();
-                    }
-                    else if (web_header.indexOf("/?page=info") >= 0)
-                    { // user requested the info page
-                        send_http_header(200, RESPONSE_TYPE_TEXT);
-                        sub_page_info();
-                    }
-                    else if (web_header.indexOf("/?page=") >= 0)
-                    { // user requested a page we do not know
-                        send_http_header(404, RESPONSE_TYPE_TEXT);
-                        sub_page_unknown();
+
+                    // in every other case, we check if authentication is required but not yet provided
+                    if (bget_password)
+                    {
+                        // user requested a page ? Send a login page instead.
+                        if (web_header.indexOf("/?page=") >= 0)
+                        {
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_login();
+                        }
+                        // user requested anything else (but not just "/")? Send a 401 - Unauthorized as answear
+                        else if (web_header.indexOf("/") >= 0 && web_header.indexOf("HTTP/1.1") > web_header.indexOf("/") + 2)
+                        {
+                            send_http_header(401, RESPONSE_TYPE_TEXT);
+                        }
+                        else
+                        {
+                            deliver_scaffold(true);
+                        }
                     }
                     else
                     {
-                        deliver_scaffold();
-                    }
+
+                        if (web_header.indexOf("/callfunction/") >= 0)
+                        { // user requested to invoke a function
+                            // ### !!function will generate a HTML header itself
+                            call_function(web_header);
+                        }
+                        else if (web_header.indexOf("/?sendmessage") >= 0)
+                        { // user requested to send a message to the mesh
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            send_message(web_header);
+                        }
+                        else if (web_header.indexOf("/?getmessages") >= 0)
+                        { // user requested to retrieve the stored messages
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_content_messages();
+                        }
+                        else if (web_header.indexOf("/setparam/") >= 0)
+                        { // user requested to set a parameter
+                            // ### !!function will generate a HTML header itself
+                            setparam(web_header);
+                        }
+                        else if (web_header.indexOf("/getparam/") >= 0)
+                        { // user requested to get a parameter
+                            // ### !!function will generate a HTML header itself
+                            getparam(web_header);
+                        }
+                        else if (web_header.indexOf("/?page=setup") >= 0)
+                        { // user requested the position page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_setup();
+                        }
+                        else if (web_header.indexOf("/?page=position") >= 0)
+                        { // user requested the position page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_position();
+                        }
+                        else if (web_header.indexOf("/?page=wx") >= 0)
+                        { // user requested the weather page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_wx();
+                        }
+                        else if (web_header.indexOf("/?page=mheard") >= 0)
+                        { // user requested the mheard page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_mheard();
+                        }
+                        else if (web_header.indexOf("/?page=messages") >= 0)
+                        { // user requested the messages page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_messages();
+                        }
+                        else if (web_header.indexOf("/?page=rxlog") >= 0)
+                        { // user requested the rx log page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_rxlog();
+                        }
+                        else if (web_header.indexOf("/?page=path") >= 0)
+                        { // user requested the path page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_path();
+                        }
+                        else if (web_header.indexOf("/?page=spectrum") >= 0)
+                        { // user requested the path page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_spectrum();
+                        }
+                        else if (web_header.indexOf("/?page=info") >= 0)
+                        { // user requested the info page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_info();
+                        }
+                        else if (web_header.indexOf("/?page=") >= 0)
+                        { // user requested a page we do not know
+                            send_http_header(404, RESPONSE_TYPE_TEXT);
+                            sub_page_unknown();
+                        }
+                        else
+                        {
+                            deliver_scaffold(bget_password);
+                        }
+                    } //if (bget_password)
 
                     web_client.stop();
                 }
@@ -376,213 +396,6 @@ String work_webpage(bool bget_password, int webid)
             {                         // if you got anything else but a carriage return character,
                 web_currentLine += c; // add it to the end of the currentLine
             }
-
-            /*
-
-            main_webpage();
-            // no Display in get password
-            if(bget_password)
-            {
-                pwd_webpage();
-                continue;
-            }
-            // POS
-            // MHEARD
-            // HEYPATH
-            // WX
-            // SETUP
-            // MESSAGE
-            // LOGPRINT
-            // MCP-STATUS
-            if(web_page_state == 7)
-            {
-                web_client.println("<table class=\"table\">");
-
-                web_client.println("<colgroup>");
-                web_client.println("<col style=\"width: 10%;\">");
-                web_client.println("<col style=\"width: 16%;\">");
-                web_client.println("<col style=\"width: 49%;\">");
-                web_client.println("<col style=\"width: 15%;\">");
-                web_client.println("<col style=\"width: 10%;\">");
-                web_client.println("</colgroup>");
-
-                web_client.printf("<tr><th>PORT</th><th>MCP-23017</th><th>%s</th><th>STATUS</th><th>SET</th></tr>\n", (bMCP23017?"active":"offline"));
-
-                uint16_t t_io = meshcom_settings.node_mcp17io;
-                uint16_t t_out = meshcom_settings.node_mcp17out;
-                uint16_t t_in = meshcom_settings.node_mcp17in;
-
-                for(int io=0; io<16; io++)
-                {
-                    bool bOut=false;
-                    if((t_io & 0x0001) == 0x0001)
-                        bOut=true;
-
-                    bool bOutValue=false;
-                    if((t_out & 0x0001) == 0x0001)
-                        bOutValue=true;
-
-                    bool bInValue=false;
-                    if((t_in & 0x0001) == 0x0001)
-                        bInValue=true;
-
-                    char cAB='B';
-                    int iAB=io-8;
-                    if(io < 8)
-                    {
-                        cAB='A';
-                        iAB=io;
-                    }
-
-                    web_client.printf("<tr><td>[%c%i]</td>", cAB, iAB);
-                    web_client.printf("<td><a href=\"/mcptype/%s/%c%i\"><button class=\"button button2\"<b>%s</b></button></a></td>", (bOut?"OUT":"IN"), cAB, iAB, (bOut?"OUT":"IN"));
-                    web_client.println("<form action=\"/#\">");
-                    web_client.printf("<td><input type=\"text\" value=\"%s\" maxlength=\"16\" size=\"16\" id=\"mcp%c%i\" name=\"mcp%c%i\">\n", meshcom_settings.node_mcp17t[io], cAB, iAB, cAB, iAB);
-                    web_client.println("<input type=\"submit\" value=\"set\"></td>");
-                    web_client.println("</form>");
-
-                    if(bOut)
-                    {
-                        if(bOutValue)
-                            web_client.printf("<td>%s</td><td><a href=\"/mcp/off/%c%i\"><button class=\"button button2\"<b>ON</b></button></a></td></tr>\n",  (bOutValue?"OFF ":"ON  "), cAB, iAB);
-                        else
-                            web_client.printf("<td>%s</td><td><a href=\"/mcp/on/%c%i\"><button class=\"button button2\"<b>OFF</b></button></a></td></tr>\n",  (bOutValue?"OFF ":"ON  "), cAB, iAB);
-                    }
-                    else
-                    {
-                        if(meshcom_settings.node_mcp17t[io][0] == 0x00)
-                            web_client.printf("<td>%s</td><td></td></tr>\n",  (bInValue?"HIGH":"LOW "));
-                        else
-                            web_client.printf("<td><b>%s</b></td><td></td></tr>\n",  (bInValue?"HIGH":"LOW "));
-                    }
-
-                    t_io >>= 1;
-                    t_out >>= 1;
-                    t_in >>= 1;
-
-                }
-
-                web_client.println("</table>");
-            }
-            else
-            // SOFTSER
-            if(web_page_state == 8)
-            {
-                web_client.println("<table class=\"table\">");
-
-                web_client.println("<colgroup>");
-                web_client.println("<col style=\"width: 100%;\">");
-                web_client.println("</colgroup>");
-
-                web_client.println("<tr><th>last message</th></tr>");
-
-                // SOFTSER-Message
-                web_client.printf("<tr><td><textarea cols='100' rows='30'>%s</textarea></td></tr>\n", strSOFTSER_BUF.c_str());
-
-                web_client.println("</table>");
-
-                web_client.println("<table class=\"table\">");
-
-                web_client.println("<colgroup>");
-                web_client.println("<col style=\"width: 25%;\">");
-                web_client.println("<col style=\"width: 75%;\">");
-                web_client.println("</colgroup>");
-
-                web_client.println("<form action=\"?\">");
-
-                web_client.println("<tr><td>");
-                web_client.println("<label for=\"fname\"><b>Message:</b></label>");
-                web_client.println("</td><td>");
-                web_client.println("<textarea id=\"sstext\" name=\"sstext\" maxlength=\"50\" rows=\3\" cols=\"40\"></textarea>");
-                web_client.println("</td></tr><tr><td></td><td>");
-                web_client.println("<input type=\"submit\" value=\"send\">");
-                web_client.println("</td></tr>");
-                web_client.println("</form>");
-
-                web_client.println("</table>");
-            }
-            // SPECTRUM
-            // INFO
-            // SETUP
-            
-            }
-
-            web_client.println("<p style=\"margin: 0px;\" id=\"anchor_button\">&nbsp;</p>");
-
-            if(web_page_state == 2) //MHEARD TAB
-            {
-                web_client.println("<td><a href=\"/mhclear\"><button class=\"button\"><b>M.CLEAR</b></button></a></td>");
-                web_client.println("<td><a href=\"/mhrefresh\"><button class=\"button\"><b>REFRESH</b></button></a></td>");
-                web_client.println("</tr>");
-            }
-
-            if(web_page_state == 5) //Message TAB
-            {
-                web_client.println("<td><a href=\"/mclear\"><button class=\"button\"><b>M.CLEAR</b></button></a></td>");
-                web_client.println("</tr>");
-            }
-
-            if(web_page_state == 6) //LOG TAB
-            {
-                web_client.println("<td><a href=\"/logclear\"><button class=\"button\"><b>L.CLEAR</b></button></a></td>");
-                web_client.println("<td><a href=\"/logrefresh\"><button class=\"button\"><b>REFRESH</b></button></a></td>");
-                web_client.println("</tr>");
-            }
-
-            if(web_page_state == 8) //SOFTSER TAB
-            {
-                web_client.println("<td><a href=\"/ssclear\"><button class=\"button\"><b>S.CLEAR</b></button></a></td>");
-                web_client.println("<td><a href=\"/ssrefresh\"><button class=\"button\"><b>REFRESH</b></button></a></td>");
-                web_client.println("</tr>");
-            }
-
-            // NEXT INFO
-            web_client.println("<tr><td><a href=\"/info\"><button class=\"button\"><b>INFO</b></button></a></td>");        //page 0
-            web_client.println("<td><a href=\"/pos\"><button class=\"button\"><b>POS</b></button></a></td>");              //page 1
-            web_client.println("<td><a href=\"/wx\"><button class=\"button\"><b>WX</b></button></a></td>");                //page 3
-            web_client.println("<td><a href=\"/mheard\"><button class=\"button\"><b>MHEARD</b></button></a></td></tr>");   //page 2
-
-            web_client.println("<tr><td><a href=\"/setup\"><button class=\"button\"><b>SETUP</b></button></a></td>");      //page 4
-            web_client.println("<td><a href=\"/message\"><button class=\"button\"><b>MESSAGE</b></button></a></td>");      //page 5
-
-            web_client.println("<td><a href=\"/logprint\"><button class=\"button\"><b>RX-LOG</b></button></a></td>");      //page 6
-            web_client.printf("<td><a href=\"/sendpos%i\"><button class=\"button\"><b>SENDPOS</b></button></a></td></tr>\n", web_page_state);
-
-            web_client.println("<td><a href=\"/heypath\"><button class=\"button\"><b>PATH</b></button></a></td>");         //page 9
-
-            if(bMCP23017)
-                web_client.println("<tr><td><a href=\"/mcpstatus\"><button class=\"button\"><b>MCP-STATUS</b></button></a></td>");       //page 7
-
-            if(bSOFTSERON)
-                web_client.println("<td><a href=\"/softser\"><button class=\"button\"><b>SOFTSER</b></button></a></td>");   // page 8
-
-
-            #ifdef ESP32
-                if(web_page_state == 4)
-                {
-                    // OTA-UPDATE
-                    web_client.println("<td><a href=\"/otaupdate\"><button class=\"button\"><b>OTA-UPDATE</b></button></a></td>");
-                }
-            #endif
-
-            // REBOOT
-            web_client.println("<td><a href=\"/reboot\"><button class=\"button\"><b>REBOOT</b></button></a></td>");
-
-            // LOGOUT
-            web_client.println("<td><a href=\"/logout\"><button class=\"button\"><b>LOGOUT</b></button></a></td></tr>");
-
-            web_client.println("</table>");
-
-            web_client.println("</body></html>");
-
-            // The HTTP response ends with another blank line
-            web_client.println();
-            // Break out of the while loop
-
-            break;
-            }
-
-            */
         }
     }
 
@@ -668,11 +481,11 @@ String decodeURLPercentCoding(String input)
  * ###########################################################################################################################
  * delivers the WebUI scaffold including the info page
  */
-void deliver_scaffold()
+void deliver_scaffold(bool bget_password)
 {
     send_http_header(200, RESPONSE_TYPE_TEXT);
 
-    //Serial.println("Sending Scaffold");
+    // Serial.println("Sending Scaffold");
     web_client.println("<!DOCTYPE html>\n<html>\n<head>\n");
     web_client.println("<meta charset=\"utf-8\">\n");
     web_client.println("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n");
@@ -681,22 +494,24 @@ void deliver_scaffold()
     web_client.println("<script type=\"text/javascript\">\n");
     // these variables will hold the last loaded page name and sender in order to force a refresh
     web_client.println("cpage=\"info\";csender=undefined;\n");
+    // this function is used for login and logout
+    web_client.println("function login(pwd){var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){window.location.reload(true);}};xhttp.open(\"GET\",\"?nodepassword=\"+pwd,true);xhttp.send();}\n");
     // this function is used to load content depending on the navigation button pressed
     web_client.println("function loadPage(page,sender) {cpage=page;csender=sender;document.getElementById(\"content_layer\").innerHTML=\"<span class=\\\"loader\\\"></span>\";var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){document.getElementById(\"content_layer\").innerHTML=this.responseText;}};xhttp.open(\"GET\",\"?page=\"+page,true);xhttp.send();Array.from(document.querySelectorAll('.nav_button.nbactive ')).forEach((el) => el.classList.remove('nbactive')); sender.classList.add('nbactive');}\n");
     // this function is used to send a message from the browser via node to the mesh
     web_client.println("function sendMessage() {var xhttp=new XMLHttpRequest();xhttp.open(\"GET\",\"/?sendmessage&tocall=\"+document.getElementById(\"sendcall\").value+\"&message=\"+document.getElementById(\"messagetext\").value,true);xhttp.send();document.getElementById(\"sendcall\").value=\"\"; document.getElementById(\"messagetext\").value=\"\";}\n");
     // this functions is counting and displaying the amount of chars left that the user can use to write a message
-    web_client.println("function updateCharsLeft() {let maxlength = 149;if(document.getElementById(\"sendcall\").value.length>0) {maxlength-=(document.getElementById(\"sendcall\").value.length)+2;}let msglength=document.getElementById(\"messagetext\").value.length;if(msglength>maxlength){document.getElementById(\"messagetext\").value=document.getElementById(\"messagetext\").value.substring(0,maxlength);msglength=maxlength;}document.getElementById(\"indicator_charsleft\").innerHTML=maxlength-msglength;};\n");
+    web_client.println("function updateCharsLeft() {let maxlength = 149;if(document.getElementById(\"sendcall\").value.length>0) {maxlength-=(document.getElementById(\"sendcall\").value.length)+2;}let msglength=document.getElementById(\"messagetext\").value.length;if(msglength>maxlength){document.getElementById(\"messagetext\").value=document.getElementById(\"messagetext\").value.substring(0,maxlength);msglength=maxlength;}document.getElementById(\"indicator_charsleft\").innerHTML=maxlength-msglength;}\n");
     // this function is an ayncronous loader that is used to update the received messages without re-loading the whole page
-    //MIT LOADER-Kreisel   web_client.println("function updateMessages() {document.getElementById(\"messages_panel\").innerHTML=\"<span class=\\\"loader\\\"></span>\";var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){document.getElementById(\"messages_panel\").innerHTML=this.responseText;}};xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();};\n");
-    web_client.println("function updateMessages() {var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){document.getElementById(\"messages_panel\").innerHTML=this.responseText;}};xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();};\n");
-    //web_client.println("function updateMessages() {var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){document.getElementById(\"messages_panel\").innerHTML=this.responseText;};xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();};\n");
-    // this function sends a parameter:value request to the backend
+    // MIT LOADER-Kreisel   web_client.println("function updateMessages() {document.getElementById(\"messages_panel\").innerHTML=\"<span class=\\\"loader\\\"></span>\";var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){document.getElementById(\"messages_panel\").innerHTML=this.responseText;}};xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();};\n");
+    web_client.println("function updateMessages() {var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){document.getElementById(\"messages_panel\").innerHTML=this.responseText;}};xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();}\n");
+    // web_client.println("function updateMessages() {var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){document.getElementById(\"messages_panel\").innerHTML=this.responseText;};xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();};\n");
+    //  this function sends a parameter:value request to the backend
     web_client.println("function setvalue(param,value) {fetch(\"/setparam/?\"+param+\"=\"+value).then(function(response){return response.json();}).then(function(jsonResponse){if(jsonResponse['returncode']==1)alert(\"Value could not be set.\");if(jsonResponse['returncode']==2)alert(\"Parameter unknown to node.\");if(jsonResponse['returncode']>0){loadPage(cpage, csender)}});}\n");
     // this function invokes a function call to the backend passing the function name and an optional parameter (e.g. sendpos)
-    web_client.println("function callfunction(functionname,functionparameter){fetch(\"/callfunction/?\"+functionname+\"=\"+functionparameter).then(function(response){return response.json();}).then(function (jsonResponse) {/*Nothing todo yet.*/})};\n");
-    //This function is used to toggle a css class so setup cars can collapse / expand    
-    web_client.println("function togglecard(element){element.parentElement.classList.toggle(\"cardopen\");};");
+    web_client.println("function callfunction(functionname,functionparameter){fetch(\"/callfunction/?\"+functionname+\"=\"+functionparameter).then(function(response){return response.json();}).then(function (jsonResponse) {/*Nothing todo yet.*/})}\n");
+    // This function is used to toggle a css class so setup cars can collapse / expand
+    web_client.println("function togglecard(element){element.parentElement.classList.toggle(\"cardopen\");}");
 
     web_client.println("</script>\n\n");
 
@@ -779,8 +594,8 @@ void deliver_scaffold()
     web_client.println("input:where([type=\"checkbox\"][role=\"switch\"])::before {content:\"\";position:absolute;top:50%;left:0;transform:translate(0,-50%);box-sizing:border-box;width:1.1em;height:1.1em;margin:0 0.15em;border-radius:50%;background:var(--mcbg);-webkit-transition:0.5s;transition:0.5s;}\n");
     web_client.println("input:where([type=\"checkbox\"][role=\"switch\"]):checked::before {left:1.8em;}\n");
 
-    //content definitions -> setup collapsable cards
-    
+    // content definitions -> setup collapsable cards
+
     web_client.println(".collapsablecard>.cardtoggle {position:absolute;right:8px;top:-1px;transform:translateY(-50%);z-index:10;width:36px;height:36px;border-radius:50% !important;disjplay:none;}\n");
     web_client.println(".collapsablecard>.cardtoggle>i {padding:4px;margin:auto;border:solid black;border-width:2px 0 0 2px;display:block;-webkit-transform:rotate(-135deg);transform:rotate(-135deg);-webkit-transition:0.5s;transition:0.5s;}\n");
     web_client.println(".cardopen>.cardtoggle>i {-webkit-transform: rotate(45deg);transform: rotate(45deg);}\n");
@@ -793,7 +608,7 @@ void deliver_scaffold()
     // scaffold body
     web_client.println("</head>\n<body>\n");
     web_client.println("<div id=\"nav_layer\">\n");
-    //MC Logo (Image as base64 and split ti several print() so RAK can handle it)
+    // MC Logo (Image as base64 and split ti several print() so RAK can handle it)
     web_client.print("<img id=\"mc_logo\" src=\"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDhweCIgaGVpZ2h0PSI0OHB4IiB2aWV3Qm94PSIwIDAgMjcwLjkzMzMyIDI3MC45MzMzMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyMS41NzI3MDIsLTYuNzE1MDM2OSkiPjxwYXRoIHN0eWxlPSJmaWxsOm5vbmU7c3Ryb2tlOiNmZjAwMDA7c3Ryb2tlLXdpZHRoOjYuMDAwMDE7c3Ryb2tlLWRhc2hhcnJheTpub25lIiBkPSJNIDQzLjMxMjg5Myw4NC45MDUyNTEgQyA1OS4wNzM3NDksMTE4Ljg4MzIgMTI4Ljg3MTgxLDIyNy45ODEwNiAxMjguODcxODEsMjI3Ljk4MTA2IEwgMTM2LjY0OTksNjQuNjQxMjkzIDM2LjM1MzU1NiwxODQuNTg3NTMgMTkyLjczMzk3LDE1Ni45NTQ4NiBaIE0gMzAuNjIyMzM2LDc1Ljg5OTA0OCAyNS41MDUxNzUsMTg5LjUwMDAxIDEyNC45ODI3OCwyMzcuODA2IDIwNi42NTI2NiwxNTUuNTIyMDYgMTQ2LjA2NTQ3LDQ4Ljg4MDQ0MSBjIDAsMCAtNzUuNDg4OTAyLDE3LjU3NDg3OSAtMTE1LjQ0MzEzNCwyNy4wMTg2MDcgeiIvPjxwYXRoIHN0eWxlPSJmaWxsOiMyNTIzMjM7c3Ryb2tlOiNmZjAwMDA7c3Ryb2tlLXdpZHRoOjYiIGQ9Ik0gNTUuNzAxNDcxLDE4Ny4xNTEwOSBBIDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMjYuMTc3NDA0LDIxNi42NzUxNiAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0zLjM0NjY2MjUsMTg3LjE1MTA5IDI5LjUyNDA2NywyOS41MjQwNjcgMCAw");
     web_client.print("IDEgMjYuMTc3NDA0LDE1Ny42MjcwMyAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIDU1LjcwMTQ3MSwxODcuMTUxMDkgWiBtIDk4Ljk1NDE2OSw0Ny42MjUgYSAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNywyOS41MjQwNyAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNjgsLTI5LjUyNDA3IDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMjkuNTI0MDY4LC0yOS41MjQwNiAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIDI5LjUyNDA3LDI5LjUyNDA2IHogbSA3OC41ODEyNiwtODAuMTY4NzQgYSAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNywyOS41MjQwNiAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNywtMjkuNTI0MDYgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAyOS41MjQwNywtMjkuNTI0MDcgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAyOS41MjQwNywyOS41MjQwNyB6IE0gMTc1LjAyODU1LDQ5LjMwMzE3NyBBIDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMTQ1LjUwNDQ5LDc4LjgyNzI0NCAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIDExNS45ODA0Miw0OS4zMDMxNzcgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAxNDUuNTA0NDksMTkuNzc5MTEgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAxNzUuMDI4NTUsNDkuMzAzMTc3IFogTSA2MC45OTMxMzcsNzYuMjkwNjcyIEEgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAzMS40NjkwNywxMDUuODE0NzQgMjkuNTI0MDY3LDI5");
     web_client.println("LjUyNDA2NyAwIDAgMSAxLjk0NTAwMzUsNzYuMjkwNjcyIDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMzEuNDY5MDcsNDYuNzY2NjA1IDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgNjAuOTkzMTM3LDc2LjI5MDY3MiBaIi8+PGNpcmNsZSBzdHlsZT0iZmlsbDojZmYwMDAwO2ZpbGwtb3BhY2l0eToxO3N0cm9rZTpub25lO3N0cm9rZS13aWR0aDo2LjM1NDc3O3N0cm9rZS1kYXNoYXJyYXk6bm9uZSIgaWQ9Im1jbG9nb19jaXJjbGUiIGN4PSIxMDguNTEwNzQiIGN5PSIxMzkuNjY0MDkiIHI9IjUyLjkxNjY2OCIvPjx0ZXh0IHhtbDpzcGFjZT0icHJlc2VydmUiIHN0eWxlPSJmb250LXNpemU6NjMuNXB4O3RleHQtYWxpZ246c3RhcnQ7d3JpdGluZy1tb2RlOmxyLXRiO2RpcmVjdGlvbjpsdHI7dGV4dC1hbmNob3I6c3RhcnQ7ZGlzcGxheTppbmxpbmU7ZmlsbDojZmZmZmZmO2ZpbGwtb3BhY2l0eToxO3N0cm9rZTojZmZmZmZmO3N0cm9rZS13aWR0aDo2LjAwMDAxO3N0cm9rZS1kYXNoYXJyYXk6bm9uZSIgeD0iNjMuMTY3NDgiIHk9IjE2MS4wNDg2Ij48dHNwYW4gc3R5bGU9ImZvbnQtc3R5bGU6bm9ybWFsO2ZvbnQtdmFyaWFudDpub3JtYWw7Zm9udC13ZWlnaHQ6Ym9sZDtmb250LXN0cmV0Y2g6bm9ybWFsO2ZvbnQtc2l6ZTo2M3B4O2ZvbnQtZmFtaWx5OnNhbnMtc2VyaWY7c3Ryb2tlOm5vbmU7c3Ryb2tlLXdpZHRoOjYiIHg9IjYzLjE2NzQ4IiB5PSIxNjEuMDQ4NiI+NC4wPC90c3Bhbj48L3RleHQ+PC9nPjwvc3ZnPg==\">\n");
@@ -806,19 +621,31 @@ void deliver_scaffold()
     web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('rxlog',this)\"><svg viewBox=\"0 0 32 32\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:sketch=\"http://www.bohemiancoding.com/sketch/ns\" fill=\"#ffffff\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g> <title>book-album</title> <desc>Created with Sketch Beta.</desc><defs></defs><g stroke=\"none\" stroke-width=\"1\" fill=\"none\" fill-rule=\"evenodd\" sketch:type=\"MSPage\"> <g sketch:type=\"MSLayerGroup\" transform=\"translate(-412.000000, -99.000000)\" fill=\"#ffffff\"> <path d=\"M442,124 C442,125.104 441.073,125.656 440,126 C440,126 434.557,127.515 429,128.977 L429,104 L440,101 C441.104,101 442,101.896 442,103 L442,124 L442,124 Z M427,128.998 C421.538,127.53 416,126 416,126 C414.864,125.688 414,125.104 414,124 L414,103 C414,101.896 414.896,101 416,101 L427,104 L427,128.998 L427,128.998 Z M440,99 C440,99 434.211,100.594 428.95,102 C428.291,102.025 427.627,102 426.967,102 C421.955,100.656 416,99 416,99 C413.791,99 412,100.791 412,103 L412,124 C412,126.209 413.885,127.313 416,128 C416,128 421.393,129.5 426.967,131 L428.992,131 C434.612,129.5 440,128 440,128 C442.053,127.469 444,126.209 444,124 L444,103 C444,100.791 442.209,99 440,99 L440,99 Z\" sketch:type=\"MSShapeGroup\"> </path> </g> </g> </g></svg></Button>\n");
     web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('spectrum',this)\"><svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><g><path d=\"M13,11v4M9,7v8m8-6v6\" style=\"fill:none;stroke:#ffffff;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;\"></path><path d=\"M3,19H21M5,3V21\" style=\"fill:none;stroke:#ffffff;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;\"></path></g></svg></Button>\n");
 
-    //Setup Button (Image as base64 and split ti several print() so RAK can handle it)
+    // Setup Button (Image as base64 and split ti several print() so RAK can handle it)
     web_client.print("<Button class=\"nav_button\" onclick=\"loadPage('setup',this)\"><img src=\"data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcgc3Ryb2tlLXdpZHRoPSIwIj48L2c+PGcgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48L2c+PGc+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lkdGg9IjEuNSI+PC9jaXJjbGU+PHBhdGggZD0iTTEzLjc2NTQgMi4xNTIyNEMxMy4zOTc4IDIgMTIuOTMxOSAyIDEyIDJDMTEuMDY4MSAyIDEwLjYwMjIgMiAxMC4yMzQ2IDIuMTUyMjRDOS43NDQ1NyAyLjM1NTIzIDkuMzU1MjIgMi43NDQ1OCA5LjE1MjIzIDMuMjM0NjNDOS4wNTk1NyAzLjQ1ODM0IDkuMDIzMyAzLjcxODUgOS4wMDkxMSA0LjA5Nzk5QzguOTg4MjYgNC42NTU2OCA4LjcwMjI2IDUuMTcxODkgOC4yMTg5NCA1LjQ1MDkzQzcuNzM1NjQgNS43Mjk5NiA3LjE0NTU5IDUuNzE5NTQgNi42NTIxOSA1LjQ1ODc2QzYuMzE2NDUgNS4yODEzIDYuMDczMDEgNS4xODI2MiA1LjgzMjk0IDUuMTUxMDJDNS4zMDcwNCA1LjA4MTc4IDQuNzc1MTggNS4yMjQyOSA0LjM1NDM2IDUuNTQ3MkM0LjAzODc0IDUuNzg5MzggMy44MDU3NyA2LjE5MjkgMy4zMzk4MyA2Ljk5OTkzQzIuODczODkgNy44MDY5NyAyLjY0MDkyIDguMjEwNDggMi41ODg5OSA4LjYwNDkxQz");
     web_client.print("IuNTE5NzYgOS4xMzA4IDIuNjYyMjcgOS42NjI2NiAyLjk4NTE4IDEwLjA4MzVDMy4xMzI1NiAxMC4yNzU2IDMuMzM5NyAxMC40MzcgMy42NjExOSAxMC42MzlDNC4xMzM4IDEwLjkzNiA0LjQzNzg5IDExLjQ0MTkgNC40Mzc4NiAxMkM0LjQzNzgzIDEyLjU1ODEgNC4xMzM3NSAxMy4wNjM5IDMuNjYxMTggMTMuMzYwOEMzLjMzOTY1IDEzLjU2MjkgMy4xMzI0OCAxMy43MjQ0IDIuOTg1MDggMTMuOTE2NUMyLjY2MjE3IDE0LjMzNzMgMi41MTk2NiAxNC44NjkxIDIuNTg4OSAxNS4zOTVDMi42NDA4MiAxNS43ODk0IDIuODczNzkgMTYuMTkzIDMuMzM5NzMgMTdDMy44MDU2OCAxNy44MDcgNC4wMzg2NSAxOC4yMTA2IDQuMzU0MjYgMTguNDUyN0M0Ljc3NTA4IDE4Ljc3NTYgNS4zMDY5NCAxOC45MTgxIDUuODMyODQgMTguODQ4OUM2LjA3Mjg5IDE4LjgxNzMgNi4zMTYzMiAxOC43MTg2IDYuNjUyMDQgMTguNTQxMkM3LjE0NTQ3IDE4LjI4MDQgNy43MzU1NiAxOC4yNyA4LjIxODkgMTguNTQ5QzguNzAyMjQgMTguODI4MSA4Ljk4ODI2IDE5LjM0NDMgOS4wMDkxMSAxOS45MDIxQzkuMDIzMzEgMjAuMjgxNSA5LjA1OTU3IDIwLjU0MTcgOS4xNTIyMyAyMC43NjU0QzkuMzU1MjIgMjEuMjU1NCA5Ljc0NDU3IDIxLjY0NDggMTAuMjM0NiAyMS44NDc4QzEwLjYwMjIgMjIgMTEuMDY4MSAyMiAxMiAyMkMxMi45MzE5IDIyIDEzLjM5NzggMjIgMTMuNzY1NCAyMS44NDc4QzE0LjI1NTQgMjEuNjQ0OCAxNC42NDQ4IDIxLjI1NTQgMTQuODQ3NyAyMC43NjU0QzE0Ljk0MDQgM");
     web_client.print("jAuNTQxNyAxNC45NzY3IDIwLjI4MTUgMTQuOTkwOSAxOS45MDJDMTUuMDExNyAxOS4zNDQzIDE1LjI5NzcgMTguODI4MSAxNS43ODEgMTguNTQ5QzE2LjI2NDMgMTguMjY5OSAxNi44NTQ0IDE4LjI4MDQgMTcuMzQ3OSAxOC41NDEyQzE3LjY4MzYgMTguNzE4NiAxNy45MjcgMTguODE3MiAxOC4xNjcgMTguODQ4OEMxOC42OTI5IDE4LjkxODEgMTkuMjI0OCAxOC43NzU2IDE5LjY0NTYgMTguNDUyN0MxOS45NjEyIDE4LjIxMDUgMjAuMTk0MiAxNy44MDcgMjAuNjYwMSAxNi45OTk5QzIxLjEyNjEgMTYuMTkyOSAyMS4zNTkxIDE1Ljc4OTQgMjEuNDExIDE1LjM5NUMyMS40ODAyIDE0Ljg2OTEgMjEuMzM3NyAxNC4zMzcyIDIxLjAxNDggMTMuOTE2NEMyMC44Njc0IDEzLjcyNDMgMjAuNjYwMiAxMy41NjI4IDIwLjMzODcgMTMuMzYwOEMxOS44NjYyIDEzLjA2MzkgMTkuNTYyMSAxMi41NTggMTkuNTYyMSAxMS45OTk5QzE5LjU2MjEgMTEuNDQxOCAxOS44NjYyIDEwLjkzNjEgMjAuMzM4NyAxMC42MzkyQzIwLjY2MDMgMTAuNDM3MSAyMC44Njc1IDEwLjI3NTcgMjEuMDE0OSAxMC4wODM1QzIxLjMzNzggOS42NjI3MyAyMS40ODAzIDkuMTMwODcgMjEuNDExMSA4LjYwNDk3QzIxLjM1OTIgOC4yMTA1NSAyMS4xMjYyIDcuODA3MDMgMjAuNjYwMiA3QzIwLjE5NDMgNi4xOTI5NyAxOS45NjEzIDUuNzg5NDUgMTkuNjQ1NyA1LjU0NzI3QzE5LjIyNDkgNS4yMjQzNiAxOC42OTMgNS4wODE4NSAxOC4xNjcxIDUuMTUxMDlDMTcuOTI3MSA1LjE4MjY5IDE3LjY4MzcgNS4y");
     web_client.println("ODEzNiAxNy4zNDc5IDUuNDU4OEMxNi44NTQ1IDUuNzE5NTkgMTYuMjY0NCA1LjczMDAyIDE1Ljc4MTEgNS40NTA5NkMxNS4yOTc3IDUuMTcxOTEgMTUuMDExNyA0LjY1NTY2IDE0Ljk5MDkgNC4wOTc5NEMxNC45NzY3IDMuNzE4NDggMTQuOTQwNCAzLjQ1ODMzIDE0Ljg0NzcgMy4yMzQ2M0MxNC42NDQ4IDIuNzQ0NTggMTQuMjU1NCAyLjM1NTIzIDEzLjc2NTQgMi4xNTIyNFoiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiPjwvcGF0aD48L2c+PC9zdmc+\"></Button>\n");
-    
+
     web_client.println("<Button class=\"nav_button extra_space\" onclick=\"if(confirm('Node will reboot, are you sure?')){callfunction('reboot','');}\"><svg viewBox=\"0 0 16 16\" xmlns=\"http://www.w3.org/2000/svg\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke=\"#FFFFFF\" stroke-width=\"0.032\"></g><g><path d=\"m 8 0 c -0.550781 0 -1 0.449219 -1 1 v 5 c 0 0.550781 0.449219 1 1 1 s 1 -0.449219 1 -1 v -5 c 0 -0.550781 -0.449219 -1 -1 -1 z m -7 1 l 2.050781 2.050781 c -2.117187 2.117188 -2.652343 5.355469 -1.332031 8.039063 c 1.324219 2.683594 4.214844 4.238281 7.179688 3.851562 c 2.96875 -0.386718 5.367187 -2.625 5.960937 -5.554687 c 0.59375 -2.933594 -0.75 -5.929688 -3.335937 -7.433594 c -0.476563 -0.28125 -1.089844 -0.117187 -1.367188 0.359375 s -0.117188 1.089844 0.359375 1.367188 c 1.851563 1.078124 2.808594 3.207031 2.382813 5.3125 c -0.421876 2.101562 -2.128907 3.691406 -4.253907 3.96875 c -2.128906 0.273437 -4.183593 -0.828126 -5.128906 -2.753907 s -0.566406 -4.226562 0.949219 -5.742187 l 1.535156 1.535156 v -4.003906 c 0 -0.519532 -0.449219 -0.996094 -1 -0.996094 z m 0 0 \" fill=\"#FFFFFF\"></path></g></svg></Button>\n");
-    //web_client.println("<Button class=\"nav_button extra_space\"><svg fill=\"#ffffff\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g><path d=\"M7.707,8.707,5.414,11H17a1,1,0,0,1,0,2H5.414l2.293,2.293a1,1,0,1,1-1.414,1.414l-4-4a1,1,0,0,1,0-1.414l4-4A1,1,0,1,1,7.707,8.707ZM21,1H13a1,1,0,0,0,0,2h7V21H13a1,1,0,0,0,0,2h8a1,1,0,0,0,1-1V2A1,1,0,0,0,21,1Z\"></path></g></svg></Button>\n");
+
+    // if the suer has set a password, we deliver a logout button
+    if (strlen(meshcom_settings.node_webpwd) > 0)
+    {
+        web_client.println("<Button class=\"nav_button\" onclick=\"if(confirm('Logging out, are you sure?')){login('')};\"><svg fill=\"#ffffff\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g><path d=\"M7.707,8.707,5.414,11H17a1,1,0,0,1,0,2H5.414l2.293,2.293a1,1,0,1,1-1.414,1.414l-4-4a1,1,0,0,1,0-1.414l4-4A1,1,0,1,1,7.707,8.707ZM21,1H13a1,1,0,0,0,0,2h7V21H13a1,1,0,0,0,0,2h8a1,1,0,0,0,1-1V2A1,1,0,0,0,21,1Z\"></path></g></svg></Button>\n");
+    }
     web_client.printf("</div>\n<div id=\"head_layer\"><p class=\"font-small\">Meshcom 4.0 %s%s</p><p class=\"font-bold\">%s</p></div>\n</div>\n", SOURCE_VERSION, SOURCE_VERSION_SUB, meshcom_settings.node_call);
     web_client.println("<div id=\"content_layer\">\n");
 
     // initial content
-    sub_page_info();
+    if (bget_password)
+    {
+        sub_page_login();
+    }
+    else
+    {
+        sub_page_info();
+    }
 
     web_client.println("</div>\n</body>\n</html>");
     web_client.println(); // The HTTP response ends with another blank line
@@ -834,6 +661,24 @@ void sub_page_unknown()
     web_client.println("<div id=\"content_inner\">");
     web_client.println("<p>The page you have requested is not known.</p>");
     web_client.println("</div>");
+    web_client.println(); // The HTTP response ends with another blank line
+}
+
+/**
+ * ###########################################################################################################################
+ * delivers a page to enter the nodes web password
+ */
+void sub_page_login()
+{
+    _create_meshcom_subheader("Login required");
+    web_client.println("<div id=\"content_inner\">");
+    web_client.println("<div class=\"cardlayout\">");
+    web_client.println("<label class=\"cardlabel\">Enter Password</label>");
+    web_client.println("<div class=\"grid\">");
+    web_client.println("<span>In order to continue, you need to log in.</span>");
+    web_client.println("<input type=\"text\" maxlength=\"20\" size=\"20\" id=\"nodepassword\" name=\"nodepassword\">");
+    web_client.println("<button onclick=\"login(document.getElementById('nodepassword').value)\" style=\"justify-self:self-end;\">Login</button");
+    web_client.println("</div></div></div>");
     web_client.println(); // The HTTP response ends with another blank line
 }
 
@@ -1092,21 +937,20 @@ void sub_page_setup()
     web_client.println("<button class=\"cardtoggle\" onclick=\"togglecard(this);\"><i></i></button>\n");
     web_client.println("<div class=\"grid grid3\">");
 
-    _create_setup_textinput_element("wifissid", "SSID", String(meshcom_settings.node_ssid), "wifi-name", "setssid", 50, false, true);   // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("wifissid", "SSID", String(meshcom_settings.node_ssid), "wifi-name", "setssid", 50, false, true);  // create Textinput-Element including Label and Button
     _create_setup_textinput_element("wifipassword", "WiFi Password", String(meshcom_settings.node_pwd), "", "setpwd", 50, true, true); // create Textinput-Element including Label and Button
-   
-    _create_setup_textinput_element("ownip", "fixed IP", String(meshcom_settings.node_ip), "192.168.1.100", "setownip", 50, false, true); // create Textinput-Element including Label and Button
+
+    _create_setup_textinput_element("ownip", "fixed IP", String(meshcom_settings.node_ip), "192.168.1.100", "setownip", 50, false, true);        // create Textinput-Element including Label and Button
     _create_setup_textinput_element("ownsn", "Subnet Mask", String(meshcom_settings.node_subnet), "255.255.255.0", "setownms", 50, false, true); // create Textinput-Element including Label and Button
-    _create_setup_textinput_element("owngw", "Gateway", String(meshcom_settings.node_gw), "192.168.1.1", "setowngw", 50, false, true); // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("owngw", "Gateway", String(meshcom_settings.node_gw), "192.168.1.1", "setowngw", 50, false, true);           // create Textinput-Element including Label and Button
 
     _create_setup_textinput_element("extudp", "ext. UDP IP", String(meshcom_settings.node_extern), "192.168.100.100", "extudpip", 50, false, false); // create Textinput-Element including Label and Button
 
     web_client.println("</div><div class=\"grid grid2\">");
-    _create_setup_switch_element("useextudp", "ext UDP", "enable ext. UDP", bEXTUDP);                             // create Switch-Element inclucing Label and Description
-    _create_setup_switch_element("gateway", "Gateway", "enable gateway", bGATEWAY);                             // create Switch-Element inclucing Label and Description
- 
-    web_client.println("</div></div>");
+    _create_setup_switch_element("useextudp", "ext UDP", "enable ext. UDP", bEXTUDP); // create Switch-Element inclucing Label and Description
+    _create_setup_switch_element("gateway", "Gateway", "enable gateway", bGATEWAY);   // create Switch-Element inclucing Label and Description
 
+    web_client.println("</div></div>");
 
     // Position Settings Section
     web_client.println("<div class=\"cardlayout collapsablecard\">");
@@ -1135,8 +979,8 @@ void sub_page_setup()
 
     _create_setup_textinput_element("nametext", "APRS Name", String(meshcom_settings.node_name), "aprsname", "setname", 25, false, false); // create Textinput-Element including Label and Button
     _create_setup_textinput_element("aprstext", "APRS Text", String(meshcom_settings.node_atxt), "aprstext", "atxt", 25, false, false);    // create Textinput-Element including Label and Button
-    _create_setup_textinput_element("aprsgroup", "APRS Group", String(meshcom_settings.node_symid), "/", "symid", 1, false, false);        // create Textinput-Element including Label and Button
-    _create_setup_textinput_element("aprssymbol", "APRS Symbol", String(meshcom_settings.node_symcd), "S", "symcd", 1, false, false);      // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("aprssymbol", "APRS Symbol", String(meshcom_settings.node_symid), "S", "symid", 1, false, false);        // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("aprsgroup", "APRS Group", String(meshcom_settings.node_symcd), "/", "symcd", 1, false, false);      // create Textinput-Element including Label and Button
 
     web_client.println("</div></div>");
 
@@ -1194,7 +1038,7 @@ void sub_page_setup()
     for (int i = 0; i < (int)sizeof(meshcom_settings.node_gcb) / (int)sizeof(meshcom_settings.node_gcb[0]); i++)
     {
         web_client.printf("<label for=\"grp%i\">Listen to Group:</label>\n", i);
-        web_client.printf("<input type=\"text\" id=\"grp%i\" value=\"%i\" maxlength=\"5\" size=\"20\" placeholder=\"0\"/>\n", i, meshcom_settings.node_gcb[i] );
+        web_client.printf("<input type=\"text\" id=\"grp%i\" value=\"%i\" maxlength=\"5\" size=\"20\" placeholder=\"0\"/>\n", i, meshcom_settings.node_gcb[i]);
     }
     web_client.println("<i></i>");
     web_client.println("<button onclick=\"setvalue('setgrc', (document.getElementById('grp0').value+';'+document.getElementById('grp1').value+';'+document.getElementById('grp2').value+';'+document.getElementById('grp3').value+';'+document.getElementById('grp4').value+';'+document.getElementById('grp5').value))\"><i class=\"btncheckmark\"></i></button>");
@@ -1230,11 +1074,11 @@ void sub_content_messages()
 
         if (BLEtoPhoneBuff[iRead][1] == 0x91)
         { // Mheard
-            // memcpy(toPhoneBuff, BLEtoPhoneBuff[iRead]+1, blelen-1);
+          // memcpy(toPhoneBuff, BLEtoPhoneBuff[iRead]+1, blelen-1);
         }
         else if (BLEtoPhoneBuff[iRead][1] == 0x44)
         { // Data Message (JSON)
-            // memcpy(toPhoneBuff, BLEtoPhoneBuff[iRead]+1, blelen);
+          // memcpy(toPhoneBuff, BLEtoPhoneBuff[iRead]+1, blelen);
         }
         else
         { // Text Message and Position
@@ -1277,9 +1121,9 @@ void sub_content_messages()
 
                     if (msgtxt.indexOf('{') > 0)
                         msgtxt = aprsmsg.msg_payload.substring(0, msgtxt.indexOf('{'));
-                    
-                    //messages by others
-                    if (strcmp(meshcom_settings.node_call, aprsmsg.msg_source_call.c_str()) == 0)   
+
+                    // messages by others
+                    if (strcmp(meshcom_settings.node_call, aprsmsg.msg_source_call.c_str()) == 0)
                     {
                         web_client.printf("<div class=\"message message-send\"><div>");
 
@@ -1291,7 +1135,7 @@ void sub_content_messages()
                         web_client.printf("<p class=\"font-normal\">%s</p>", msgtxt.c_str());
                         web_client.printf("</div></div>");
                     }
-                    //own messages
+                    // own messages
                     else
                     {
                         web_client.printf("<div class=\"message message-received\"><div>");
@@ -1445,7 +1289,6 @@ void sub_page_info()
     web_client.printf("<tr><td>Coding Rate (CR)</td><td>%i</td></tr>\n", getCR());
     web_client.printf("<tr><td>TX Power</td><td>%i dBm (%.2f mW)</td></tr>\n", getPower(), 1000 * powf(10, ((float)getPower() - 30) / 10));
 
-
 #ifndef BOARD_RAK4630
     if (bWIFIAP)
         web_client.printf("<tr><td>WiFi SSID</td><td>%s</td></tr>\n", cBLEName);
@@ -1516,6 +1359,9 @@ void send_http_header(uint16_t http_status_code, uint8_t content_type)
     case 200:
         status_text = "OK";
         break; // use this when ever a request was successful
+    case 401:
+        status_text = "Unauthorized";
+        break; // use this when ever a request was successful
     case 404:
         status_text = "Not Found";
         break; // use this if a request was not known
@@ -1532,26 +1378,23 @@ void send_http_header(uint16_t http_status_code, uint8_t content_type)
         web_client.println("Content-type:application/json");
     else
         web_client.println("Content-type:text/html");
-    web_client.println("Access-Control-Allow-Origin: *");   // tell modern browsers that CORS is okay for us
+    web_client.println("Access-Control-Allow-Origin: *"); // tell modern browsers that CORS is okay for us
     web_client.println("Access-Control-Allow-Methods: GET, POST, OPTIONS");
     web_client.println("Access-Control-Allow-Headers: access-control-allow-headers,access-control-allow-methods,access-control-allow-origin, Origin, Content-Type, Accept");
-    web_client.println("Connection: close");                // tell broser that the connection will be closed (in opposite to keep-alive)
-    web_client.println("Cache-Control: no-cache, no-store, must-revalidate");   // set caching policy
-    web_client.println("Pragma: no-cache");                 // Disable caching or request/respinse
-    web_client.println("Expires: 0");                       // set cache expiring time to 0
-    web_client.println();                                   // two CR-LF marks the end of the header
+    web_client.println("Connection: close");                                  // tell broser that the connection will be closed (in opposite to keep-alive)
+    web_client.println("Cache-Control: no-cache, no-store, must-revalidate"); // set caching policy
+    web_client.println("Pragma: no-cache");                                   // Disable caching or request/respinse
+    web_client.println("Expires: 0");                                         // set cache expiring time to 0
+    web_client.println();                                                     // two CR-LF marks the end of the header
 }
-
-
 
 /**
  * Creates the Sub-Header containing the Title and the Date/Time when that page was created
  */
-void _create_meshcom_subheader(String title){
-        web_client.printf("<div id=\"content_title\"><p class=\"font-small\">%i-%02i-%02i&nbsp;%02i:%02i:%02i&nbsp;%s&nbsp;[%s]</p><h1 class=\"font-bold\">%s</h1></div>", meshcom_settings.node_date_year, meshcom_settings.node_date_month, meshcom_settings.node_date_day, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, getTimeZone().c_str(), cTimeSource, title.c_str());
+void _create_meshcom_subheader(String title)
+{
+    web_client.printf("<div id=\"content_title\"><p class=\"font-small\">%i-%02i-%02i&nbsp;%02i:%02i:%02i&nbsp;%s&nbsp;[%s]</p><h1 class=\"font-bold\">%s</h1></div>", meshcom_settings.node_date_year, meshcom_settings.node_date_month, meshcom_settings.node_date_day, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, getTimeZone().c_str(), cTimeSource, title.c_str());
 }
-
-
 
 /**
  * ###########################################################################################################################
@@ -1570,10 +1413,11 @@ void _create_setup_textinput_element(const char id[], const char labelText[], St
 {
     web_client.printf("\t<label for=\"%s\">%s :</label>\n", id, labelText);
     String confirmStub = "";
-    if(needConfirm){
-        confirmStub = "if(confirm('Are you sure you want to set &quot;"+String(labelText)+"&quot; to &quot;'+document.getElementById('"+String(id)+"').value+'&quot;?'))";
+    if (needConfirm)
+    {
+        confirmStub = "if(confirm('Are you sure you want to set &quot;" + String(labelText) + "&quot; to &quot;'+document.getElementById('" + String(id) + "').value+'&quot;?'))";
     }
-    web_client.printf("\t<input type=\"%s\" name=\"%s\" id=\"%s\" value=\"%s\" maxlength=\"%i\" size=\"10\" placeholder=\"%s\">\n", isPassword?"password":"text", id, id, inputValue.c_str(), maxlength, placeHolder);
+    web_client.printf("\t<input type=\"%s\" name=\"%s\" id=\"%s\" value=\"%s\" maxlength=\"%i\" size=\"10\" placeholder=\"%s\">\n", isPassword ? "password" : "text", id, id, inputValue.c_str(), maxlength, placeHolder);
     web_client.printf("\t<button onclick=\"%ssetvalue('%s', document.getElementById('%s').value)\"><i class=\"btncheckmark\"></i></button>\n", confirmStub.c_str(), parameterName, id);
 }
 
@@ -1682,7 +1526,7 @@ void call_function(String web_header)
 
     webFunctionCall(&functionData); // try to execute that command
 
-    send_http_header(functionData.returnCode == WF_RETURNCODE_OKAY ? 200 : 422, RESPONSE_TYPE_JSON);                                      // send header, either 200 if command was executed or 422 if not
+    send_http_header(functionData.returnCode == WF_RETURNCODE_OKAY ? 200 : 422, RESPONSE_TYPE_JSON);                                              // send header, either 200 if command was executed or 422 if not
     web_client.printf("{\"%s\":\"%s\"}\n\n", functionData.functionName.c_str(), functionData.returnCode == WF_RETURNCODE_OKAY ? "ok" : "failed"); // send JSON status response containting {"functionName":"ok|failed"}
 }
 

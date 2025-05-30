@@ -66,9 +66,6 @@ LV_IMG_DECLARE(mouse_cursor_icon);
  */
 void initTDeck()
 {
-    char buf[256];
-    bool ret = false;
-
     Serial.println("[INIT]...initTDeck");
 
     //! The board peripheral power control pin needs to be set to HIGH when using the peripheral
@@ -150,11 +147,6 @@ void initTDeck()
     Serial.print("[INIT]...Keyboard: ");
     Serial.println(kbDected == true ? "OK" : "ERROR");
     
-    if (!play_file_from_sd(meshcom_settings.node_audio_start.c_str(), 12))
-    {
-        play_cw_start();
-    }
-
     // SET Map
     set_map(meshcom_settings.node_map);
 
@@ -175,6 +167,14 @@ void initTDeck()
     posrow = 1;
 
     lv_tabview_set_act(tv, 0, LV_ANIM_OFF);
+}
+
+void startAudio()
+{
+    if (!play_file_from_sd_blocking(meshcom_settings.node_audio_start.c_str(), 12))
+    {
+        play_cw_start();
+    }
 }
 
 /**
@@ -200,9 +200,9 @@ bool setupSD()
             }
             uint32_t cardSize = SD.cardSize() / (1024 * 1024);
             uint32_t cardTotal = SD.totalBytes() / (1024 * 1024);
-            uint32_t cardUsed = SD.usedBytes() / (1024 * 1024);
-            Serial.printf("[INIT]...SD Card Size: %lu MB\n", cardSize);
-            Serial.printf("[INIT]...Total space: %lu MB\n",  cardTotal);
+            //not used uint32_t cardUsed = SD.usedBytes() / (1024 * 1024);
+            Serial.printf("[INIT]...SD Card Size: %u MB\n", cardSize);
+            Serial.printf("[INIT]...Total space: %u MB\n",  cardTotal);
             //Serial.printf("Used space: %lu MB\n",   cardUsed);
             return true;
         }
@@ -240,11 +240,11 @@ void scanDevices(TwoWire *w)
 {
     uint8_t err, addr;
     int nDevices = 0;
-    uint32_t start = 0;
+    //not unsed uint32_t start = 0;
 
     for (addr = 1; addr < 127; addr++)
     {
-        start = millis();
+        //not used start = millis();
 
         w->beginTransmission(addr); 
         delay(2);

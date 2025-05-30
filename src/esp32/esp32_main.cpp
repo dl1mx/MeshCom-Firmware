@@ -14,7 +14,12 @@
 #include "esp32_gps.h"
 #include "esp32_flash.h"
 
-#include "gps_l76k.h"
+#if defined (GPS_L76K)
+    #include "gps_l76k.h"
+#elif defined (GPS_L76K_TDECK)
+    #include "gps_l76k_tdeck.h"
+#else
+#endif
 
 // Sensors
 #include "bmx280.h"
@@ -641,9 +646,11 @@ void esp32setup()
         bSETGPS_POWER=true;
     #endif
 
-    #ifdef GPS_L76K
+    #if defined (GPS_L76K)
         setupPMU(bSETGPS_POWER);
         beginGPS();
+    #elif defined (GPS_L76K_TDECK)
+        switchL76KGPS();
     #else
         setupPMU(bSETGPS_POWER);
     #endif
@@ -1136,6 +1143,12 @@ void esp32setup()
     meshcom_settings.node_date_minute = 0;
     meshcom_settings.node_date_second = 0;
     meshcom_settings.node_date_hundredths = 0;
+
+    // Start Audio on T-Deck
+    #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+    startAudio();
+    #endif
+
 
     Serial.println("==============");
     Serial.println("CLIENT STARTED");
@@ -1792,7 +1805,9 @@ void esp32loop()
         }
         else
         {
-            #ifdef GPS_L76K
+            #if defined (GPS_L76K)
+                igps = loopL76KGPS();
+            #elif defined (GPS_L76K_TDECK)
                 igps = loopL76KGPS();
             #else
                 igps = getGPS();

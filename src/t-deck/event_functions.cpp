@@ -47,38 +47,38 @@ void btn_event_handler_aprs(lv_event_t * e)
             if(DO_DEBUG)
                 Serial.printf("DROPDOWN_APRS:%s\n", buf);
 
-            meshcom_settings.node_symcd = '/';
+            meshcom_settings.node_symid = '/';
 
             // Runner\nCar\nCycle\nBike\nWX\nPhone\nBulli\nHouse\nNode");
 
             if (strcmp(buf, "Runner") == 0)
-                meshcom_settings.node_symid = '[';
+                meshcom_settings.node_symcd = '[';
             else
             if (strcmp(buf, "Car") == 0)
-                meshcom_settings.node_symid = '(';
+                meshcom_settings.node_symcd = '(';
             else
             if (strcmp(buf, "Cycle") == 0)
-                meshcom_settings.node_symid = '<';
+                meshcom_settings.node_symcd = '<';
             else
             if (strcmp(buf, "Bike") == 0)
-                meshcom_settings.node_symid = 'b';
+                meshcom_settings.node_symcd = 'b';
             else
             if (strcmp(buf, "WX") == 0)
-                meshcom_settings.node_symid = '_';
+                meshcom_settings.node_symcd = '_';
             else
             if (strcmp(buf, "Phone") == 0)
-                meshcom_settings.node_symid = '$';
+                meshcom_settings.node_symcd = '$';
             else
             if (strcmp(buf, "Bulli") == 0)
-                meshcom_settings.node_symid = 'V';
+                meshcom_settings.node_symcd = 'V';
             else
             if (strcmp(buf, "House") == 0)
-                meshcom_settings.node_symid = '-';
+                meshcom_settings.node_symcd = '-';
             else
             if (strcmp(buf, "Node") == 0)
-                meshcom_settings.node_symid = 'n';
+                meshcom_settings.node_symcd = 'n';
             else
-                meshcom_settings.node_symid = '&';
+                meshcom_settings.node_symcd = '&';
 
             lv_dropdown_close(dropdown_aprs);
             break;
@@ -88,7 +88,7 @@ void btn_event_handler_aprs(lv_event_t * e)
 
             // Runner\nCar\nCycle\nBike\nWX\nPhone\nBulli\nHouse\nNode");
 
-            switch (meshcom_settings.node_symid)
+            switch (meshcom_settings.node_symcd)
             {
                 case '[':
                     isel = 0;
@@ -410,7 +410,6 @@ void btn_event_handler_switch(lv_event_t * e)
 void btn_event_handler_setup(lv_event_t * e)
 {
     String strVar;
-    char cVar[5];
     char cCmd[100];
 
     lv_event_code_t code = lv_event_get_code(e);
@@ -709,7 +708,7 @@ void table_center_first_row(lv_event_t * e)
     // If the cells are drawn...
     if(dsc->part == LV_PART_ITEMS) {
         uint32_t row = dsc->id /  lv_table_get_col_cnt(obj);
-        uint32_t col = dsc->id - row * lv_table_get_col_cnt(obj);
+        //not used uint32_t col = dsc->id - row * lv_table_get_col_cnt(obj);
 
         // align the first row centered
         if (row == 0) {
