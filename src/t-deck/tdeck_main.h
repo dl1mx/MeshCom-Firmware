@@ -11,6 +11,7 @@ using namespace ace_button;
 extern AceButton button;
 
 void initTDeck();
+void startAudio();
 
 void tdeck_update_batt_label(float batt, int proz);
 void tdeck_update_time_label();

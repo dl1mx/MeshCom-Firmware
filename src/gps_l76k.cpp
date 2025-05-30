@@ -30,7 +30,8 @@ bool l76kProbe()
     startTimeout = millis() + 3000;
     Serial.print("[GPSL]...Try to init L76K . Wait stop .");
     // SerialGPS.flush();
-    while (SerialGPS.available()) {
+    while (SerialGPS.available())
+    {
         int c = SerialGPS.read();
         // Serial.write(c);
         // Serial.print(".");
@@ -48,16 +49,19 @@ bool l76kProbe()
     SerialGPS.write("$PCAS06,0*1B\r\n");
     startTimeout = millis() + 500;
     String ver = "";
-    while (!SerialGPS.available()) {
-        if (millis() > startTimeout) {
+    while (!SerialGPS.available())
+    {
+        if (millis() > startTimeout)
+        {
             Serial.println("[GPSL]...Get L76K timeout!");
             return false;
         }
     }
     SerialGPS.setTimeout(10);
     ver = SerialGPS.readStringUntil('\n');
-    if (ver.startsWith("$GPTXT,01,01,02")) {
-        Serial.println("[GPSL]...L76K GNSS init succeeded, using L76K GNSS Module\n");
+    if (ver.startsWith("$GPTXT,01,01,02"))
+    {
+        Serial.println("[GPSL]...L76K GNSS init succeeded, using L76K GNSS Module");
         result = true;
     }
     delay(500);
@@ -78,18 +82,22 @@ bool beginGPS()
     bool result = false;
 
     SerialGPS.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-    for ( int i = 0; i < 3; ++i) {
+    for ( int i = 0; i < 3; ++i)
+    {
         result = l76kProbe();
-        if (result) {
+        if (result)
+        {
             return result;
         }
     }
 
     // 9600 not working, trying 38400
     SerialGPS.begin(38400, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-    for ( int i = 0; i < 3; ++i) {
+    for ( int i = 0; i < 3; ++i)
+    {
         result = l76kProbe();
-        if (result) {
+        if (result)
+        {
             return result;
         }
     }

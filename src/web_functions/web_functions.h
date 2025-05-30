@@ -1,3 +1,4 @@
+
 #ifndef _WEB_FUNCTIONS_H_
 #define _WEB_FUNCTIONS_H_
 
@@ -16,12 +17,12 @@ void stopWebserver();
 
 
 // Common functions
-String hex2ascii(String string);
+String decodeURLPercentCoding(String input);
 String work_webpage(bool get_password, int webid);
 
 
 // Pages
-void deliver_scaffold();        // delivers the scaffold to the browser. Includes the info-page as initial content
+void deliver_scaffold(bool bget_password);        // delivers the scaffold to the browser. Includes the info-page as initial content OR a login page, if (bget_password) is TRUE.
 void pwd_webpage();             // ToDo 
 
 
@@ -37,7 +38,7 @@ void sub_page_mheard();         // mheard page
 void sub_page_spectrum();       // spectrum scan page
 void sub_page_unknown();        // a 404 - page
 void sub_content_messages();    // only the formatted messages, not the complete message page
-
+void sub_page_login();          // login page
 
 // related functions
 void send_http_header(uint16_t http_status_code, uint8_t response_type);        // create and send a HTML Header 

@@ -29,10 +29,7 @@ i2s_port_t i2s_num = I2S_NUM;
  */
 void init_audio()
 {
-    if (bDEBUG)
-    {
-        Serial.println("[audio]...initializing");
-    }
+    Serial.println("[audio]...initializing");
 
     audioSemaphore = xSemaphoreCreateBinary();
     xSemaphoreGive(audioSemaphore);
@@ -146,13 +143,23 @@ bool play_file_from_sd_blocking(const char *filename, int volume)
         return true;
     }
     
-    if (SD.exists(filename))
+    String strAudioWithType = filename;
+    if(!strAudioWithType.startsWith("/"))
+    {
+        strAudioWithType = "/";
+        strAudioWithType.concat(filename);
+    }
+
+    if(strAudioWithType.indexOf('.') <= 0)
+        strAudioWithType.concat(".mp3");
+
+    if (SD.exists(strAudioWithType.c_str()))
     {
         audio.setVolume(volume);
-        audio.connecttoFS(SD, filename);
+        audio.connecttoFS(SD, strAudioWithType.c_str());
         if (bDEBUG)
         {
-            Serial.printf("[audio]...playing %s\n", filename);
+            Serial.printf("[audio]...playing %s\n", strAudioWithType.c_str());
         }
 
         while (audio.isRunning())

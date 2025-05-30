@@ -555,10 +555,10 @@ void showMHeardTDECK()
             //snprintf(buf, 200, "%3i | ", mheardLine.mh_mod);
             //strRet.concat(buf);
 
-            snprintf(buf, 5, "%4i", mheardLine.mh_rssi);
+            snprintf(buf, 7, "%4i", mheardLine.mh_rssi);
             lv_table_set_cell_value(mheard_ta, row, 4, buf);
 
-            snprintf(buf, 5, "%4i", mheardLine.mh_snr);
+            snprintf(buf, 7, "%4i", mheardLine.mh_snr);
             lv_table_set_cell_value(mheard_ta, row, 5, buf);
 
             row++;

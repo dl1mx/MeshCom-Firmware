@@ -364,7 +364,6 @@ float read_batt(void)
 
 	#else
 
-	int imax=1;
 	int adc_value = 0;
 	int adc_reading = 0;
 
