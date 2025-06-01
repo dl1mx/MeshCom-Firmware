@@ -84,6 +84,7 @@ lv_obj_t    *mesh_sw;
 lv_obj_t    *noallmsg_sw;
 lv_obj_t    *gpson_sw;
 lv_obj_t    *track_sw;
+lv_obj_t    *wifiap_sw;
 lv_obj_t    *mute_sw;
 
 //////////////////////////////////////////////
@@ -666,6 +667,21 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_obj_set_size(mute_sw, 45, 25);
 
     lv_obj_add_event_cb(mute_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    // WIFIAP ON/OFF
+    lv_obj_t * btn_wifiap = lv_btn_create(t1);
+    lv_obj_set_pos(btn_wifiap, 185, 375);
+    lv_obj_set_size(btn_wifiap, 50, 25);
+
+    lv_obj_t * btn_wifiap_label = lv_label_create(btn_wifiap);
+    lv_label_set_text(btn_wifiap_label, "WIFAP");
+    lv_obj_center(btn_wifiap_label);
+
+    wifiap_sw = lv_switch_create(t1);
+    lv_obj_set_pos(wifiap_sw, 245, 375);
+    lv_obj_set_size(wifiap_sw, 45, 25);
+
+    lv_obj_add_event_cb(wifiap_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
 
     // BTN SETUP
     lv_obj_t * btnsetup = lv_btn_create(t1);
@@ -1433,7 +1449,6 @@ void tdeck_refresh_SET_view()
     sprintf(vChar, "%d", meshcom_settings.node_ackid);
     lv_label_set_text(btn_ack_id_label, vChar);
 
-
     // WEB
     if (bWEBSERVER)
         lv_obj_add_state(web_sw, LV_STATE_CHECKED);
@@ -1467,6 +1482,11 @@ void tdeck_refresh_SET_view()
         lv_obj_add_state(mute_sw, LV_STATE_CHECKED);
     else
         lv_obj_clear_state(mute_sw, LV_STATE_CHECKED);
+    // WIFIAP
+    if (bWIFIAP)
+        lv_obj_add_state(wifiap_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(wifiap_sw, LV_STATE_CHECKED);
 }
 
 /**
@@ -1508,7 +1528,7 @@ void tdeck_refresh_TRK_view()
             else
                 snprintf(ctype, sizeof(ctype), "TRACK:off");
 
-            snprintf(ctrack, sizeof(ctrack), "%s %s %i\nDATE :%s\nTIME :%s\nLAT  :%008.4lf %c\nLON  :%08.4lf %c\nDIST :%i m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4i %isec",
+            snprintf(ctrack, sizeof(ctrack), "%s %s %i\nDATE :%s\nTIME :%s\nLAT  :%008.4lf %c\nLON  :%08.4lf %c\nDIST :%i m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4li %isec",
                 ctype, 
                 (posinfo_fix ? "fix" : "nofix"), 
                 posinfo_hdop, 

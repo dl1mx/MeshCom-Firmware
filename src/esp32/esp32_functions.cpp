@@ -71,9 +71,9 @@ void initDisplay()
 
 void startDisplay(char line1[20], char line2[20], char line3[20])
 {
-    char cvers[20];
-
     #if defined(BOARD_E290)
+
+    char cvers[20];
 
     sprintf(cvers, "%s/%-1.1s <%s>", SOURCE_VERSION, SOURCE_VERSION_SUB, getCountry(meshcom_settings.node_country).c_str());
 
@@ -109,6 +109,8 @@ void startDisplay(char line1[20], char line2[20], char line3[20])
     #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     // do nothing
     #else
+
+    char cvers[20];
 
     if(u8g2 == NULL)
         return;

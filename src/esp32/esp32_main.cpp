@@ -1345,8 +1345,6 @@ void esp32loop()
         
         if(receiveFlag || transmittedFlag)
         {
-            int state = RADIOLIB_ERR_NONE;
-
             // check ongoing reception
             if(receiveFlag)
             {
@@ -2011,34 +2009,52 @@ void esp32loop()
 //#endif
 
     // read BMP Sensor
-    #if defined(ENABLE_BMX280)
-    if((bBMPON || bBMEON) && bmx_found)
+    #if defined(ENABLE_BMX280) || defined(ENABLE_AHT20)
+    if(((bBMPON || bBMEON) && bmx_found) || (bAHT20ON && aht20_found))
     {
         if ((BMXTimeWait + 60000) < millis())   // 60 sec
         {
+            #if defined(ENABLE_BMX280)
                 if(loopBMX280())
                 {
-                    meshcom_settings.node_press = getPress();
-                    meshcom_settings.node_temp = getTemp();
-                    meshcom_settings.node_hum = getHum();
-                    meshcom_settings.node_press_alt = getPressALT();
-                    meshcom_settings.node_press_asl = getPressASL(meshcom_settings.node_alt);
-                    
-                    if(wx_shot)
+                    if(!aht20_found)
                     {
-                        commandAction((char*)"--wx", isPhoneReady, false);
-                        wx_shot = false;
+                        meshcom_settings.node_temp = getTemp();
+                        meshcom_settings.node_hum = getHum();
+                    }
+
+                    if(!bmp3_found)
+                    {
+                        meshcom_settings.node_press = getPress();
+                        meshcom_settings.node_press_alt = getPressALT();
+                        meshcom_settings.node_press_asl = getPressASL(meshcom_settings.node_alt);
                     }
                 }
+            #endif
+
+
+            #if defined(ENABLE_AHT20)
+                if(loopAHT20())
+                {
+                    meshcom_settings.node_temp = getAHT20Temp();
+                    meshcom_settings.node_hum = getAHT20Hum();
+                }
+            #endif
+
+            if(wx_shot)
+            {
+                commandAction((char*)"--wx", isPhoneReady, false);
+                wx_shot = false;
+            }
 
             BMXTimeWait = millis(); // wait for next messurement
         }
     }
     #endif
 
-    // read BMP390/AHT20 Sensor
+    // read BMP390 Sensor
     #if defined(ENABLE_BMP390)
-    if((bBMP3ON && bmp3_found) || (bAHT20ON && aht20_found))
+    if((bBMP3ON && bmp3_found))
     {
         if ((BMP3TimeWait + 60000) < millis())   // 60 sec
         {
@@ -2049,12 +2065,6 @@ void esp32loop()
                 meshcom_settings.node_press_asl = getPressASL3();
                 meshcom_settings.node_press_alt = getAltitude3();
             }
-
-            #if defined(ENABLE_AHT20)
-                if(loopAHT20())
-                {
-                }
-            #endif
 
             BMP3TimeWait = millis(); // wait for next messurement
         }

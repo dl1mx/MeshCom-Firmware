@@ -99,15 +99,15 @@ bool loopBMP390()
 
     if(bWXDEBUG)
     {	
-        Serial.print("Temperature = ");
+        Serial.print("Temperature (390) = ");
         Serial.print(dTemp);
         Serial.println(" *C");
 
-        Serial.print("Pressure = ");
+        Serial.print("Pressure (390) = ");
         Serial.print(dPress);
         Serial.println(" hPa");
 
-        Serial.print("Approx. Altitude = ");
+        Serial.print("Approx. Altitude (390) = ");
         Serial.print(fAltidude);
         Serial.println(" m");
 

@@ -33,10 +33,10 @@ bool l76kProbe()
     while (SerialGPS.available())
     {
         int c = SerialGPS.read();
-        // Serial.write(c);
-        // Serial.print(".");
-        // Serial.flush();
-        // SerialGPS.flush();
+        //Serial.write(c);
+        //Serial.print(".");
+        //Serial.flush();
+        SerialGPS.flush();
         if (millis() > startTimeout) {
             Serial.println("[GPSL]...Wait L76K stop NMEA timeout!");
             return false;
@@ -213,10 +213,6 @@ unsigned int displayInfo()
             // valid GPS data
             if(tinyGPSPlus.location.isValid() && tinyGPSPlus.hdop.isValid() && tinyGPSPlus.hdop.value() < 2000)
             {
-                // Tabelle push down
-                char buf[100];
-
-                
                 double dlat, dlon;
 
                 dlat = cround4abs(tinyGPSPlus.location.lat());
