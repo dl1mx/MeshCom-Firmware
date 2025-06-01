@@ -10,6 +10,9 @@ void setupAHT20(bool bNewStart);
 
 bool loopAHT20(void);
 
+float getAHT20Temp();
+float getAHT20Hum();
+
 #endif
 
 #endif

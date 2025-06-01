@@ -71,6 +71,7 @@ extern lv_obj_t    *mesh_sw;
 extern lv_obj_t    *noallmsg_sw;
 extern lv_obj_t    *gpson_sw;
 extern lv_obj_t    *track_sw;
+extern lv_obj_t    *wifiap_sw;
 extern lv_obj_t    *mute_sw;
 
 #endif // _LV_OBJ_FUNCTIONS_EXTERN_H_

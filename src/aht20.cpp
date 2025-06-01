@@ -35,6 +35,9 @@ BSD license, all text above must be included in any redistribution
 
 Adafruit_AHTX0 aht;
 
+float fAHT20Temp = 0.0;
+float fAHT20Hum = 0.0;
+
 void setupAHT20(bool bInit)
 {
     aht20_found = false;
@@ -76,18 +79,31 @@ bool loopAHT20()
     
     aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
 
+    fAHT20Temp = temp.temperature;
+    fAHT20Hum = temp.relative_humidity;
+
     if(bWXDEBUG)
     {	
-        Serial.print("Temperature: ");
-        Serial.print(temp.temperature);
+        Serial.print("Temperature (AHT20): ");
+        Serial.print(fAHT20Temp);
         Serial.println(" degrees C");
         
-        Serial.print("Humidity: ");
-        Serial.print(humidity.relative_humidity);
+        Serial.print("Humidity (AHT20): ");
+        Serial.print(fAHT20Hum);
         Serial.println("% rH");
     }
 
     return true;
+}
+
+float getAHT20Temp()
+{
+	return fAHT20Temp;
+}
+
+float getAHT20Hum()
+{
+	return fAHT20Hum;
 }
 
 #endif

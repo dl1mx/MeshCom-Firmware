@@ -1523,7 +1523,7 @@ void commandAction(char *umsg_text, bool ble)
         meshcom_settings.node_sset2 |= 0x0040;    // mask 0x0040
 
         bWIFIAP=false;
-        meshcom_settings.node_sset2 &= 0x0080;    // mask 0x0080
+        meshcom_settings.node_sset2 &= ~0x0080;    // mask 0x0080
 
         if(ble)
         {
@@ -1534,8 +1534,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(!meshcom_settings.node_hasIPaddress)
-            rebootAuto = millis() + 15 * 1000; // 15 Sekunden
+        //if(!meshcom_settings.node_hasIPaddress)
+        //    rebootAuto = millis() + 15 * 1000; // 15 Sekunden
         
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
         tdeck_refresh_SET_view();
@@ -1547,6 +1547,8 @@ void commandAction(char *umsg_text, bool ble)
         bWEBSERVER=false;
         meshcom_settings.node_sset2 &= ~0x0040;   // mask 0x0040
 
+        Serial.printf("off sset2:<%04X>\n", meshcom_settings.node_sset2);
+
         if(ble)
         {
             bNodeSetting=true;
@@ -1556,8 +1558,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(meshcom_settings.node_hasIPaddress)
-            rebootAuto = millis() + 15 * 1000; // 15 Sekunden
+        //if(meshcom_settings.node_hasIPaddress)
+        //    rebootAuto = millis() + 15 * 1000; // 15 Sekunden
         
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
         tdeck_refresh_SET_view();
@@ -2107,7 +2109,7 @@ void commandAction(char *umsg_text, bool ble)
         snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+9);
 
         _owner_c[14] = 0x00;    // max. 14 chars
-        snprintf(meshcom_settings.node_passwd, sizeof(meshcom_settings.node_passwd), "%s", _owner_c);
+        snprintf(meshcom_settings.node_passwd, sizeof(meshcom_settings.node_passwd), "%-14.14s", _owner_c);
 
         save_settings();
 
@@ -2392,7 +2394,7 @@ void commandAction(char *umsg_text, bool ble)
         meshcom_settings.node_sset2  = meshcom_settings.node_sset2 | 0x0040;    // mask 0x0040
 
         bGATEWAY=false;
-        meshcom_settings.node_sset  = meshcom_settings.node_sset & 0x7EFF;    // mask 0x1000
+        meshcom_settings.node_sset &= ~0x1000;   // mask 0x1000
 
         if(ble)
         {
@@ -2410,12 +2412,6 @@ void commandAction(char *umsg_text, bool ble)
     {
         bWIFIAP=false;
         meshcom_settings.node_sset2  &= ~0x0080;    // mask 0x0080
-
-        bWEBSERVER=false;
-        meshcom_settings.node_sset2  &= ~0x0040;    // mask 0x0040
-
-        bGATEWAY=false;
-        meshcom_settings.node_sset  &= ~0x1000;    // mask 0x1000
 
         if(ble)
         {

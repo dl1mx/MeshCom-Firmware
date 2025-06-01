@@ -305,7 +305,7 @@ int getPressALT()
 
 float getPressASL(int current_alt)
 {
-	//willbe set withj --setpress
+	//willbe set with --setpress
 	//fBaseAltidude = (float)meshcom_settings.node_alt;
 	//fBasePress = meshcom_settings.node_press;
 	

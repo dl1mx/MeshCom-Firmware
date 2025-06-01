@@ -55,7 +55,7 @@ void btn_event_handler_aprs(lv_event_t * e)
                 meshcom_settings.node_symcd = '[';
             else
             if (strcmp(buf, "Car") == 0)
-                meshcom_settings.node_symcd = '(';
+                meshcom_settings.node_symcd = '>';
             else
             if (strcmp(buf, "Cycle") == 0)
                 meshcom_settings.node_symcd = '<';
@@ -381,13 +381,10 @@ void btn_event_handler_switch(lv_event_t * e)
             {
                 commandAction((char*)"--gps on", false);
                 commandAction((char*)"--track on", false);
-                // bTRACK=true;
-                // bGPSON=true;
             }
             else
             {
                 commandAction((char*)"--track off", false);
-                // bTRACK=false;
             }
 
             return;
@@ -398,6 +395,21 @@ void btn_event_handler_switch(lv_event_t * e)
         {
             meshcom_settings.node_mute = lv_obj_has_state(mute_sw, LV_STATE_CHECKED);
             save_settings();
+
+            return;
+        }
+
+        // WIFIAP
+        if (lv_event_get_target(e) == wifiap_sw)
+        {
+            if (lv_obj_has_state(wifiap_sw, LV_STATE_CHECKED))
+            {
+                commandAction((char*)"--wifiap on", false);
+            }
+            else
+            {
+                commandAction((char*)"--wifiap off", false);
+            }
 
             return;
         }
