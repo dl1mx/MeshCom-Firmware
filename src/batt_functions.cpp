@@ -67,9 +67,9 @@ uint32_t vbat_pin = BATTERY_PIN;
 //static
 esp_adc_cal_characteristics_t adc_chars[sizeof(esp_adc_cal_characteristics_t)];
 
-#if CONFIG_IDF_TARGET_ESP32
+#if defined(CONFIG_IDF_TARGET_ESP32)
 
-#ifdef BOARD_TLORA_OLV216
+#if defined(BOARD_TLORA_OLV216)
 //static const
 adc_channel_t channel = ADC_CHANNEL_7;	 //GPIO35
 #else
@@ -80,12 +80,12 @@ adc_channel_t channel = ADC_CHANNEL_6;     //GPIO34 if ADC1, GPIO14 if ADC2
 //static const
 adc_bits_width_t width = ADC_WIDTH_BIT_12;
 
-#elif CONFIG_IDF_TARGET_ESP32S2
+#elif defined(CONFIG_IDF_TARGET_ESP32S2)
 //static const 
 adc_channel_t channel = ADC_CHANNEL_6;     // GPIO7 if ADC1, GPIO17 if ADC2
 //static const
 adc_bits_width_t width = ADC_WIDTH_BIT_13;
-#elif CONFIG_IDF_TARGET_ESP32S3
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
 //static const
 adc_channel_t channel = ADC_CHANNEL_6;
 //static const
@@ -114,42 +114,41 @@ adc_unit_t unit = ADC_UNIT_1;
 //static
 void check_efuse(void)
 {
-#if defined(SX1262_V3) || defined(SX1262_E290) || defined(SX126x_V3)
 	// NOT TESTED
-#elif CONFIG_IDF_TARGET_ESP32
+#if defined(CONFIG_IDF_TARGET_ESP32)
     //Check if TP is burned into eFuse
     if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_TP) == ESP_OK) {
-        Serial.printf("eFuse Two Point: Supported\n");
+        Serial.printf("[EFUS]...Two Point: Supported\n");
     } else {
-        Serial.printf("eFuse Two Point: NOT supported\n");
+        Serial.printf("[EFUS]...Two Point: NOT supported\n");
     }
     //Check Vref is burned into eFuse
     if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF) == ESP_OK) {
-        Serial.printf("eFuse Vref: Supported\n");
+        Serial.printf("[EFUS]...Vref: Supported\n");
     } else {
-        Serial.printf("eFuse Vref: NOT supported\n");
+        Serial.printf("[EFUS]...Vref: NOT supported\n");
     }
-#elif CONFIG_IDF_TARGET_ESP32S2
+#elif defined(CONFIG_IDF_TARGET_ESP32S2)
     if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_TP) == ESP_OK) {
-        Serial.printf("eFuse Two Point: Supported\n");
+        Serial.printf("[EFUS]...Two Point: Supported\n");
     } else {
-        Serial.printf("Cannot retrieve eFuse Two Point calibration values. Default calibration values will be used.\n");
+        Serial.printf("[EFUS]...Cannot retrieve eFuse Two Point calibration values. Default calibration values will be used.\n");
     }
-#elif CONFIG_IDF_TARGET_ESP32S3
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
 	//Check if TP is burned into eFuse
 	if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_TP) == ESP_OK) {
-		Serial.printf("eFuse Two Point: Supported\n");
+		Serial.printf("[EFUS]...Two Point: Supported\n");
 	} else {
-		Serial.printf("eFuse Two Point: NOT supported\n");
+		Serial.printf("[EFUS]...Two Point: NOT supported\n");
 	}
 	//Check Vref is burned into eFuse
 	if (esp_adc_cal_check_efuse(ESP_ADC_CAL_VAL_EFUSE_VREF) == ESP_OK) {
-		Serial.printf("eFuse Vref: Supported\n");
+		Serial.printf("[EFUS]...Vref: Supported\n");
 	} else {
-		Serial.printf("eFuse Vref: NOT supported\n");
+		Serial.printf("[EFUS]...Vref: NOT supported\n");
 	}
 #else
-#error "This example is configured for ESP32/ESP32S2/ESP32S3."
+#error "[EFUS]...This example is configured for ESP32/ESP32S2/ESP32S3."
 #endif
 }
 
@@ -157,11 +156,11 @@ void check_efuse(void)
 void print_char_val_type(esp_adc_cal_value_t val_type)
 {
     if (val_type == ESP_ADC_CAL_VAL_EFUSE_TP) {
-        Serial.printf("Characterized using Two Point Value\n");
+        Serial.printf("[ADC ]...Characterized using Two Point Value\n");
     } else if (val_type == ESP_ADC_CAL_VAL_EFUSE_VREF) {
-        Serial.printf("Characterized using eFuse Vref\n");
+        Serial.printf("[ADC ]...Characterized using eFuse Vref\n");
     } else {
-        Serial.printf("Characterized using Default Vref\n");
+        Serial.printf("[ADC ]...Characterized using Default Vref\n");
     }
 }
 
@@ -250,8 +249,8 @@ void init_batt(void)
     //Characterize ADC
     //adc_chars = calloc(1, sizeof(esp_adc_cal_characteristics_t));
     esp_adc_cal_value_t val_type = esp_adc_cal_characterize(unit, atten, width, DEFAULT_VREF, adc_chars);
-    
-	//only for test print_char_val_type(val_type);
+	print_char_val_type(val_type);
+
 #endif
 
 }
@@ -359,7 +358,6 @@ float read_batt(void)
 		if(bDisplayCont)
 		{
 			Serial.printf("%s [BATT]...reading: %u factor: %.4f voltage: %.2f mV\n", getTimeString().c_str(), analogValue, fBattFaktor, raw);
-			delay(500); 
 		}
 
 	#else
@@ -413,8 +411,6 @@ float read_batt(void)
 		Serial.print("[readBatteryVoltage] raw mV : ");
 		Serial.println(raw);
 	}
-
-	delay(50);
 
 	is_receiving = false;
 

@@ -25,6 +25,7 @@ extern bool bBLEDEBUG;
 extern bool bWXDEBUG;
 extern bool bIODEBUG;
 extern bool bLED_CLEAR;
+extern bool bLED_DELAY;
 
 extern bool bPosDisplay;
 extern bool bDisplayOff;
@@ -62,6 +63,7 @@ extern bool bINA226ON;
 extern bool bRTCON;
 extern bool bSMALLDISPLAY;
 extern bool bSOFTSERON;
+extern bool bSOFTSERREAD;
 extern bool bNoMSGtoALL;
 
 extern bool bTCA9548A;

@@ -568,7 +568,7 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                                         bSendAckGateway=false;
 
                                         #if defined(ENABLE_SOFTSER)
-                                            if(bSOFTSERON)
+                                            if(bSOFTSERREAD)
                                             {
                                                 sendDisplayText(aprsmsg, rssi, snr);
                                                 displaySOFTSER(aprsmsg);
@@ -670,7 +670,8 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                         else
                         if(msg_type_b_lora == 0x21)
                         {
-                            sendDisplayPosition(aprsmsg, rssi, snr);
+                            if(!bSOFTSERREAD)
+                                sendDisplayPosition(aprsmsg, rssi, snr);
 
                             if(isPhoneReady > 0)
                                 addBLEOutBuffer(RcvBuffer, size);
@@ -955,9 +956,8 @@ bool doTX()
                     #if defined BOARD_RAK4630
                         Radio.Send(lora_tx_buffer, sendlng);
                     #else
-                        if(!bLED_GREEN)
-                            bLED_RED = true;
                         transmissionState = radio.startTransmit(lora_tx_buffer, sendlng);
+                        bLED_RED = true;
                     #endif
 
                     track_to_meshcom_timer = millis();
@@ -977,6 +977,7 @@ bool doTX()
                     Radio.Send(lora_tx_buffer, sendlng);
                 #else
                     transmissionState = radio.startTransmit(lora_tx_buffer, sendlng);
+                    bLED_ORANGE = true;
                 #endif
 
                 if(bDisplayInfo)
@@ -1035,6 +1036,7 @@ bool doTX()
                         Radio.Send(lora_tx_buffer, sendlng);
                     #else
                         transmissionState = radio.startTransmit(lora_tx_buffer, sendlng);
+                        bLED_RED = true;
                     #endif
 
                     if(bDisplayInfo)

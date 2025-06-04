@@ -49,7 +49,7 @@ public:
           Serial.printf("BUTTON singel press last:%i pointer:%i lines:%i\n", pageLastPointer, pagePointer, pageLastLineAnz[pagePointer]);
 
       if(pagePointer == 5)
-        pagePointer = pageLastPointer-1;
+        return;
         
       if(pageLastLineAnz[pagePointer] == 0)
         pagePointer = pageLastPointer-1;
@@ -167,6 +167,10 @@ Button onebutton(BUTTON_PIN); //iButtonPin);
 
 void init_onebutton()
 {
+  #if defined(BUTTON_PIN)
+    pinMode(BUTTON_PIN, INPUT_PULLUP);
+  #endif
+
   if(bButtonCheck)
   {
     // none

@@ -69,7 +69,7 @@ extern XPowersLibInterface *PMU;
 #include <Adafruit_NeoPixel.h> 
 
 Adafruit_NeoPixel pixels(LED_PIXEL, LED_PIN, NEO_GRB + NEO_KHZ800);
-#define DELAYVAL 100
+#define DELAYVAL 1000
 
 bool bLED_WEISS=false;
 int iCount_weiss=0;
@@ -407,6 +407,7 @@ unsigned long gps_refresh_timer = 0;
 unsigned long softser_refresh_timer = 0;
 unsigned long analog_refresh_timer = 0;
 unsigned long rtc_refresh_timer = 0;
+unsigned long pixels_delay = 0;
 
 bool is_new_packet(uint8_t compBuffer[4]);     // switch if we have a packet received we never saw before RcvBuffer[12] changes, rest is same
 void checkSerialCommand(void);
@@ -442,7 +443,7 @@ void esp32setup()
     int isc=10;
     while(!Serial && isc > 0)
     {
-        delay(1000);
+        delay(500);
 
         isc--;
     }
@@ -453,7 +454,7 @@ void esp32setup()
         Wire1.begin(I2C1_SDA, I2C1_SCL);
     #endif
 
-    delay(4500);
+    delay(500);
 
     Serial.println("");
     Serial.println("");
@@ -463,6 +464,8 @@ void esp32setup()
 
     Serial.printf("[HEAP]...%d (free)\n", ESP.getFreeHeap());
     Serial.printf("[PSRM]...%d\n", ESP.getFreePsram());
+    
+    check_efuse();
 
     initDisplay();
 
@@ -501,7 +504,7 @@ void esp32setup()
     bWIFIAP = meshcom_settings.node_sset2 & 0x0080;
     bGATEWAY_NOPOS =  meshcom_settings.node_sset2 & 0x0100;
     bSMALLDISPLAY =  false;
-    //free !! meshcom_settings.node_sset2 & 0x0200;
+    bSOFTSERREAD = meshcom_settings.node_sset2 & 0x0200;
     bSOFTSERON =  meshcom_settings.node_sset2 & 0x0400;
     bBOOSTEDGAIN =  meshcom_settings.node_sset2 & 0x0800;
 
@@ -826,7 +829,6 @@ void esp32setup()
         Serial.printf("[LoRa]...RX_BOOSTED_GAIN: %d\n", (meshcom_settings.node_sset2 &  0x0800) == 0x0800);
         if (radio.setRxBoostedGainMode(meshcom_settings.node_sset2 & 0x0800)  != RADIOLIB_ERR_NONE ) {
             Serial.println(F("Boosted Gain is not available for this module!"));
-            while (true);
         }
         #endif
 
@@ -834,35 +836,30 @@ void esp32setup()
         Serial.printf("[LoRa]...RF_FREQUENCY: %.3f MHz\n", meshcom_settings.node_freq);
         if (radio.setFrequency(meshcom_settings.node_freq) == RADIOLIB_ERR_INVALID_FREQUENCY) {
             Serial.println(F("Selected frequency is invalid for this module!"));
-            while (true);
         }
 
         // set bandwidth 
         Serial.printf("[LoRa]...RF_BANDWIDTH: %.0f kHz\n", meshcom_settings.node_bw);
         if (radio.setBandwidth(meshcom_settings.node_bw) == RADIOLIB_ERR_INVALID_BANDWIDTH) {
             Serial.println(F("Selected bandwidth is invalid for this module!"));
-            while (true);
         }
 
         // set spreading factor 
         Serial.printf("[LoRa]...RF_SF: %i\n", meshcom_settings.node_sf);
         if (radio.setSpreadingFactor(meshcom_settings.node_sf) == RADIOLIB_ERR_INVALID_SPREADING_FACTOR) {
             Serial.println(F("Selected spreading factor is invalid for this module!"));
-            while (true);
         }
 
         // set coding rate 
         Serial.printf("[LoRa]...RF_CR: 4/%i\n", meshcom_settings.node_cr);
         if (radio.setCodingRate(meshcom_settings.node_cr) == RADIOLIB_ERR_INVALID_CODING_RATE) {
             Serial.println(F("Selected coding rate is invalid for this module!"));
-            while (true);
         }
 
         // set LoRa sync word 
         // NOTE: value 0x34 is reserved for LoRaWAN networks and should not be used
         if (radio.setSyncWord(SYNC_WORD_SX127x) != RADIOLIB_ERR_NONE) {
             Serial.println(F("Unable to set sync word!"));
-            while (true);
         }
 
         // set output power to 10 dBm (accepted range is -3 - 17 dBm)
@@ -1160,8 +1157,6 @@ void esp32setup()
     {
         bAllStarted=false;
 
-        delay(500);
-
         if(!startWIFI())
         {
             Serial.println("[WIFI]...no connection");
@@ -1195,52 +1190,74 @@ void esp32_write_ble(uint8_t confBuff[300], uint8_t conf_len)
 void esp32loop()
 {
     #ifdef LED_PIN
-        if(bLED_GREEN || bLED_RED || bLED_BLUE || bLED_ORANGE || bLED_WEISS || bLED_CLEAR)
+        if(bLED_GREEN || bLED_RED || bLED_BLUE || bLED_ORANGE || bLED_WEISS || bLED_CLEAR || bLED_DELAY)
         {
-            pixels.clear();
-
-            for(int i=0; i<LED_PIXEL; i++)
+            if(pixels_delay == 0 || bLED_CLEAR)
             {
-                if(bLED_GREEN)
-                    pixels.setPixelColor(i, pixels.Color(50, 0, 0));
-                else
-                if(bLED_RED)
-                    pixels.setPixelColor(i, pixels.Color(0, 50, 0));
-                else
-                if(bLED_BLUE)
-                    pixels.setPixelColor(i, pixels.Color(0, 0, 50));
-                else
-                if(bLED_ORANGE)
-                    pixels.setPixelColor(i, pixels.Color(50, 25, 0));
-                else
-                if(bLED_WEISS)
-                    pixels.setPixelColor(i, pixels.Color(50, 50, 50));
-                else
-                if(bLED_CLEAR)
-                    pixels.setPixelColor(i, pixels.Color(0, 0, 0));
+                pixels.clear();
 
-                bLED_RED=false;
-                bLED_GREEN=false;
-                bLED_BLUE=false;
-                bLED_ORANGE=false;
-                bLED_WEISS=false;
+                for(int i=0; i<LED_PIXEL; i++)
+                {
+                    if(bLED_GREEN)
+                    {
+                        pixels.setPixelColor(i, pixels.Color(0, 50, 0));
+                        bLED_CLEAR=false;
+                    }
+                    else
+                    if(bLED_RED)
+                    {
+                        pixels.setPixelColor(i, pixels.Color(50, 0, 0));
+                        bLED_CLEAR=false;
+                    }
+                    else
+                    if(bLED_BLUE)
+                    {
+                        pixels.setPixelColor(i, pixels.Color(0, 0, 50));
+                        bLED_CLEAR=false;
+                    }
+                    else
+                    if(bLED_ORANGE)
+                    {
+                        pixels.setPixelColor(i, pixels.Color(50, 25, 0));
+                        bLED_CLEAR=false;
+                    }
+                    else
+                    if(bLED_WEISS)
+                    {
+                        pixels.setPixelColor(i, pixels.Color(50, 50, 50));
+                        bLED_CLEAR=false;
+                    }
+                    else
+                    if(bLED_CLEAR)
+                        pixels.setPixelColor(i, pixels.Color(0, 0, 0));
 
-                bLED_CLEAR=!bLED_CLEAR;
+                    bLED_RED=false;
+                    bLED_GREEN=false;
+                    bLED_BLUE=false;
+                    bLED_ORANGE=false;
+                    bLED_WEISS=false;
+                }
+
+                pixels.setBrightness(25);
+
+                pixels.show();
+
+                if(!bLED_CLEAR)
+                {
+                    pixels_delay = millis();    // ms
+                    bLED_DELAY=true;
+                }
+
+                bLED_CLEAR=false;
             }
-
-            pixels.setBrightness(25);
-
-            pixels.show();
-
-            delay(DELAYVAL);
-        }
-        else
-        {
-            iCount_weiss++;
-            if(iCount_weiss > 120)
+            else
             {
-                bLED_WEISS=true;
-                iCount_weiss=0;
+                if(pixels_delay + DELAYVAL < millis())
+                {
+                    pixels_delay = 0;
+                    bLED_CLEAR=true;
+                    bLED_DELAY=false;
+                }
             }
         }
     #endif
@@ -1250,6 +1267,14 @@ void esp32loop()
         {
             if ((led_timer + 1000) < millis())   // repeat 1 seconds
             {
+                #ifdef LED_PIN
+                    if(pixels_delay == 0 && !bLED_CLEAR)
+                    {
+                        if(!bLED_RED && !bLED_GREEN && !bLED_ORANGE && !bLED_BLUE)
+                            bLED_WEISS = true;
+                    }
+                #endif
+
                 if(bLED)
                     digitalWrite(BOARD_LED, HIGH);
                 else
@@ -1284,12 +1309,6 @@ void esp32loop()
                     Serial.println(" [LoRa]...Receive Timeout > 6.5 min. just for info");
                 }
 
-                /*
-                char tmessage[50];
-                sprintf(tmessage, ":%s", (char*)"test restart LoRa-Loop");
-
-                sendMessage(tmessage, strlen(tmessage));
-                */
             }
         }
 
@@ -1707,14 +1726,11 @@ void esp32loop()
         if(bBLEDEBUG)
             Serial.printf("[LOOP] hasMsgFromPhone\n");
         
-        //sendMessage(textbuff_phone, txt_msg_len_phone);
-
         if(memcmp(textbuff_phone, ":", 1) == 0)
             sendMessage(textbuff_phone, txt_msg_len_phone);
 
         if(memcmp(textbuff_phone, "-", 1) == 0)
             commandAction(textbuff_phone, isPhoneReady, true);
-
 
         hasMsgFromPhone = false;
     }
@@ -2237,7 +2253,7 @@ void esp32loop()
     //
     ////////////////////////////////////////////////
 
-    // WOR/KBC not necesary delay(100);
+    // WOR/KBC not necesary     delay(100);
 
     yield();
 }
@@ -2313,7 +2329,7 @@ void checkSerialCommand(void)
     //  Check Serial connected
     if(!Serial)
     {
-        if(bDisplayCont)
+        if(bDEBUG)
             Serial.println(F("[SERIAL]...not connected"));
             
         return;
@@ -2359,14 +2375,13 @@ void checkSerialCommand(void)
                     }
                 }
 
-                if(strText.startsWith(":"))
-                    sendMessage(msg_buffer, inext);
-
-                if(strText.startsWith("-"))
-                    commandAction(msg_buffer, isPhoneReady, false);
-
-                if(strText.startsWith("{"))
-                    commandAction(msg_buffer, isPhoneReady, false);
+                if(strText.startsWith("::"))
+                    sendMessage(msg_buffer+2, inext-2);
+                else
+                    if(strText.startsWith("--"))
+                        commandAction(msg_buffer, isPhoneReady, false);
+                    else
+                        Serial.printf("\n...wrong command %s\n", strText.c_str());
 
                 strText="";
             }
