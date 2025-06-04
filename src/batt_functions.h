@@ -9,4 +9,6 @@ float read_batt(void);
 uint8_t mv_to_percent(float mvolts);
 void setMaxBatt(float u_max_batt);
 
+void check_efuse(void);
+
 #endif

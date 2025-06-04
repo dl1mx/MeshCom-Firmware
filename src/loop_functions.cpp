@@ -32,7 +32,8 @@ bool bLED_RED=false;
 bool bLED_BLUE=false;
 bool bLED_GREEN=false;
 bool bLED_ORANGE=false;
-bool bLED_CLEAR=true;
+bool bLED_CLEAR=false;
+bool bLED_DELAY=false;
 
 extern unsigned long rebootAuto;
 
@@ -69,6 +70,7 @@ bool bINA226ON = false;
 bool bRTCON = false;
 bool bSMALLDISPLAY = false;
 bool bSOFTSERON = false;
+bool bSOFTSERREAD = false;
 bool bNoMSGtoALL = false;
 
 bool bTCA9548A = false;
@@ -533,26 +535,30 @@ int esp32_isSSD1306(int address)
 
     Serial.printf("[INIT]...Display type: 0x%02X\n", buffer[0]);
 
-    // 0x00 == T-BEAM 1.3" 1306
-    // 0x03 == T-BEAM 0.9"
+    // 0x00 == T-BEAM 1.3" 1106 !! sonst kommen artefakte
+
+    // 0x16 == T-BEAM 1.3" 1306
+    // 0x28 == T-BEAM 1.3" 1306
     // 0x28 == E22 1.3" 1306
+    // 0x28 == T-BEAM 1.3" SUPREME 1306
+
+    // 0x03 == T-BEAM 0.9"
     // 0x07 == T-LORA 0.9! type 1
     // 0x07 == T-LORA 0.9" type 2
     // 0x09 == HELTEC V3 type 1
     // 0x3F == HELTEC V3 type 2
-    // 0x16 == T-BEAM 1.3" 1306
-    // 0x48 == T-BEAM 1.3" SUPREME SH1106
 
     // check 1.3"
-    if((buffer[0] & 0x04f) == 0x08 || (buffer[0] & 0x03f) == 0x00 || (buffer[0] & 0x3f) == 0x16)
+    byte checkByte = buffer[0] & 0x03f;
+    if(checkByte == 0x28 || checkByte == 0x16)
     {
         Serial.println(F("[INIT]...OLED Display is SSD1306"));
         return 1;
     }
 
-    // state 0,9"
+    // cheched 0.9"
     Serial.println(F("[INIT]...OLED Display is SH1106"));
-    return 0;
+    return 2;
 }
 
 void E290DisplayUpdate()
@@ -1167,7 +1173,7 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
         return;
     }
     else
-    if(aprsmsg.msg_destination_path.compareTo("100001") == 0 && !bSOFTSERON)
+    if(aprsmsg.msg_destination_path.compareTo("100001") == 0 && !bSOFTSERREAD)
     {
         return;
     }
@@ -1797,7 +1803,10 @@ void sendMessage(char *msg_text, int len)
 
     if(msg_text[0] == ':')
     {
-        ispos=1;
+        if(msg_text[1] == ':')
+            ispos=2;
+        else
+            ispos=1;
     }
 
     String strDestinationCall = "*";

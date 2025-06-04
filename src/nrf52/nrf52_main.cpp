@@ -1058,8 +1058,6 @@ void nrf52loop()
     // check if message from phone to send
     if(hasMsgFromPhone)
     {
-        //sendMessage(textbuff_phone, txt_msg_len_phone);
-
         if(memcmp(textbuff_phone, ":", 1) == 0)
             sendMessage(textbuff_phone, txt_msg_len_phone);
 
@@ -1143,8 +1141,6 @@ if (isPhoneReady == 1)
             for(int config_cmds_index=0; config_cmds_index < json_configs_cnt; config_cmds_index++)
             {
                 commandAction((char*)config_cmds[config_cmds_index], isPhoneReady, true);
-
-//                sendMessage((char*)config_cmds[config_cmds_index], strlen(config_cmds[config_cmds_index]));
             }
 
             sendMheard();
@@ -1893,11 +1889,13 @@ void checkSerialCommand(void)
                     }
                 }
 
-                if(strText.startsWith(":"))
+                if(strText.startsWith("::"))
                     sendMessage(msg_buffer+1, inext-1);
                 else
-                    if(strText.startsWith("-"))
+                    if(strText.startsWith("--"))
                         commandAction(msg_buffer, isPhoneReady, false);
+                    else
+                        Serial.printf("\n...wrong command %s\n", strText.c_str());
 
                 strText="";
             }

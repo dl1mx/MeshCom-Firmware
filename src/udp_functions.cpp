@@ -567,17 +567,9 @@ bool doWiFiConnect()
   while(WiFi.status() != WL_CONNECTED)
   {
 
-    //delay(1000);
     Serial.print(".");
 
     iWlanWait++;
-
-    /*
-    if(iWlanWait == 3 || iWlanWait == 7 || iWlanWait == 11)
-    {
-      WiFi.reconnect();
-    }
-    */
 
     if(iWlanWait > 20)
     {

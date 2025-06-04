@@ -101,7 +101,7 @@ bool loopBMP390()
     {	
         Serial.print("Temperature (390) = ");
         Serial.print(dTemp);
-        Serial.println(" *C");
+        Serial.println(" °C");
 
         Serial.print("Pressure (390) = ");
         Serial.print(dPress);

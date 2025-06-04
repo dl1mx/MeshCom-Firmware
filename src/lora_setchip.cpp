@@ -487,8 +487,6 @@ void RadioInit();
     //  Start receiving LoRa packets
     Radio.Rx(RX_TIMEOUT_VALUE);
     
-    delay(500);
-
 #else
     // Set MeshCom parameter
     float rf_freq = meshcom_settings.node_freq;
@@ -557,8 +555,6 @@ void RadioInit();
         0,    // fsk only frequ hop period
         LORA_IQ_INVERSION_ON,
         TX_TIMEOUT_VALUE);
-
-    delay(500);
 
 #else
     // Set LoRaAPRS parameter
@@ -660,8 +656,6 @@ bool lora_setchip_new(float rf_freq, float rf_bw, int rf_sf, int rf_cr, int rf_s
         return false;
     }
     #endif
-
-    delay(500);
 
 #endif
 

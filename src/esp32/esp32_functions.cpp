@@ -46,6 +46,9 @@ void initDisplay()
         
     int idtype = esp32_isSSD1306(0x3C);
 
+    // SSD1306 .... idtype 1   u8g2_1
+    // SH1106 ..... idtype 2   u8g2_2
+
     u8g2 = NULL;
 
     if(idtype < 0)
@@ -54,8 +57,8 @@ void initDisplay()
         return;
     }
 
-    if (idtype == 0)
-    { //Address of the display to be checked
+    if (idtype == 1)
+    {
         u8g2 = &u8g2_1;
     }
     else
