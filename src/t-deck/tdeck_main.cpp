@@ -167,6 +167,11 @@ void initTDeck()
     posrow = 1;
 
     lv_tabview_set_act(tv, 0, LV_ANIM_OFF);
+
+    char buf[20];
+    snprintf(buf, 20, "MeshCom %s%s\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
+    addMessage(buf);
+
 }
 
 void startAudio()
@@ -641,9 +646,6 @@ static void touchpad_read( lv_indev_drv_t *indev_driver, lv_indev_data_t *data )
 void tdeck_addMessage(bool bSuccess)
 {
     char buf[50];
-
-    snprintf(buf, 50, "MeshCom %s%s\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
-    addMessage(buf);
 
     snprintf(buf, 50, "%s: %s\n", "Touch", bTouchDected == true ? "OK" : "ERROR");
     addMessage(buf);

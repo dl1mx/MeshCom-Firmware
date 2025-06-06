@@ -15,6 +15,7 @@ void showPath();
 void sendMheard();
 #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
 void showMHeardTDECK();
+void showPathTDECK();
 #endif
 
 String getHardwareLong(uint8_t hwid);

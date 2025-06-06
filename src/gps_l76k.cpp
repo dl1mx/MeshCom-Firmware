@@ -255,6 +255,8 @@ unsigned int displayInfo()
                 posinfo_hdop = tinyGPSPlus.hdop.value();
                 posinfo_fix = true;
 
+                posinfo_age = tinyGPSPlus.satellites.age();
+
                 if(bGPSDEBUG)
                 {
                     Serial.println(F("VALID"));
@@ -270,6 +272,7 @@ unsigned int displayInfo()
                 posinfo_hdop = 0;
                 posinfo_direction = 0;
                 posinfo_distance = 0;
+                posinfo_age = 0;
         
                 if(bGPSDEBUG)
                     Serial.println(F("INVALID"));

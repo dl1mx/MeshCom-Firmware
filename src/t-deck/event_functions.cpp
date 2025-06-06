@@ -744,3 +744,11 @@ void mheard_ta_draw_event(lv_event_t * e)
 {
     table_center_first_row(e);
 }
+
+/**
+ * callback when mheard table is drawn
+ */
+void path_ta_draw_event(lv_event_t * e)
+{
+    table_center_first_row(e);
+}

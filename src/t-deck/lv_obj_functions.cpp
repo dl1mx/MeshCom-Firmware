@@ -69,10 +69,13 @@ lv_obj_t    *btn_batt_label;
 lv_obj_t    *btn_batt_label1;
 lv_obj_t    *btn_batt_label2;
 lv_obj_t    *btn_batt_label3;
+lv_obj_t    *btn_time_label4;
+lv_obj_t    *btn_batt_label5;
 lv_obj_t    *text_input;
 lv_obj_t    *position_ta;
 lv_obj_t    *map_ta;
 lv_obj_t    *mheard_ta;
+lv_obj_t    *path_ta;
 lv_obj_t    *tv;
 lv_obj_t    *dm_callsign;
 lv_obj_t    *dropdown_aprs;
@@ -145,8 +148,9 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_obj_t *t5 = lv_tabview_add_tab(tv, "SND");
     lv_obj_t *t3 = lv_tabview_add_tab(tv, "POS");
     lv_obj_t *t7 = lv_tabview_add_tab(tv, "MAP");
-    lv_obj_t *t6 = lv_tabview_add_tab(tv, "TRK");
+    lv_obj_t *t6 = lv_tabview_add_tab(tv, "GPS");
     lv_obj_t *t4 = lv_tabview_add_tab(tv, "MHD");
+    lv_obj_t *t8 = lv_tabview_add_tab(tv, "PATH");
     lv_obj_t *t1 = lv_tabview_add_tab(tv, "SET");
 
     lv_obj_add_event_cb(tv, tabview_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -839,6 +843,45 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_obj_center(btn_batt_label2);
 
     ////////////////////////////////////////////////////////////////////////////
+    // TEXT PATH
+    path_ta = lv_table_create(t8);
+    lv_obj_add_style(path_ta, &cell_style, LV_PART_MAIN|LV_STATE_DEFAULT);
+    lv_obj_add_style(path_ta, &cell_style1, LV_PART_ITEMS|LV_STATE_DEFAULT);
+    lv_obj_set_pos(path_ta, 0, 0);
+    lv_obj_set_size(path_ta, 302, LV_VER_RES * 0.6);
+    lv_obj_set_style_radius(path_ta, 10, 0);
+    lv_obj_set_style_clip_corner(path_ta, true, 0);
+
+    lv_table_set_row_cnt(path_ta, 1);
+    lv_table_set_col_cnt(path_ta, 3);
+
+    lv_table_set_col_width(path_ta, 0, 76);
+    lv_table_set_col_width(path_ta, 1, 40);
+    lv_table_set_col_width(path_ta, 2, 182);
+
+    lv_obj_set_height(path_ta, LV_VER_RES * 0.6);
+
+    lv_obj_add_event_cb(path_ta, path_ta_draw_event, LV_EVENT_DRAW_PART_BEGIN, NULL);
+
+    // TIME
+    lv_obj_t * btn_time8 = lv_btn_create(t8);    /*Add a button the current screen*/
+    lv_obj_set_pos(btn_time8, 0, 145);           /*Set its position*/
+    lv_obj_set_size(btn_time8, 145, 20);         /*Set its size*/
+
+    btn_time_label4 = lv_label_create(btn_time8); /*Add a label to the button*/
+    lv_label_set_text(btn_time_label4, "time");  /*Set the labels text*/
+    lv_obj_center(btn_time_label4);
+
+    // BATT
+    lv_obj_t * btn_batt8 = lv_btn_create(t4);    /*Add a button the current screen*/
+    lv_obj_set_pos(btn_batt8, 146, 145);           /*Set its position*/
+    lv_obj_set_size(btn_batt8, 145, 20);         /*Set its size*/
+
+    btn_batt_label5 = lv_label_create(btn_batt8); /*Add a label to the button*/
+    lv_label_set_text(btn_batt_label5, "Batt --");  /*Set the labels text*/
+    lv_obj_center(btn_batt_label5);
+
+    ////////////////////////////////////////////////////////////////////////////
     // TEXT INPUT
     text_input = lv_textarea_create(t5);
     lv_textarea_set_cursor_click_pos(text_input, false);
@@ -1516,20 +1559,9 @@ void tdeck_refresh_TRK_view()
     {
         if(posinfo_fix)
         {
-            char ctype[10];
-
-            if(bGPSON)
-                snprintf(ctype, sizeof(ctype), "GPS  :on");
-            else
-                snprintf(ctype, sizeof(ctype), "GPS  :off");
-                
             if(bDisplayTrack)
-                snprintf(ctype, sizeof(ctype), "TRACK:on");
-            else
-                snprintf(ctype, sizeof(ctype), "TRACK:off");
-
-            snprintf(ctrack, sizeof(ctrack), "%s %s %i\nDATE :%s\nTIME :%s\nLAT  :%008.4lf %c\nLON  :%08.4lf %c\nDIST :%i m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4li %isec",
-                ctype, 
+            {
+                snprintf(ctrack, sizeof(ctrack), "TRACK:on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nDIST :%i m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4li %isec",
                 (posinfo_fix ? "fix" : "nofix"), 
                 posinfo_hdop, 
                 cDatum, 
@@ -1543,6 +1575,24 @@ void tdeck_refresh_TRK_view()
                 posinfo_direction, 
                 posinfo_interval,
                 pos_seconds);
+            }
+            else
+            {
+                snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nAGE  :%u\nSAT  :%u\nDIR  :%.0lf\nRATE :%4li %isec",
+                (posinfo_fix ? "fix" : "nofix"), 
+                posinfo_hdop, 
+                cDatum, 
+                cZeit, 
+                meshcom_settings.node_lat, 
+                meshcom_settings.node_lat_c, 
+                meshcom_settings.node_lon, 
+                meshcom_settings.node_lon_c, 
+                posinfo_age,
+                posinfo_satcount,
+                posinfo_direction, 
+                posinfo_interval,
+                pos_seconds);
+            }
 
             lv_textarea_set_text(track_ta, ctrack);
         }
@@ -1565,7 +1615,7 @@ void tdeck_refresh_TRK_view()
         else
             snprintf(ctypetrack, sizeof(ctypetrack), "TRACK:off");
 
-        snprintf(ctrack, sizeof(ctrack), "%s %s %i\n%s\nDATE :%s\nTIME :%s\nLAT  :%008.4lf %c\nLON  :%08.4lf %c\nALT  :%4i m\nRATE :%4i sec\nNEXT :%4i sec",
+        snprintf(ctrack, sizeof(ctrack), "%s %s %i\n%s\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i m\nAGE  :%u\nSAT  :%u",
             ctypegps,
             (posinfo_fix ? "fix" : "nofix"),
             posinfo_hdop,
@@ -1577,8 +1627,8 @@ void tdeck_refresh_TRK_view()
             meshcom_settings.node_lon,
             meshcom_settings.node_lon_c,
             meshcom_settings.node_alt,
-            posinfo_interval,
-            pos_seconds);
+            posinfo_age,
+            posinfo_satcount);
 
         lv_textarea_set_text(track_ta, ctrack);
     }
