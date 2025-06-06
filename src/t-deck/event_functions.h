@@ -34,5 +34,6 @@ void tv_event_cb(lv_event_t * e);
 void tabview_event_cb(lv_event_t * e);
 void position_ta_draw_event(lv_event_t * e);
 void mheard_ta_draw_event(lv_event_t * e);
+void path_ta_draw_event(lv_event_t * e);
 
 #endif // _EVENT_FUNCTIONS_H_

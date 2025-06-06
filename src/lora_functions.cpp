@@ -718,8 +718,9 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                                 bMeshDestination = false;
                             if(aprsmsg.payload_type == '!' && aprsmsg.msg_last_path_cnt >= meshcom_settings.max_hop_pos+1)    // POS
                                 bMeshDestination = false;
-                            if(aprsmsg.payload_type == '@' && meshcom_settings.node_hasIPaddress)    // HEY no Mesh on GATEWAYs with Server-Connected
-                                bMeshDestination = false;
+                            
+                            //KBC not usefull if(aprsmsg.payload_type == '@' && meshcom_settings.node_hasIPaddress)    // HEY no Mesh on GATEWAYs with Server-Connected
+                            //KBC not usefill bMeshDestination = false;
                         }
 
                         // GATEWAY action before MESH

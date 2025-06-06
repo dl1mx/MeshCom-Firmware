@@ -174,6 +174,7 @@ extern uint32_t posinfo_satcount;
 extern int posinfo_hdop;
 extern bool posinfo_fix;
 extern bool posinfo_shot;
+extern uint32_t posinfo_age;
 extern bool pos_shot;
 extern bool wx_shot;
 extern int no_gps_reset_counter;

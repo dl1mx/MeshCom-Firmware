@@ -130,6 +130,9 @@ void decodeMHeard(unsigned char u_mh_buffer[sizeof(mheardBuffer[0])], struct mhe
 
 void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
 {
+    if(mheardLine.mh_date.compareTo("2000") == 0)
+        return;
+
     int ipos=-1;
     int inext=-1;
     for(int iset=0; iset<MAX_MHEARD; iset++)
@@ -219,6 +222,9 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
 
 void updateHeyPath(struct mheardLine &mheardLine)
 {
+    if(mheardLine.mh_date.compareTo("2000") == 0)
+        return;
+
     // exclude the owncall
     if(mheardLine.mh_sourcecallsign == meshcom_settings.node_call)
         return;
@@ -291,6 +297,10 @@ void updateHeyPath(struct mheardLine &mheardLine)
         mheardPathLen[ipos] = mheardLine.mh_path_len;
     
     mheardPathEpoch[ipos] = getUnixClock();
+
+    #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+    showPathTDECK();
+    #endif
 }
 
 String getValue(String data, char separator, int index)
@@ -540,7 +550,7 @@ void showMHeardTDECK()
             else
             if(mheardLine.mh_payload_type == '@')
             {
-                snprintf(buf, 4, "WX");
+                snprintf(buf, 4, "HY");
                 lv_table_set_cell_value(mheard_ta, row, 2, buf);
             }
             else
@@ -560,6 +570,77 @@ void showMHeardTDECK()
 
             snprintf(buf, 7, "%4i", mheardLine.mh_snr);
             lv_table_set_cell_value(mheard_ta, row, 5, buf);
+
+            row++;
+        }
+    }
+}
+
+/**
+ * displays MHeard on T-Deck
+ */
+void showPathTDECK()
+{
+    char buf[200];
+
+    uint16_t row=0;
+
+    lv_table_set_cell_value(path_ta, row, 0, (char*)"Call");
+    lv_table_set_cell_value(path_ta, row, 1, (char*)"Time");
+    lv_table_set_cell_value(path_ta, row, 2, (char*)"Path");
+
+    row++;
+
+    int anzrow=1;
+
+    for(int iset=0; iset<MAX_MHPATH; iset++)
+    {
+        if(mheardPathCalls[iset][0] != 0x00)
+            anzrow++;
+    }
+
+    lv_table_set_row_cnt(path_ta, anzrow);
+
+    /*
+            if((mheardPathEpoch[iset]+60*60*3) > getUnixClock())    // 3h
+            {
+                Serial.printf("|------------|---------------------|--------------------------------------------------------------|\n");
+
+                Serial.printf("| %-10.10s | ", mheardPathCalls[iset]);
+
+                unsigned long lt = mheardPathEpoch[iset] + ((60 * 60 + 24) * (int)meshcom_settings.node_utcoff);
+                
+                Serial.printf("%-19.19s | ", convertUNIXtoString(lt).c_str()); // yyyy.mm.dd hh:mm:ss
+
+                Serial.printf("%01u%s/%-29.29s                             |\n", (mheardPathLen[iset] & 0x7F), ((mheardPathLen[iset] & 0x80)?"G":" "), mheardPathBuffer1[iset]);
+            }
+            else
+            {
+                mheardPathCalls[iset][0] = 0x00;
+            }
+    */
+
+    for(int iset=0; iset<MAX_MHPATH; iset++)
+    {
+        if(mheardPathCalls[iset][0] != 0x00)
+        {
+            if((mheardPathEpoch[iset]+60*60*3) > getUnixClock())    // 3h
+            {
+                snprintf(buf, 11, "%s", mheardPathCalls[iset]);
+                lv_table_set_cell_value(path_ta, row, 0, buf);
+            
+                unsigned long lt = mheardPathEpoch[iset] + ((60 * 60 + 24) * (int)meshcom_settings.node_utcoff);
+
+                snprintf(buf, 20, "%s", convertUNIXtoString(lt).substring(11, 16).c_str());
+                lv_table_set_cell_value(path_ta, row, 1, buf);
+
+                snprintf(buf, 40, "%01u%s/%s", (mheardPathLen[iset] & 0x7F), ((mheardPathLen[iset] & 0x80)?"G":" "), mheardPathBuffer1[iset]);
+                lv_table_set_cell_value(path_ta, row, 2, buf);
+            }
+            else
+            {
+                mheardPathCalls[iset][0] = 0x00;
+            }
 
             row++;
         }

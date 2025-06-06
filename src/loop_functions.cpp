@@ -254,6 +254,7 @@ uint32_t posinfo_satcount = 0;
 int posinfo_hdop = 0;
 bool posinfo_fix = false;
 bool posinfo_shot=false;
+uint32_t posinfo_age=0;
 bool pos_shot = false;
 bool wx_shot = false;
 int no_gps_reset_counter = 0;
