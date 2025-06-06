@@ -64,13 +64,11 @@ lv_obj_t    *track_ta;
 lv_obj_t    *btn_time_label;
 lv_obj_t    *btn_time_label1;
 lv_obj_t    *btn_time_label2;
-lv_obj_t    *btn_time_label3;
+lv_obj_t    *btn_time_label4;
 lv_obj_t    *btn_batt_label;
 lv_obj_t    *btn_batt_label1;
 lv_obj_t    *btn_batt_label2;
-lv_obj_t    *btn_batt_label3;
-lv_obj_t    *btn_time_label4;
-lv_obj_t    *btn_batt_label5;
+lv_obj_t    *btn_batt_label4;
 lv_obj_t    *text_input;
 lv_obj_t    *position_ta;
 lv_obj_t    *map_ta;
@@ -873,13 +871,13 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_obj_center(btn_time_label4);
 
     // BATT
-    lv_obj_t * btn_batt8 = lv_btn_create(t4);    /*Add a button the current screen*/
-    lv_obj_set_pos(btn_batt8, 146, 145);           /*Set its position*/
-    lv_obj_set_size(btn_batt8, 145, 20);         /*Set its size*/
+    lv_obj_t * btn_batt4 = lv_btn_create(t8);    /*Add a button the current screen*/
+    lv_obj_set_pos(btn_batt4, 146, 145);           /*Set its position*/
+    lv_obj_set_size(btn_batt4, 145, 20);         /*Set its size*/
 
-    btn_batt_label5 = lv_label_create(btn_batt8); /*Add a label to the button*/
-    lv_label_set_text(btn_batt_label5, "Batt --");  /*Set the labels text*/
-    lv_obj_center(btn_batt_label5);
+    btn_batt_label4 = lv_label_create(btn_batt4); /*Add a label to the button*/
+    lv_label_set_text(btn_batt_label4, "Batt --");  /*Set the labels text*/
+    lv_obj_center(btn_batt_label4);
 
     ////////////////////////////////////////////////////////////////////////////
     // TEXT INPUT
@@ -1322,6 +1320,7 @@ void tdeck_update_batt_label(float batt, int proz)
     lv_label_set_text(btn_batt_label, vChar);
     lv_label_set_text(btn_batt_label1, vChar);
     lv_label_set_text(btn_batt_label2, vChar);
+    lv_label_set_text(btn_batt_label4, vChar);
 }
 
 /**
@@ -1341,7 +1340,7 @@ void tdeck_update_time_label()
     lv_label_set_text(btn_time_label, cTime);
     lv_label_set_text(btn_time_label1, cTime);
     lv_label_set_text(btn_time_label2, cTime);
-    //lv_label_set_text(btn_time_label3, cTime);
+    lv_label_set_text(btn_time_label4, cTime);
 }
 
 /**
