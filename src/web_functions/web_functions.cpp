@@ -941,12 +941,13 @@ void sub_page_setup()
     web_client.println("<button class=\"cardtoggle\" onclick=\"togglecard(this);\"><i></i></button>\n");
     web_client.println("<div class=\"grid grid3\">");
 
+
     _create_setup_textinput_element("wifissid", "SSID", String(meshcom_settings.node_ssid), "wifi-name", "setssid", 50, false, true);  // create Textinput-Element including Label and Button
     _create_setup_textinput_element("wifipassword", "WiFi Password", String(meshcom_settings.node_pwd), "", "setpwd", 50, true, true); // create Textinput-Element including Label and Button
 
-    _create_setup_textinput_element("ownip", "fixed IP", String(meshcom_settings.node_ip), "192.168.1.100", "setownip", 50, false, true);        // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("ownip", "fixed IP", String(meshcom_settings.node_ip), "192.168.2.100", "setownip", 50, false, true);        // create Textinput-Element including Label and Button
     _create_setup_textinput_element("ownsn", "Subnet Mask", String(meshcom_settings.node_subnet), "255.255.255.0", "setownms", 50, false, true); // create Textinput-Element including Label and Button
-    _create_setup_textinput_element("owngw", "Gateway", String(meshcom_settings.node_gw), "192.168.1.1", "setowngw", 50, false, true);           // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("owngw", "Gateway", String(meshcom_settings.node_gw), "192.168.2.1", "setowngw", 50, false, true);           // create Textinput-Element including Label and Button
 
     _create_setup_textinput_element("extudp", "ext. UDP IP", String(meshcom_settings.node_extern), "192.168.100.100", "extudpip", 50, false, false); // create Textinput-Element including Label and Button
 
@@ -1402,7 +1403,7 @@ void _create_meshcom_subheader(String title)
 
 /**
  * ###########################################################################################################################
- * Creates a common setup text-input element including label and apply-button
+ * Creates a common setup text-input elementsrc/web_functions/web_functions.cpp src/web_functions/web_setup.cpp including label and apply-button
  * Parameter inputValue is chosen to be String so conversions from integers, floats, etc is easier.
  *
  * @param id the DOM id of that element. Must be unique.
@@ -1415,14 +1416,15 @@ void _create_meshcom_subheader(String title)
  */
 void _create_setup_textinput_element(const char id[], const char labelText[], String inputValue, const char placeHolder[], const char parameterName[], uint8_t maxlength, bool isPassword, bool needConfirm)
 {
-    web_client.printf("\t<label for=\"%s\">%s :</label>\n", id, labelText);
+    web_client.printf("<label for=\"%s\">%s :</label>\n", id, labelText);
     String confirmStub = "";
     if (needConfirm)
     {
         confirmStub = "if(confirm('Are you sure you want to set &quot;" + String(labelText) + "&quot; to &quot;'+document.getElementById('" + String(id) + "').value+'&quot;?'))";
     }
-    web_client.printf("\t<input type=\"%s\" name=\"%s\" id=\"%s\" value=\"%s\" maxlength=\"%i\" size=\"10\" placeholder=\"%s\">\n", isPassword ? "password" : "text", id, id, inputValue.c_str(), maxlength, placeHolder);
-    web_client.printf("\t<button onclick=\"%ssetvalue('%s', document.getElementById('%s').value)\"><i class=\"btncheckmark\"></i></button>\n", confirmStub.c_str(), parameterName, id);
+    web_client.printf("<input type=\"%s\" name=\"%s\" id=\"%s\" value=\"%s\" maxlength=\"%i\" size=\"10\" placeholder=\"%s\">\n", isPassword ? "password" : "text", id, id, inputValue.c_str(), maxlength, placeHolder);
+    web_client.printf("<button onclick=\"%ssetvalue('%s', document.getElementById('%s').value)\">", confirmStub.c_str(), parameterName, id);
+    web_client.println("<i class=\"btncheckmark\"></i></button>");
 }
 
 /**
