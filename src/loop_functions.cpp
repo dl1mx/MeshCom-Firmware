@@ -137,6 +137,24 @@ String strSOFTSERAPP_NAME = "";  // Name der Messstelle
 int iNextTelemetry=0;
 String strTelemetry="";
 
+// ANALOG values
+unsigned long analog_oversample_timer = 0;
+// ADC-filtering variables
+uint16_t ADCraw = 0;
+float ADCexp1 = 0.0;
+float ADCexp1pre = 0.0;
+float ADCexp12 = 0.0;
+float ADCexp12pre = 0.0;
+float ADCexp2 = 0.0;
+
+// same set of variables for BATT
+float BATTalpha = 0.1;
+float BATTexp1 = 0.0;
+float BATTexp1pre = 0.0;
+float BATTexp12 = 0.0;
+float BATexp12pre = 0.0;
+float BATexp2 = 0.0;
+
 // common variables
 char msg_text[MAX_MSG_LEN_PHONE * 2] = {0};
 
@@ -258,6 +276,7 @@ uint32_t posinfo_age=0;
 bool pos_shot = false;
 bool wx_shot = false;
 int no_gps_reset_counter = 0;
+unsigned int gps_refresh_intervall = 10;    // Sekunden
 
 // Loop timers
 unsigned long posinfo_timer = 0;    // we check periodically to send GPS
@@ -2878,20 +2897,27 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
             gps_send_rate = POSINFO_INTERVAL;
     }
     else
-    if(posinfo_distance < 200)  // zu fuss > 3 km/h  < 8 km/h
+    // distanz in m pro gps_refresh_intervall (default 5) sekunden
+    // Bewegung                         GPS je 5 sec
+    // fuss          1.3 m/s ca. 4 m     20 m           
+    // fahrad        4.0 m/s ca. 12 m    60 m
+    // auto stadt   14.0 m/s ca. 42 m   210 m
+    // auto land    22.0 m/s ca. 66 m   330 m
+    // autobahn     36.0 m/s ca. 100 m  500 m
+    if(posinfo_distance < 100)  //  ... alle 100 m
         gps_send_rate = 30; // seconds
     else
-    if(posinfo_distance < 800)  // rad < 40 km/h
+    if(posinfo_distance < 200)  // rad < 40 km/h
         gps_send_rate = 60; // seconds
     else
-    if(posinfo_distance < 3000)  // auto stadt < 80 km/h
-        gps_send_rate = 120; // seconds
+    if(posinfo_distance < 1000)
+        gps_send_rate = 120; // auto > 80 km/h
     else
-        gps_send_rate = 180; // auto > 80 km/h
+        gps_send_rate = 180; // auto stadt < 80 km/h
 
     int direction_diff=0;
 
-    if(posinfo_distance > 150 && bDisplayTrack)  // meter
+    if(posinfo_distance > 100 && bDisplayTrack)  // meter
     {
         direction_diff=GetHeadingDifference((int)posinfo_last_direction, (int)posinfo_direction);
 

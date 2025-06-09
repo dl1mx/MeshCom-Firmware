@@ -206,6 +206,8 @@ void init_flash(void)
 		memcpy(meshcom_settings.node_lora_call, old_struct.node_lora_call, 10);
 
 		meshcom_settings.node_analog_alpha = old_struct.node_analog_alpha;
+		meshcom_settings.node_analog_slope = old_struct.node_analog_slope;
+		meshcom_settings.node_analog_offset = old_struct.node_analog_offset;
 
 		save_settings();
 		// delay(1000);
