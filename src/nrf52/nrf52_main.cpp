@@ -859,13 +859,11 @@ void nrf52setup()
         }
         else
         {
-            bGATEWAY=false;
+            meshcom_settings.node_hasIPaddress = false;
 
-            meshcom_settings.node_sset = meshcom_settings.node_sset & 0x6FFF;   // mask 0x1000
-
-            addBLECommandBack((char*)"--gateway off");
-
-            save_settings();
+            Serial.println("==================================");
+            Serial.println("CLIENT 4.0 RUNNING no ETH-Hardware");
+            Serial.println("==================================");
         }
     }
     else
@@ -1266,7 +1264,7 @@ if (isPhoneReady == 1)
         }
         else
         {
-            neth.last_upd_timer = 0; // ETH new
+            //neth.last_upd_timer = 0; // ETH new
         }
 
         // UDP Action for next loop
@@ -1301,10 +1299,8 @@ if (isPhoneReady == 1)
                     }
                     else
                     {
-                        {
-                            Serial.print(getTimeString());
-                            Serial.println(" [MAIN] initethETH DHCP");
-                        }
+                        Serial.print(getTimeString());
+                        Serial.println(" [MAIN] initethDHCP");
 
                         neth.initethDHCP();
                     }
@@ -1314,16 +1310,19 @@ if (isPhoneReady == 1)
             // DHCP refresh
             if ((dhcp_timer + (DHCP_REFRESH * 60000)) < millis())
             {
-                // no need on static IPs
-                if(!(strlen(meshcom_settings.node_ownip) > 6 && strlen(meshcom_settings.node_ownms) > 6 && strlen(meshcom_settings.node_owngw) > 6))
+                if(neth.hasETHHardware)
                 {
-                    if(bDEBUG)
+                    // no need on static IPs
+                    if(!(strlen(meshcom_settings.node_ownip) > 6 && strlen(meshcom_settings.node_ownms) > 6 && strlen(meshcom_settings.node_owngw) > 6))
                     {
-                        Serial.print(getTimeString());
-                        Serial.println(" [MAIN] checkDHCP");
+                        if(bDEBUG)
+                        {
+                            Serial.print(getTimeString());
+                            Serial.println(" [MAIN] checkDHCP");
+                        }
+                        
+                        neth.checkDHCP();
                     }
-                    
-                    neth.checkDHCP();
                 }
 
                 dhcp_timer = millis();

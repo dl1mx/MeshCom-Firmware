@@ -124,14 +124,25 @@ void NrfETH::initethDHCP()
   getMyMac();
 
   if(!hasETHHardware)
+  {
+    Serial.println("no ETH hardware found");
     return;
+  }
 
   // get DHCP IP config, returns 0 if success
-  if(startETH() == 0)
+  int retStart = startETH();
+
+  if(retStart == 2)
+  {
+    // not ETH-hardware found
+    hasIPaddress = false;
+    return;
+  }
+  else
+  if(retStart == 0)
   {
     // start the UDP service
     startUDP();
-
   }
   else 
   {
@@ -693,7 +704,16 @@ int NrfETH::resetDHCP()
   //initETH_HW();
 
   // renew DHCP config
-  if(startETH() == 0)
+  int retStart = startETH();
+
+  if(retStart == 2)
+  {
+    // not ETH-hardware found
+    hasIPaddress = false;
+    return 1;
+  }
+  else
+  if(retStart == 0)
   {
     // start UDP Service again
     startUDP();
@@ -736,30 +756,22 @@ int NrfETH::startETH()
 
   Serial.println("\nInitialize Ethernet"); // start the Ethernet connection.
 
-  if (Ethernet.begin(macaddr) == 0)
+  if (Ethernet.begin(macaddr, 5000UL) == 0)
   {
     Serial.println("Failed to configure Ethernet using FIX/DHCP");
     if (Ethernet.hardwareStatus() == EthernetNoHardware) // Check for Ethernet hardware present.
     {
-      Serial.println("Ethernet shield was not found.  Sorry, can't run without hardware. :(");
+      Serial.println("Ethernet shield was not found.\nGateway or WEBService can't run without ETH-hardware.");
 
       hasETHHardware=false;
       
-      return 1;
+      return 2;
     }
-    
-    int iWaitStatus=5;
-    
-    while (Ethernet.linkStatus() == LinkOFF)
-    {
-      Serial.printf("ERROR: Ethernet cable is not connected (%i).\n", iWaitStatus);
-      delay(500);
-      
-      iWaitStatus--;
-      
-      if(iWaitStatus < 1)
-        return 2;
-    }
+  }
+
+  if(Ethernet.linkStatus() == LinkOFF)
+  {
+    return 2;
   }
 
   Serial.print("Ethernet.localIP(): ");

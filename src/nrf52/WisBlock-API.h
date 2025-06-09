@@ -300,6 +300,8 @@ struct s_meshcom_settings
 	char node_lora_call[10] = {0x00};
 
 	float node_analog_alpha = 0.0;
+	float node_analog_slope = 0.0;
+	float node_analog_offset = 0.0;
 
 	// nicht im Flash
 	float node_specstart = 432.0;
@@ -486,6 +488,8 @@ struct s_meshcomcompat_settings
 	char node_lora_call[10] = {0x00};
 
 	float node_analog_alpha = 0.0;
+	float node_analog_slope = 0.0;
+	float node_analog_offset = 0.0;
 
 	// not within RAK Flash
 	float node_specstart = 432.0;

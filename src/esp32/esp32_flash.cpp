@@ -191,6 +191,8 @@ void init_flash(void)
     snprintf(meshcom_settings.node_lora_call, sizeof(meshcom_settings.node_lora_call), "%s", strVar.c_str());
 
     meshcom_settings.node_analog_alpha = preferences.getFloat("node_aak", 0.0);
+    meshcom_settings.node_analog_slope = preferences.getFloat("node_aslo", 0.0);
+    meshcom_settings.node_analog_offset = preferences.getFloat("node_aoff", 0.0);
     
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     meshcom_settings.node_map = preferences.getInt("node_map", 0);
@@ -402,6 +404,8 @@ void save_settings(void)
     preferences.putString("node_ucall", strVar);
     
     preferences.putFloat("node_aak", meshcom_settings.node_analog_alpha);
+    preferences.putFloat("node_aslo", meshcom_settings.node_analog_slope);
+    preferences.putFloat("node_aoff", meshcom_settings.node_analog_offset);
 
     preferences.end();
 

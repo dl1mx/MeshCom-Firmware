@@ -119,6 +119,24 @@ extern uint8_t own_msg_id[MAX_RING][5];
 extern int iNextTelemetry;
 extern String strTelemetry;
 
+// ANALOG values
+extern unsigned long analog_oversample_timer;
+// ADC-filtering variables
+extern uint16_t ADCraw;
+extern float ADCexp1;
+extern float ADCexp1pre;
+extern float ADCexp12;
+extern float ADCexp12pre;
+extern float ADCexp2;
+
+// same set of variables for BATT
+extern float BATTalpha;
+extern float BATTexp1;
+extern float BATTexp1pre;
+extern float BATTexp12;
+extern float BATexp12pre;
+extern float BATexp2;
+
 // RINGBUFFER for incoming UDP lora packets for lora TX
 extern unsigned char ringBuffer[MAX_RING][UDP_TX_BUF_SIZE+5];
 extern int iWrite;
@@ -178,6 +196,7 @@ extern uint32_t posinfo_age;
 extern bool pos_shot;
 extern bool wx_shot;
 extern int no_gps_reset_counter;
+extern unsigned int gps_refresh_intervall;
 
 extern unsigned long posinfo_timer;      // we check periodically to send GPS
 extern unsigned long heyinfo_timer;      // we check periodically to send HEY

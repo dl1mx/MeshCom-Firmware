@@ -13,6 +13,7 @@
 #include "spectral_scan.h"
 #include "rtc_functions.h"
 #include "tinyxml_functions.h"
+#include "clock.h"
 
 #ifdef ESP32
 #include "esp32/esp32_functions.h"
@@ -54,7 +55,6 @@ extern bool bMitHardReset;
 
 uint16_t json_len = 0;
 void sendNodeSetting();
-void sendAnalogSetting();
 void sendGpsJson();
 void sendAPRSset();
 void sendConfigFinish();
@@ -242,6 +242,60 @@ void commandAction(char *umsg_text, bool ble)
         }
 
         save_settings();
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"settime") == 0)
+    {
+        // 2025.02.27 13:18:24
+        String strSetTime = msg_text+10;
+
+        uint16_t Year = (uint16_t)strSetTime.substring(0, 4).toInt();
+        uint16_t Month = (uint16_t)strSetTime.substring(5, 7).toInt();
+        uint16_t Day = (uint16_t)strSetTime.substring(8, 10).toInt();
+
+        uint16_t Hour = (uint16_t)strSetTime.substring(11, 13).toInt();
+        uint16_t Minute = (uint16_t)strSetTime.substring(14, 16).toInt();
+        uint16_t Second = (uint16_t)strSetTime.substring(17).toInt();
+
+        // set the clock
+        if(bRTCON)
+        {
+            setRTCNow(Year, Month, Day, Hour, Minute, Second);
+            
+            DateTime utc = getRTCNow();
+
+            DateTime now (utc + TimeSpan(meshcom_settings.node_utcoff * 60 * 60));
+
+            meshcom_settings.node_date_year = now.year();
+            meshcom_settings.node_date_month = now.month();
+            meshcom_settings.node_date_day = now.day();
+
+            meshcom_settings.node_date_hour = now.hour();
+            meshcom_settings.node_date_minute = now.minute();
+            meshcom_settings.node_date_second = now.second();
+        }
+        else
+        {
+            // check valid Date & Time
+
+            if(Year > 2023)
+            {
+                MyClock.setCurrentTime(meshcom_settings.node_utcoff, Year, Month, Day, Hour, Minute, Second);
+                snprintf(cTimeSource, sizeof(cTimeSource), (char*)"HAND");
+            }
+        }
+
+        MyClock.CheckEvent();
+            
+        meshcom_settings.node_date_year = MyClock.Year();
+        meshcom_settings.node_date_month = MyClock.Month();
+        meshcom_settings.node_date_day = MyClock.Day();
+
+        meshcom_settings.node_date_hour = MyClock.Hour();
+        meshcom_settings.node_date_minute = MyClock.Minute();
+        meshcom_settings.node_date_second = MyClock.Second();
 
         return;
     }
@@ -496,7 +550,7 @@ void commandAction(char *umsg_text, bool ble)
             delay(100);
             Serial.printf("--setgrc 9;..9;  set groups\n--nomsgall on/off  '*'-msg on display\n");
             delay(100);
-            Serial.printf("--maxv    100%% battery voltage\n--track   on/off SmartBeaconing\n--gps on/off use GPS-CHIP\n--utcoff +/-99.9 set UTC-Offset\n");
+            Serial.printf("--maxv    100%% battery voltage\n--track   on/off SmartBeaconing\n--gps on/off use GPS-CHIP\n--utcoff +/-99.9 set UTC-Offset\n−−settime yyyy.mm.dd hh:mm:ss\n");
             delay(100);
             Serial.printf("--gps reset Factory reset\n--txpower 99 LoRa TX-power dBm\n--txfreq  999.999 LoRa TX-freqency MHz\n--txbw    999 LoRa TX-bandwith kHz\n--lora    Show LoRa setting\n");
             delay(100);
@@ -743,6 +797,52 @@ void commandAction(char *umsg_text, bool ble)
         //printf("_owner_c:%s fVar:%f\n", _owner_c, dVar);
 
         meshcom_settings.node_analog_alpha=dVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bAnalogSetting=true;
+        }
+
+        bReturn = true;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"analog slope ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+15);
+        sscanf(_owner_c, "%lf", &dVar);
+
+        if(dVar < 0 || dVar >= 10.)
+        {
+            Serial.println("ADCSlope only between 0 and 9.999");
+            return ;
+        }
+
+        meshcom_settings.node_analog_slope=dVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bAnalogSetting=true;
+        }
+
+        bReturn = true;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"analog offset ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+16);
+        sscanf(_owner_c, "%lf", &dVar);
+
+        if(dVar < 0 || dVar >= 1000.0)
+        {
+            Serial.println("ADCOffset only between 0 and 999");
+            return ;
+        }
+
+        meshcom_settings.node_analog_offset=dVar;
 
         save_settings();
 
@@ -3463,7 +3563,6 @@ void commandAction(char *umsg_text, bool ble)
             wdoc["VSHUNT"] = meshcom_settings.node_vshunt;
             wdoc["VAMP"] = meshcom_settings.node_vcurrent;
             wdoc["VPOW"] = meshcom_settings.node_vpower;
-            wdoc["ADC"] = fAnalogValue;
              
             // reset print buffer
             memset(print_buff, 0, sizeof(print_buff));
@@ -4045,6 +4144,12 @@ void sendAnalogSetting()
     asetdoc["AK"] = meshcom_settings.node_analog_alpha;
     asetdoc["AFL"] = bAnalogFilter;
     asetdoc["ACK"] = bAnalogCheck;
+    asetdoc["ADC"] = fAnalogValue;
+    asetdoc["ADCRAW"] = ADCraw;
+    asetdoc["ADCE1"] = ADCexp1;
+    asetdoc["ADCE2"] = ADCexp2;
+    asetdoc["ADCSL"] = meshcom_settings.node_analog_slope;
+    asetdoc["ADCOF"] = meshcom_settings.node_analog_offset;
 
     // reset print buffer
     memset(print_buff, 0, sizeof(print_buff));

@@ -1791,7 +1791,13 @@ void esp32loop()
     }
 
     // gps refresh every 10 sec
-    if ((gps_refresh_timer + (GPS_REFRESH_INTERVAL * 1000)) < millis())
+    unsigned long gps_refresh_intervall = GPS_REFRESH_INTERVAL;
+
+    // TRACK ON
+    if(bDisplayTrack)
+        gps_refresh_intervall = 5;
+
+    if ((gps_refresh_timer + (gps_refresh_intervall * 1000)) < millis())
     {
         // get i/o state
         if(loopMCP23017())
@@ -1820,8 +1826,6 @@ void esp32loop()
         else
         {
             #if defined (GPS_L76K)
-                igps = loopL76KGPS();
-            #elif defined (GPS_L76K_TDECK)
                 igps = loopL76KGPS();
             #else
                 igps = getGPS();
@@ -1984,8 +1988,7 @@ void esp32loop()
                 
                 if(bDisplayCont)
                 {
-            		Serial.print("[readBatteryVoltage]...");
-                    Serial.printf("volt %.2f proz %i max_batt %.3f\n", global_batt/1000., global_proz, meshcom_settings.node_maxv);
+                    Serial.printf("[readBatteryVoltage]...volt %.2f proz %i max_batt %.3f\n", global_batt/1000., global_proz, meshcom_settings.node_maxv);
                 }
 
                 #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
