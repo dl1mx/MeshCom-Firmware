@@ -113,12 +113,12 @@ void init_flash(void)
     snprintf(meshcom_settings.node_mcp17t[15], sizeof(meshcom_settings.node_mcp17t[15]),"%s", strVar.c_str());
 
 	// GM Fields
-    meshcom_settings.node_gcb[0] = preferences.getInt("node_gcb0");
-    meshcom_settings.node_gcb[1] = preferences.getInt("node_gcb1");
-    meshcom_settings.node_gcb[2] = preferences.getInt("node_gcb2");
-    meshcom_settings.node_gcb[3] = preferences.getInt("node_gcb3");
-    meshcom_settings.node_gcb[4] = preferences.getInt("node_gcb4");
-    meshcom_settings.node_gcb[5] = preferences.getInt("node_gcb5");
+    meshcom_settings.node_gcb[0] = preferences.getInt("node_gcb0", 0);
+    meshcom_settings.node_gcb[1] = preferences.getInt("node_gcb1", 0);
+    meshcom_settings.node_gcb[2] = preferences.getInt("node_gcb2", 0);
+    meshcom_settings.node_gcb[3] = preferences.getInt("node_gcb3", 0);
+    meshcom_settings.node_gcb[4] = preferences.getInt("node_gcb4", 0);
+    meshcom_settings.node_gcb[5] = preferences.getInt("node_gcb5", 0);
 
     meshcom_settings.node_country = preferences.getInt("node_ctry");    // 0...EU  1...UK, 2...IT, 3...US, ..... 18...868, 19...915
 
