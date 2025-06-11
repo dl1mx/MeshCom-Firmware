@@ -719,9 +719,9 @@ void commandAction(char *umsg_text, bool ble)
 
         sscanf(msg_text+14, "%d", &meshcom_settings.node_button_pin);
 
-        if(meshcom_settings.node_button_pin < 0 || meshcom_settings.node_button_pin > 99)
+        if(meshcom_settings.node_button_pin <= 0 || meshcom_settings.node_button_pin >= 99)
         {
-            Serial.printf("Wrong BUTTON GPIO PIN only > 1 and <= 99");
+            Serial.printf("Wrong BUTTON GPIO PIN only > 0 and < 99");
             
             meshcom_settings.node_button_pin = ibt;
 
@@ -838,11 +838,34 @@ void commandAction(char *umsg_text, bool ble)
 
         if(dVar < 0 || dVar >= 1000.0)
         {
-            Serial.println("ADCOffset only between 0 and 999");
+            Serial.println("ADCOffset only between 0 and 999 [mV]");
             return ;
         }
 
         meshcom_settings.node_analog_offset=dVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bAnalogSetting=true;
+        }
+
+        bReturn = true;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"analog atten ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+15);
+        sscanf(_owner_c, "%lf", &dVar);
+
+        if(dVar < 0 || dVar > 3)
+        {
+            Serial.println("ADCAttenuator only between 0 and 3");
+            return ;
+        }
+
+        meshcom_settings.node_analog_atten=dVar;
 
         save_settings();
 
@@ -886,7 +909,7 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
     }
     else
-    if(commandCheck(msg_text+2, (char*)"analogcheck on") == 0)
+    if(commandCheck(msg_text+2, (char*)"analog check on") == 0)
     {
         bAnalogCheck=true;
         
@@ -904,7 +927,7 @@ void commandAction(char *umsg_text, bool ble)
         initAnalogPin();
     }
     else
-    if(commandCheck(msg_text+2, (char*)"analogcheck off") == 0)
+    if(commandCheck(msg_text+2, (char*)"analog check off") == 0)
     {
         bAnalogCheck=false;
         
@@ -2256,7 +2279,7 @@ void commandAction(char *umsg_text, bool ble)
 
         if(meshcom_settings.bt_code < 100000 || meshcom_settings.bt_code > 999999)
         {
-            Serial.printf("Wrong BT Code only > 100000 and < 999999");
+            Serial.printf("Wrong BT Code only >= 100000 and <= 999999");
             return;
         }
 

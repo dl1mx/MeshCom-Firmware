@@ -467,8 +467,6 @@ void esp32setup()
     
     check_efuse();
 
-    initDisplay();
-
     // init nach Reboot
     init_loop_function();
 
@@ -735,6 +733,12 @@ void esp32setup()
 
         // we have TXEN and RXEN Pin connected
         radio.setRfSwitchPins(E22_RXEN, E22_TXEN);
+    #endif
+
+    initDisplay();
+
+    #if defined(BOARD_HELTEC_V3)
+    delay(500);
     #endif
 
     startDisplay((char*)"...starting now", (char*)"@by icssw.org", (char*)"OE1KBC, OE1KFR");

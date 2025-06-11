@@ -137,8 +137,9 @@ struct s_meshcom_settings
 	char node_lora_call[10] = {0x00};
 
 	float node_analog_alpha = 0.0;
-	float node_analog_slope = 0.0;
+	float node_analog_slope = 1.0;
 	float node_analog_offset = 0.0;
+	float node_analog_atten = 0.0;
 
 	// nicht im Flash
 	int node_press_alt = 0;
