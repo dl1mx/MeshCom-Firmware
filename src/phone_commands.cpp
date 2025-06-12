@@ -356,9 +356,9 @@ void sendComToPhone()
 		if(bBLEDEBUG)
 		{
 			if(ComToPhoneBuff[0] == ':' || ComToPhoneBuff[0] == '!' || ComToPhoneBuff[0] == '@')
-				Serial.printf("[BLE]...%s lng:%i\n", ComToPhoneBuff+7, blelen);
+				Serial.printf("[BLE] <%lu> %s lng:%i\n", millis(), ComToPhoneBuff+7, blelen);
 			else
-				Serial.printf("[BLE]...%s lng:%i\n", ComToPhoneBuff, blelen);
+				Serial.printf("[BLE] <%lu> %s lng:%i\n", millis(), ComToPhoneBuff, blelen);
 		}
     }
     
