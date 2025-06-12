@@ -408,6 +408,7 @@ unsigned long softser_refresh_timer = 0;
 unsigned long analog_refresh_timer = 0;
 unsigned long rtc_refresh_timer = 0;
 unsigned long pixels_delay = 0;
+unsigned long ble_wait = 0;
 
 bool is_new_packet(uint8_t compBuffer[4]);     // switch if we have a packet received we never saw before RcvBuffer[12] changes, rest is same
 void checkSerialCommand(void);
@@ -1183,7 +1184,7 @@ void esp32setup()
 void esp32_write_ble(uint8_t confBuff[300], uint8_t conf_len)
 {
     if(bBLEDEBUG)
-        Serial.println("[LOOP] WRITE BLE");
+        Serial.printf("[LOOP] <%lu> WRITE BLE\n", millis());
 
     pTxCharacteristic->setValue(confBuff, conf_len);
     pTxCharacteristic->notify();
@@ -1775,7 +1776,13 @@ void esp32loop()
                     // check if we have messages for BLE to send
                     if (toPhoneWrite != toPhoneRead)
                     {
-                        sendToPhone();   
+                        // check every 2 seconds to ready next telemetry via serial interface
+                        if ((ble_wait + 2000) < millis())
+                        {
+                            sendToPhone();
+
+                            ble_wait = millis();
+                        }
                     }
                 }
 

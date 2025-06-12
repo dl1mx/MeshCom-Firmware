@@ -525,7 +525,7 @@ int esp32_isSSD1306(int address)
     byte buffer[1];
 
     #ifdef BOARD_HELTEC_V3
-        return false;
+        return 1;
     #endif
         
     TwoWire *w = NULL;
@@ -563,9 +563,9 @@ int esp32_isSSD1306(int address)
     // 0x28 == T-BEAM 1.3" SUPREME 1306
 
     // 0x03 == T-BEAM 0.9"
-    // 0x07 == T-LORA 0.9! type 1
+    // 0x07 == T-LORA 0.9! type 2
     // 0x07 == T-LORA 0.9" type 2
-    // 0x09 == HELTEC V3 type 1
+    // 0x09 == HELTEC V3 type 2
     // 0x3F == HELTEC V3 type 2
 
     // check 1.3"
