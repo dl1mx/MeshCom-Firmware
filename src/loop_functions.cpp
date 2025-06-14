@@ -141,6 +141,7 @@ String strTelemetry="";
 unsigned long analog_oversample_timer = 0;
 // ADC-filtering variables
 uint16_t ADCraw = 0;
+float ADCalpha = 0.1;
 float ADCexp1 = 0.0;
 float ADCexp1pre = 0.0;
 float ADCexp12 = 0.0;
@@ -1034,16 +1035,19 @@ void mainStartTimeLoop()
                 if(bBMEON || bBMPON)
                 {
                     iDisplayChange++;
-                    if(iDisplayChange > 9)
+                    if(iDisplayChange > 15)
                         iDisplayChange=1;
                 }
 
                 if(bDisplayTrack)
                 {
-                    if(iDisplayChange > 5)
-                        sendDisplayWX(); // Show WX
-                    else
-                        sendDisplayTrack(); // Show Track
+                    if(DisplayOffWait == 0)
+                    {
+                        if(iDisplayChange > 10)
+                            sendDisplayWX(); // Show WX
+                        else
+                            sendDisplayTrack(); // Show Track
+                    }
                 }
                 else
                 {
@@ -1203,7 +1207,9 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
             bPosDisplay=false;
     }
 
-    if(bSetDisplay || pageHold > 0)
+    Serial.printf("bSetDisplay:%i DisplayOffWait:%i\n", bSetDisplay, DisplayOffWait);
+
+    if(bSetDisplay || DisplayOffWait > 0)
         return;
 
     bSetDisplay=true;
@@ -1430,37 +1436,6 @@ void initAnalogPin()
         }
     }
     
-    #endif
-}
-
-void checkAnalogValue()
-{
-    #if defined (ANALOG_PIN)
-
-    if(bAnalogCheck)
-    {
-        int ANAGPIO = meshcom_settings.node_analog_pin;
-        if(meshcom_settings.node_analog_pin <= 0 || meshcom_settings.node_analog_pin >= 99)
-            ANAGPIO = ANALOG_PIN;
-
-        #if defined(BOARD_E22_S3)
-        float raw = (float)(analogReadMilliVolts(ANAGPIO)); // some ESP32 have ADC facto5ry-cal
-        #else
-        float raw = (float)(analogRead(ANAGPIO));
-        #endif
-
-        fAnalogValue = raw  * meshcom_settings.node_analog_faktor;
-        
-        if(bDEBUG && bDisplayInfo)
-        {
-            Serial.printf("%s [ANALOG]...GPIO%i %.0f * %.4f = %.2f\n", getTimeString().c_str(), ANAGPIO, raw, meshcom_settings.node_analog_faktor, fAnalogValue);
-        }
-    }
-    else
-    {
-        fAnalogValue = 0.0;
-    }
-
     #endif
 }
 
@@ -1804,12 +1779,6 @@ void printBuffer_ack(char *msgSource, uint8_t payload[UDP_TX_BUF_SIZE+10], int8_
 
 void sendMessage(char *msg_text, int len)
 {
-    if(len < 1 || len > 160)
-    {
-        Serial.printf("sendMessage wrong text length:%i\n", len);
-        return;
-    }
-
     if(memcmp(msg_text, "-", 1) == 0)
     {
         if(bDisplayInfo)
@@ -1821,12 +1790,22 @@ void sendMessage(char *msg_text, int len)
 
     uint8_t ispos = 0;
 
+    bool bConsoleText = false;
+
     if(msg_text[0] == ':')
     {
         if(msg_text[1] == ':')
             ispos=2;
         else
             ispos=1;
+    
+        bConsoleText = true;
+    }
+
+    if((len-ispos) < 1 || (len-ispos) > 160)
+    {
+        Serial.printf("sendMessage wrong text length:%i\n", len-ispos);
+        return;
     }
 
     String strDestinationCall = "*";
@@ -1984,6 +1963,12 @@ void sendMessage(char *msg_text, int len)
     // Extern Server
     if(bEXTUDP)
         sendExtern(true, (char*)"node", msg_buffer, aprsmsg.msg_len);
+
+                        
+    // wenn text via Console kommt auch an BLE bzw. WEBService senden
+    if(bConsoleText)
+        addBLEOutBuffer(msg_buffer, aprsmsg.msg_len);
+
 }
 
 String PositionToAPRS(bool bConvPos, bool bWeather, bool bFuss, double plat, char lat_c, double plon, char lon_c, int alt,  float press, float hum, float temp, float temp2, float gasres, float co2, int qfe, float qnh)

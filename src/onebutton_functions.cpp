@@ -139,7 +139,6 @@ public:
         E290DisplayUpdate();
     #else
         pageHold=0;
-        bDisplayOff=!bDisplayOff;
 
         if(bDisplayOff)
         {

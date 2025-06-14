@@ -47,6 +47,7 @@
 #include <clock.h>
 #include <onewire_functions.h>
 #include <onebutton_functions.h>
+#include <adc_functions.h>
 #include <lora_setchip.h>
 #include "esp32_functions.h"
 
@@ -405,7 +406,6 @@ uint8_t dmac[6] = {0};
 
 unsigned long gps_refresh_timer = 0;
 unsigned long softser_refresh_timer = 0;
-unsigned long analog_refresh_timer = 0;
 unsigned long rtc_refresh_timer = 0;
 unsigned long pixels_delay = 0;
 unsigned long ble_wait = 0;
@@ -1688,15 +1688,7 @@ void esp32loop()
     loop_onebutton();
 
     #if defined (ANALOG_PIN)
-        if(bAnalogCheck)
-        {
-            if ((analog_refresh_timer + (ANALOG_REFRESH_INTERVAL * 1000)) < millis())
-            {
-                checkAnalogValue();
-
-                analog_refresh_timer = millis();
-            }
-        }
+        loop_ADCFunctions();    // OE3WAS
     #endif
 
     // BLE
@@ -2390,7 +2382,9 @@ void checkSerialCommand(void)
                 }
 
                 if(strText.startsWith("::"))
-                    sendMessage(msg_buffer+2, inext-2);
+                {
+                    sendMessage(msg_buffer, inext);
+                }
                 else
                     if(strText.startsWith("--"))
                         commandAction(msg_buffer, isPhoneReady, false);

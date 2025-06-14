@@ -31,7 +31,6 @@ void E290DisplayUpdate();
 void init_loop_function();
 
 void initAnalogPin();
-void checkAnalogValue();
 
 void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr);
 void sendDisplayPosition(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr);
