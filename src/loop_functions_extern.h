@@ -123,6 +123,7 @@ extern String strTelemetry;
 extern unsigned long analog_oversample_timer;
 // ADC-filtering variables
 extern uint16_t ADCraw;
+extern float ADCalpha;
 extern float ADCexp1;
 extern float ADCexp1pre;
 extern float ADCexp12;

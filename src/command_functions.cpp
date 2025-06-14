@@ -4173,6 +4173,7 @@ void sendAnalogSetting()
     asetdoc["ADCE2"] = ADCexp2;
     asetdoc["ADCSL"] = meshcom_settings.node_analog_slope;
     asetdoc["ADCOF"] = meshcom_settings.node_analog_offset;
+    asetdoc["ADCAT"] = meshcom_settings.node_analog_atten;
 
     // reset print buffer
     memset(print_buff, 0, sizeof(print_buff));
