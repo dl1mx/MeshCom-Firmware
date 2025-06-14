@@ -1763,21 +1763,28 @@ void esp32loop()
             if(millis() < config_to_phone_prepare_timer + 3000)
                 iPhoneState = 0;
 
-            if (iPhoneState > 3)   // only every 3 times of mainloop send to phone
+            if (iPhoneState > 3)   // only every 3 times of mainloop send to phone - main loop has no additional delay anymore! 14.06.2025
             {
                 // prepare JSON config to phone after BLE connection
                 // send JSON config to phone after BLE connection
+                // wait at least 300ms between sending messages
                 if (ComToPhoneWrite != ComToPhoneRead)
                 {
-                    sendComToPhone();   
+                    // check every 300 ms to send to phone
+                    if ((ble_wait + 300) < millis())
+                    {
+                        sendComToPhone();
+
+                        ble_wait = millis();
+                    }
                 }
                 else
                 {
                     // check if we have messages for BLE to send
                     if (toPhoneWrite != toPhoneRead)
                     {
-                        // check every 2 seconds to ready next telemetry via serial interface
-                        if ((ble_wait + 2000) < millis())
+                        // wait for each message to send to phone
+                        if ((ble_wait + 400) < millis())
                         {
                             sendToPhone();
 
