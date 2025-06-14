@@ -1795,11 +1795,14 @@ void sendMessage(char *msg_text, int len)
     if(msg_text[0] == ':')
     {
         if(msg_text[1] == ':')
+        {
             ispos=2;
+            bConsoleText = true;
+        }
         else
-            ispos=1;
-    
-        bConsoleText = true;
+        {
+            ispos=1;    // WEBService only
+        }
     }
 
     if((len-ispos) < 1 || (len-ispos) > 160)
