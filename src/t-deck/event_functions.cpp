@@ -697,12 +697,14 @@ void tabview_event_cb(lv_event_t * e)
                 break;
             case 3: // MAP
                 break;
-            case 4: // TRK
+            case 4: // GPS
                 tdeck_refresh_TRK_view();
                 break;
             case 5: // MHD
                 break;
-            case 6: // SET
+            case 6: // PATH
+                break;
+            case 7: // SET
                 tdeck_refresh_SET_view();
                 break;
         }

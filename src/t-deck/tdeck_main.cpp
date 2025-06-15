@@ -480,7 +480,7 @@ static void keypad_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data)
 
         bool bSPEC=false;
 
-        if(lv_tabview_get_tab_act(tv) != 1 && lv_tabview_get_tab_act(tv) != 6)
+        if(lv_tabview_get_tab_act(tv) != 1 && lv_tabview_get_tab_act(tv) != 7)
         {
             // spezial Keys
             if(act_key == 0x22) // SYM + L
