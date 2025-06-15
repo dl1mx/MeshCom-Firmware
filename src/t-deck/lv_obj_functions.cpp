@@ -1532,11 +1532,11 @@ void tdeck_refresh_SET_view()
 }
 
 /**
- * refresh TRK view
+ * refresh GPS view
  */
 void tdeck_refresh_TRK_view()
 {
-    if (lv_tabview_get_tab_act(tv) != 4) // TRK screen not active
+    if (lv_tabview_get_tab_act(tv) != 4) // GPS screen not active
         return;
 
     int pos_seconds = (int)(((posinfo_timer + (posinfo_interval * 1000)) - millis()) / 1000);
@@ -1690,7 +1690,7 @@ void tdeck_add_MSG(String callsign, String path, String message, bool bWithAudio
 
     lv_textarea_add_text(text_ta, buf);
 
-    if (lv_tabview_get_tab_act(tv) != 1 && lv_tabview_get_tab_act(tv) != 6)
+    if (lv_tabview_get_tab_act(tv) != 1 && lv_tabview_get_tab_act(tv) != 7)
         lv_tabview_set_act(tv, 0, LV_ANIM_OFF);
 
     if (!meshcom_settings.node_keyboardlock)
