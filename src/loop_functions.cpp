@@ -1207,9 +1207,7 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
             bPosDisplay=false;
     }
 
-    Serial.printf("bSetDisplay:%i DisplayOffWait:%i\n", bSetDisplay, DisplayOffWait);
-
-    if(bSetDisplay || DisplayOffWait > 0)
+    if(bSetDisplay)
         return;
 
     bSetDisplay=true;
