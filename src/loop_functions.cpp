@@ -161,7 +161,7 @@ char msg_text[MAX_MSG_LEN_PHONE * 2] = {0};
 
 unsigned int _GW_ID = 0x12345678; // ID of our Node
 
-#ifdef BOARD_E290
+#if defined (BOARD_E290)
 #include "heltec-eink-modules.h"
 
 EInkDisplay_VisionMasterE290 e290_display;
@@ -174,10 +174,10 @@ EInkDisplay_VisionMasterE290 e290_display;
 
 int dzeile[6] = {16, 41, 61, 81, 101, 121};
 
-#else
-
-#ifdef BOARD_TBEAM_V3
+#elif defined (BOARD_TBEAM_V3)
 int dzeile[6] = {11, 24, 34, 44, 54, 64};
+#elif defined (BOARD_STICK_V3)
+int dzeile[6] = {42, 52, 62, 0, 0, 0};
 #else
 int dzeile[6] = {8, 21, 31, 41, 51, 61};
 #endif
@@ -190,6 +190,9 @@ U8G2 *u8g2;
 #elif defined(BOARD_HELTEC_V3)
     U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2_1(U8G2_R0, 18, 17, 21);
     U8G2_SH1106_128X64_NONAME_1_SW_I2C u8g2_2(U8G2_R0, 18, 17, 21);
+#elif defined(BOARD_STICK_V3)
+    U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2_1(U8G2_R0, 18, 17, 21);
+    U8G2_SH1106_128X64_NONAME_1_SW_I2C u8g2_2(U8G2_R0, 18, 17, 21);
 #elif defined(BOARD_RAK4630)
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2_1(U8G2_R0);  //RESET CLOCK DATA
     U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2_2(U8G2_R0);  //RESET CLOCK DATA
@@ -199,8 +202,6 @@ U8G2 *u8g2;
 #else
     U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2_1(U8G2_R0);
     U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2_2(U8G2_R0);
-#endif
-
 #endif
 
 unsigned int msg_counter = 0;
@@ -525,10 +526,14 @@ int esp32_isSSD1306(int address)
 {
     byte buffer[1];
 
-    #ifdef BOARD_HELTEC_V3
+    #if defined (BOARD_HELTEC_V3)
         return 1;
     #endif
         
+    #if defined (BOARD_STICK_V3)
+        return 1;
+    #endif
+
     TwoWire *w = NULL;
 
     w = &Wire;
@@ -647,7 +652,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
     if(bTransfer)
     {
         //Serial.println("Transfer");
-        #ifdef BOARD_E290
+        #if defined BOARD_E290
             if(pageLineAnz > 0)
             {
                 for(int its=0;its<pageLineAnz;its++)
@@ -703,6 +708,60 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
                     e290_display.update();
             }
             
+        #elif defined BOARD_STICK_V3
+
+        u8g2->firstPage();
+        do
+        {
+            if(pageLineAnz > 0)
+            {
+                int inz=0;
+
+                for(int its=0;its<pageLineAnz;its++)
+                {
+                    // Save last Text (init)
+                    if(iDisplayType == 0 && bNeu)
+                    {
+                        pageLastLineAnz[pageLastPointer] = pageLineAnz;
+                        pageLastLine[pageLastPointer][its][0] = pageLine[its][0];
+                        pageLastLine[pageLastPointer][its][1] = pageLine[its][1];
+                        pageLastLine[pageLastPointer][its][2] = pageLine[its][2];
+                        memcpy(pageLastText[pageLastPointer][its], pageText[its], 25);
+                    }
+
+                    char ptext[30] = {0};
+                    pageText[its][pageLine[its][2]] = 0x00;
+                    
+                    if(memcmp(pageText[its], "#L", 2) == 0)
+                    {
+                        //u8g2->drawHLine(pageLine[its][0], pageLine[its][1], 120);
+                    }
+                    else
+                    {
+                        if(its == 0)
+                            snprintf(ptext, sizeof(ptext), "%-10.10s", pageText[its]+6);
+                        else
+                        {
+                            if(pageText[its][5] == ':')
+                                snprintf(ptext, sizeof(ptext), "%-10.10s", pageText[its]+7);
+                            else
+                                snprintf(ptext, sizeof(ptext), "%-10.10s", pageText[its]);
+                        }
+
+                        if(pageLine[its][1] >= 0)
+                        {
+                            if(dzeile[inz] > 0)
+                                u8g2->drawStr(36, dzeile[inz], ptext);
+                        }
+                        
+                        inz++;
+                    }
+                }
+
+            }
+
+        } while (u8g2->nextPage());
+
         #else
         
         u8g2->firstPage();

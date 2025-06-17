@@ -85,6 +85,12 @@ definitions for HELTEC E290
 #define VEXT_ENABLE_1 18 // active high, powers the EPaper display
 #define VEXT_ENABLE_2 46 // active high, powers the EPaper display
 
+// =============================================
+// Custom Board homemade E22-Ebyte Module + ESP32-S3 DevKitC-1-N16R8V
+// ===== GPIOs =====
+#define ANALOG_PIN 0
+#define ANALOG_REFRESH_INTERVAL 30 // sec messure intervall
+
 #define BUTTON_PIN 21
 
 #define BATTERY_PIN 7 // A battery voltage measurement pin, voltage divider connected here to measure battery voltage

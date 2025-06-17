@@ -642,6 +642,10 @@ void esp32setup()
         SPI.begin(RF95_SCK, RF95_MISO, RF95_MOSI, RF95_NSS);
     #endif
 
+    #ifdef BOARD_STICK_V3
+        SPI.begin(RF95_SCK, RF95_MISO, RF95_MOSI, RF95_NSS);
+    #endif
+
     bool bSETGPS_POWER=false;
 
     #if defined(ENABLE_GPS)
@@ -738,7 +742,7 @@ void esp32setup()
 
     initDisplay();
 
-    #if defined(BOARD_HELTEC_V3)
+    #if defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3)
     delay(500);
     #endif
 
@@ -1194,6 +1198,8 @@ void esp32_write_ble(uint8_t confBuff[300], uint8_t conf_len)
 
 void esp32loop()
 {
+    loop_onebutton();
+
     #ifdef LED_PIN
         if(bLED_GREEN || bLED_RED || bLED_BLUE || bLED_ORANGE || bLED_WEISS || bLED_CLEAR || bLED_DELAY)
         {
@@ -1684,8 +1690,6 @@ void esp32loop()
             }
         }
     #endif
-
-    loop_onebutton();
 
     #if defined (ANALOG_PIN)
         loop_ADCFunctions();    // OE3WAS
