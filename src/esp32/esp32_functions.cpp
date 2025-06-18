@@ -124,7 +124,9 @@ void startDisplay(char line1[20], char line2[20], char line3[20])
     do
     {
         
-        #if defined (BOARD_STICK_V3)
+        #if defined (BOARD_TRACKER)
+//TODO
+        #elif defined (BOARD_STICK_V3)
             u8g2->setFont(u8g2_font_6x10_tf);
             u8g2->drawStr(36, 42, "MeshCom 4");
             sprintf(cvers, "%s/%s %s", SOURCE_VERSION, SOURCE_VERSION_SUB, getCountry(meshcom_settings.node_country).c_str());

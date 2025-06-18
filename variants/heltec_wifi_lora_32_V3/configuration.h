@@ -5,9 +5,6 @@ definitions for HELTEC_V3
 #pragma once
 
 #include <Arduino.h>
-
-#define ENABLE_SBUFFER
-
 #include <configuration_global.h>
 
 // HELTEC_V3 specific config
