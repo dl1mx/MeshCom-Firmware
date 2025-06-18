@@ -178,6 +178,8 @@ int dzeile[6] = {16, 41, 61, 81, 101, 121};
 int dzeile[6] = {11, 24, 34, 44, 54, 64};
 #elif defined (BOARD_STICK_V3)
 int dzeile[6] = {42, 52, 62, 0, 0, 0};
+#elif defined (BOARD_TRACKER)
+int dzeile[6] = {42, 52, 62, 0, 0, 0};
 #else
 int dzeile[6] = {8, 21, 31, 41, 51, 61};
 #endif
@@ -191,6 +193,9 @@ U8G2 *u8g2;
     U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2_1(U8G2_R0, 18, 17, 21);
     U8G2_SH1106_128X64_NONAME_1_SW_I2C u8g2_2(U8G2_R0, 18, 17, 21);
 #elif defined(BOARD_STICK_V3)
+    U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2_1(U8G2_R0, 18, 17, 21);
+    U8G2_SH1106_128X64_NONAME_1_SW_I2C u8g2_2(U8G2_R0, 18, 17, 21);
+#elif defined(BOARD_TRACKER)
     U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2_1(U8G2_R0, 18, 17, 21);
     U8G2_SH1106_128X64_NONAME_1_SW_I2C u8g2_2(U8G2_R0, 18, 17, 21);
 #elif defined(BOARD_RAK4630)
@@ -534,6 +539,10 @@ int esp32_isSSD1306(int address)
         return 1;
     #endif
 
+    #if defined (BOARD_TRACKER)
+        return 1;
+    #endif
+
     TwoWire *w = NULL;
 
     w = &Wire;
@@ -708,7 +717,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
                     e290_display.update();
             }
             
-        #elif defined BOARD_STICK_V3
+        #elif defined (BOARD_STICK_V3) || defined (BOARD_TRACKER)
 
         u8g2->firstPage();
         do

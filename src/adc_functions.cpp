@@ -1,9 +1,8 @@
 #include "configuration.h"
-#include "loop_functions.h"
 #include "loop_functions_extern.h"
 
+#include "loop_functions.h"
 #include <command_functions.h>
-#include <configuration.h>
 #include <adc_functions.h>
 
 // ADC general variables
