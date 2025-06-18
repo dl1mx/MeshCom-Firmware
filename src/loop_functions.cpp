@@ -739,9 +739,17 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
                     else
                     {
                         if(its == 0)
-                            snprintf(ptext, sizeof(ptext), "%-10.10s", pageText[its]+6);
+                        {
+                            if(memcmp(pageText[its], "GM", 2) == 0 || pageText[its][0] == '4')
+                                snprintf(ptext, sizeof(ptext), "%-10.10s", pageText[its]+6);
+                            else
+                                snprintf(ptext, sizeof(ptext), "%-10.10s", pageText[its]);
+                        }
                         else
                         {
+                            if(memcmp(pageText[its], "LAT:", 4) == 0)
+                                snprintf(ptext, sizeof(ptext), "%-4.4s %-5.5s", pageText[its]+5, pageText[its+1]+4);
+                            else
                             if(pageText[its][5] == ':')
                                 snprintf(ptext, sizeof(ptext), "%-10.10s", pageText[its]+7);
                             else
