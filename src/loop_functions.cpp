@@ -725,6 +725,8 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
             if(pageLineAnz > 0)
             {
                 int inz=0;
+                
+                u8g2->setFont(u8g2_font_6x10_tf);
 
                 for(int its=0;its<pageLineAnz;its++)
                 {
