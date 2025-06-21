@@ -13,9 +13,7 @@
 #endif
 
 // OLED Display 1306 128 x 64 px
-#ifdef HAST_TFT
 #include <U8g2lib.h>
-#endif
 
 unsigned long getUnixClock();
 
