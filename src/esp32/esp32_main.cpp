@@ -50,6 +50,7 @@
 #include <adc_functions.h>
 #include <lora_setchip.h>
 #include "esp32_functions.h"
+#include "tft_display_functions.h"
 
 #ifndef BOARD_TLORA_OLV216
     #include <lora_setchip.h>
@@ -578,6 +579,19 @@ void esp32setup()
     // Initialize battery reading
 	init_batt();
 
+    #ifdef VEXT_CTRL
+        pinMode(VEXT_CTRL, OUTPUT);
+    #endif
+
+    #ifdef ADC_CTRL
+        pinMode(ADC_CTRL, OUTPUT);
+    #endif
+        
+    #if defined(BOARD_TRACKER)
+        digitalWrite(VEXT_CTRL, HIGH);   // HWT needs this for GPS and TFT Screen
+        digitalWrite(ADC_CTRL, HIGH);
+    #endif
+
     #ifdef LED_PIN
         pixels.begin();
         Serial.println("[INIT]...NEOPIXEL set");
@@ -643,10 +657,6 @@ void esp32setup()
     #endif
 
     #ifdef BOARD_STICK_V3
-        SPI.begin(RF95_SCK, RF95_MISO, RF95_MOSI, RF95_NSS);
-    #endif
-
-    #ifdef BOARD_TRACKER
         SPI.begin(RF95_SCK, RF95_MISO, RF95_MOSI, RF95_NSS);
     #endif
 
@@ -733,7 +743,7 @@ void esp32setup()
     //
     ////////////////////////////////////////////////////////////////////
 
-    #if defined(BOARD_E22) || defined(BOARD_E220)  || defined(BOARD_E22_S3)
+    #if defined(BOARD_E22) || defined(BOARD_E220) || defined(BOARD_E22_S3)
         // if RESET Pin is connected
         pinMode(LORA_RST, PULLUP);
         digitalWrite(LORA_RST, LOW);
@@ -744,13 +754,24 @@ void esp32setup()
         radio.setRfSwitchPins(E22_RXEN, E22_TXEN);
     #endif
 
-    initDisplay();
+    #ifdef HAS_TFT
+        initTFT();
+    #else
+        initDisplay();
+    #endif
 
-    #if defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3) || defined(BOARD_TRACKER)
+    #if defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3)
     delay(500);
     #endif
 
-    startDisplay((char*)"...starting now", (char*)"@by icssw.org", (char*)"OE1KBC, OE1KFR");
+    #ifdef HAS_TFT
+        char cvers[22];
+        sprintf(cvers, "  FW %s/%-1.1s <%s>", SOURCE_VERSION, SOURCE_VERSION_SUB, getCountry(meshcom_settings.node_country).c_str());
+        String  version = cvers;
+        displayTFT(" MeshCom 4.0 ", version, "  ...starting now", "  @by icssw.org", "  OE1KBC, OE1KFR", 5000);
+    #else
+        startDisplay((char*)"...starting now", (char*)"@by icssw.org", (char*)"OE1KBC, OE1KFR");
+    #endif
 
     //LORA CHIP present
     bRadio = false;
@@ -791,12 +812,14 @@ void esp32setup()
 
     Serial.print(F(" Initializing ... "));
 
-    int state = RADIOLIB_ERR_UNKNOWN;
-    
+    #ifdef BOARD_TRACKER
+        SPI.begin(RADIO_SCLK_PIN, RADIO_MISO_PIN, RADIO_MOSI_PIN);
+    #endif
+
     #if defined(BOARD_E220)
-        state = radio.begin(434.0F, 125.0F, 9, 7, SYNC_WORD_SX127x, 10, LORA_PREAMBLE_LENGTH, /*float tcxoVoltage = 0*/ 1.6F, /*bool useRegulatorLDO = false*/ false);
+        int state = radio.begin(434.0F, 125.0F, 9, 7, SYNC_WORD_SX127x, 10, LORA_PREAMBLE_LENGTH, /*float tcxoVoltage = 0*/ 1.6F, /*bool useRegulatorLDO = false*/ false);
     #else
-        state = radio.begin();
+        int state = radio.begin();
     #endif
     
     if (state == RADIOLIB_ERR_NONE)
@@ -1006,7 +1029,9 @@ void esp32setup()
             
             //KBC 0801 radio.setPacketSentAction(setFlagSent);
 
-            //KBC 0801 radio.setDio1Action(setFlagSent);
+            #if defined (BOARD_TRACKER)
+                radio.setDio1Action(setFlagSent);
+            #endif
 
             // start scanning the channel
             Serial.print(F("[LoRa]...Starting to listen ... "));
