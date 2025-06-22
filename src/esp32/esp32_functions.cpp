@@ -14,7 +14,10 @@
 
 #include "esp32_flash.h"
 
-#ifdef BOARD_E290
+#if defined BOARD_TRACKER
+#elif defined(BOARD_T_DECK)
+#elif defined(BOARD_T_DECK_PLUS)
+#elif defined BOARD_E290
 #include "heltec-eink-modules.h"
 
 extern EInkDisplay_VisionMasterE290 e290_display;
@@ -24,24 +27,16 @@ extern EInkDisplay_VisionMasterE290 e290_display;
 #include "Fonts/FreeSans12pt7b.h"
 #include "Fonts/FreeSans18pt7b.h"
 
-#endif
-
-#ifdef BOARD_E290
 #else
-
-#include <U8g2lib.h>
-
-extern U8G2 *u8g2;
-extern U8G2 u8g2_1;
-extern U8G2 u8g2_2;
-
-#endif
-
-#include "esp32_functions.h"
+    #include <U8g2lib.h>
+    extern U8G2 *u8g2;
+    extern U8G2 u8g2_1;
+    extern U8G2 u8g2_2;
+#endif   
 
 void initDisplay()
 {
-#if ! defined(BOARD_E290) && ! defined(BOARD_T_DECK) && ! defined(BOARD_T_DECK_PLUS)
+#if ! defined(BOARD_E290) && ! defined(BOARD_T_DECK) && ! defined(BOARD_T_DECK_PLUS) && ! defined(BOARD_TRACKER)
     Serial.println(F("[INIT]...Auto detecting display:"));
         
     int idtype = esp32_isSSD1306(0x3C);
@@ -109,7 +104,7 @@ void startDisplay(char line1[20], char line2[20], char line3[20])
 
     e290_display.update();
 
-    #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+    #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_TRACKER)
     // do nothing
     #else
 
