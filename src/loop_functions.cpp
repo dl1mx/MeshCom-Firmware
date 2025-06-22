@@ -20,6 +20,8 @@
 #include <t-deck/lv_obj_functions.h>
 #endif 
 
+#include "tft_display_functions.h"
+
 // TinyGPS
 extern TinyGPSPlus tinyGPSPLus;
 
@@ -178,11 +180,13 @@ int dzeile[6] = {16, 41, 61, 81, 101, 121};
 int dzeile[6] = {11, 24, 34, 44, 54, 64};
 #elif defined (BOARD_STICK_V3)
 int dzeile[6] = {42, 52, 62, 0, 0, 0};
-#elif defined (BOARD_TRACKER)
-int dzeile[6] = {42, 52, 62, 0, 0, 0};
 #else
 int dzeile[6] = {8, 21, 31, 41, 51, 61};
 #endif
+
+#if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK) && !defined (BOARD_T_DECK_PLUS)
+
+#include <U8g2lib.h>
 
 U8G2 *u8g2;
 
@@ -195,9 +199,6 @@ U8G2 *u8g2;
 #elif defined(BOARD_STICK_V3)
     U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2_1(U8G2_R0, 18, 17, 21);
     U8G2_SH1106_128X64_NONAME_1_SW_I2C u8g2_2(U8G2_R0, 18, 17, 21);
-#elif defined(BOARD_TRACKER)
-    U8G2_SSD1306_128X64_NONAME_1_SW_I2C u8g2_1(U8G2_R0, 18, 17, 21);
-    U8G2_SH1106_128X64_NONAME_1_SW_I2C u8g2_2(U8G2_R0, 18, 17, 21);
 #elif defined(BOARD_RAK4630)
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2_1(U8G2_R0);  //RESET CLOCK DATA
     U8G2_SH1106_128X64_NONAME_F_HW_I2C u8g2_2(U8G2_R0);  //RESET CLOCK DATA
@@ -207,6 +208,8 @@ U8G2 *u8g2;
 #else
     U8G2_SSD1306_128X64_NONAME_1_HW_I2C u8g2_1(U8G2_R0);
     U8G2_SH1106_128X64_NONAME_1_HW_I2C u8g2_2(U8G2_R0);
+#endif
+
 #endif
 
 unsigned int msg_counter = 0;
@@ -605,14 +608,16 @@ void E290DisplayUpdate()
 
 void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
 {
-    #ifndef BOARD_E290
+    #if !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS)
+
+    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER)
         if(u8g2 == NULL)
             return;
     #endif
 
 	if(bClear || (x == 0 && y== 0) || (x == 0 && memcmp(text, "#F", 2) == 0))
     {
-        #ifdef BOARD_E290
+        #if defined (BOARD_E290)
             e290_display.clearMemory();
 
         	if(memcmp(text, "#F", 2) == 0)
@@ -623,6 +628,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
             e290_display.fastmodeOn();
             
             e290_display.setFont(&FreeMonoBold12pt7b);
+        #elif defined(BOARD_TRACKER)
         #else
             u8g2->setFont(u8g2_font_6x10_mf);
         #endif
@@ -717,7 +723,37 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
                     e290_display.update();
             }
             
-        #elif defined (BOARD_STICK_V3) || defined (BOARD_TRACKER)
+        #elif defined (BOARD_TRACKER)
+
+        if(pageLineAnz > 0)
+        {
+            int ianz=0;
+
+            String strLine[7];
+
+            for(int its=0;its<pageLineAnz;its++)
+            {
+                // Save last Text (init)
+                if(iDisplayType == 0 && bNeu)
+                {
+                    pageLastLineAnz[pageLastPointer] = pageLineAnz;
+                    pageLastLine[pageLastPointer][its][0] = pageLine[its][0];
+                    pageLastLine[pageLastPointer][its][1] = pageLine[its][1];
+                    pageLastLine[pageLastPointer][its][2] = pageLine[its][2];
+                    memcpy(pageLastText[pageLastPointer][its], pageText[its], 25);
+                }
+
+                if(memcmp(pageText[its], "#L", 2) != 0)
+                {
+                    strLine[ianz] = pageText[its];
+                    ianz++;
+                }
+            }
+
+            displayTFT(strLine[0], strLine[1], strLine[2], strLine[3], strLine[4], strLine[5], 0);
+        }
+
+        #elif defined (BOARD_STICK_V3)
 
         u8g2->firstPage();
         do
@@ -832,6 +868,8 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
             pageLastLineAnz[pageLastPointer] = 0;   // nächsten Ringplatz frei machen
         }
     }
+
+    #endif
 }
 
 void sendDisplayHead(bool bInit)
@@ -966,12 +1004,13 @@ void sendDisplayTime()
             pagePointer=PAGE_MAX-1;
     }
 
-    #ifndef BOARD_E290
+    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS)
+
         if(u8g2 == NULL)
             return;
     #endif
 
-    #ifdef BOARD_E290
+    #if defined (BOARD_E290) || defined (BOARD_TRACKER) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS)
         return;
     #endif
 
@@ -1012,7 +1051,7 @@ void sendDisplayTime()
     pageLine[0][0] = 3;
     pageLine[0][1] = dzeile[0];
 
-    #ifndef BOARD_E290
+    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER)
         sendDisplay1306(false, true, 3, dzeile[0], print_text);
     #endif
 
