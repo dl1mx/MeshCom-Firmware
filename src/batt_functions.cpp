@@ -43,7 +43,7 @@ uint32_t vbat_pin = BATTERY_PIN;
 
 #endif
 
-#if defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3) || defined(BOARD_TRACKER)
+#if defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3)
 
 uint32_t vbat_pin = BATTERY_PIN;
 
@@ -64,6 +64,7 @@ uint32_t vbat_pin = BATTERY_PIN;
 #define DEFAULT_VREF    1100        //Use adc2_vref_to_gpio() to obtain a better estimate
 #define NO_OF_SAMPLES   64          //Multisampling
 
+#ifndef BOARD_TRACKER
 //static
 esp_adc_cal_characteristics_t adc_chars[sizeof(esp_adc_cal_characteristics_t)];
 
@@ -93,12 +94,15 @@ adc_bits_width_t width = ADC_WIDTH_BIT_12;
 
 #endif
 
+#endif
+
 #if defined(BOARD_TBEAM) || defined(BOARD_SX1268)
 //static const
 adc_atten_t atten = ADC_ATTEN_DB_0;
 //static const
 adc_unit_t unit = ADC_UNIT_2;
-#elif defined(BOARD_HELTEC) || defined(BOARD_STICK_V3) || defined(BOARD_TRACKER)
+#elif defined(BOARD_TRACKER)
+#elif defined(BOARD_HELTEC) || defined(BOARD_STICK_V3)
 //static const
 adc_atten_t atten = ADC_ATTEN_DB_0;
 //static const
@@ -195,7 +199,7 @@ void init_batt(void)
     Serial.println("[INIT]...init_batt");
 
 // getht für HELTEC V3 und für V3.2  wichtig für Display
-#if defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3) || defined(BOARD_TRACKER)
+#if defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3)
 	pinMode(36,OUTPUT);
 	digitalWrite(36, LOW);
 
@@ -228,6 +232,8 @@ void init_batt(void)
 	analogSetAttenuation(ADC_0db);
 
 	analogReadResolution(12);
+
+#elif defined(BOARD_TRACKER)
 
 #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
 // NONE
@@ -310,7 +316,25 @@ float read_batt(void)
         uint16_t adcValue = analogRead(vbat_pin);
         raw = adcValue;
 
-	#elif defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3) || defined(BOARD_TRACKER)
+	// TRACKER
+	#elif defined(BOARD_TRACKER)
+		#ifdef BATTERY_PIN
+			int adc_value = analogRead(BATTERY_PIN);
+
+			double voltage = (adc_value * 3.3 ) / 4095.0;
+			
+			double inputDivider = (1.0 / (390.0 + 100.0)) * 100.0;  // The voltage divider is a 390k + 100k resistor in series, 100k on the low side. 
+
+			float milliVolt = ((voltage / inputDivider) + 0.285)*1000.0;
+			
+			is_receiving = false;
+			
+			return milliVolt; // Yes, this offset is excessive, but the ADC on the ESP32s3 is quite inaccurate and noisy. Adjust to own measurements.
+		#else
+			is_receiving = false;
+			return (float)0.0;
+		#endif
+	#elif defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3)
 
 		// ADC resolution
 		const int resolution = 12;
@@ -393,9 +417,9 @@ float read_batt(void)
 	#elif defined(BOARD_HELTEC)
 		raw = raw * 24.80;
 	#elif defined(BOARD_HELTEC_V3) || defined(BOARD_STICK_V3) || defined(BOARD_TRACKER)
-		// al done
+		// all done
 	#elif defined(BOARD_E22_S3)
-		// al done
+		// all done
 	#elif defined(BOARD_TLORA_OLV216)
 		raw = raw * 1000.0; // convert to volt
 	#elif defined(BOARD_E290)
@@ -448,6 +472,8 @@ uint8_t mv_to_percent(float mvolts)
 	}
 
 	mvolts -= max_batt * 0.857F;	// 3600
+
+	uint8_t rproz = 10 + (mvolts * 0.15F);
 	
-	return 10 + (mvolts * 0.15F); // thats mvolts /6.66666666
+	return rproz;
 }

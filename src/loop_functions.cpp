@@ -1028,7 +1028,7 @@ void sendDisplayTime()
     bSetDisplay = true;
 
     char print_text[500];
-    char cbatt[6];
+    char cbatt[10];
 
     if(bDisplayVolt)
         snprintf(cbatt, sizeof(cbatt), "%4.2fV", global_batt/1000.0);
@@ -1379,6 +1379,35 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     strcpy(pageLastTextLong2[pagePointer], strAscii.c_str());
 
     e290_display.update();
+
+    #elif defined(BOARD_TRACKER)
+
+    sendDisplay1306(false, true, 0, dzeile[0], (char*)"#F");    // not fastmode for CET display
+
+    String strPath = "M* <" + aprsmsg.msg_source_call + ">";
+    // DM
+    if(CheckGroup(aprsmsg.msg_destination_path))
+    {
+        strPath = "GM" + aprsmsg.msg_destination_path + " <" + aprsmsg.msg_source_call + ">";
+    }
+    else
+        if(aprsmsg.msg_destination_path != "*")
+        {
+            strPath = "DM <" + aprsmsg.msg_source_call + ">";
+        }
+
+    if(strPath.length() < (20-4))
+        snprintf(msg_text, sizeof(msg_text), "%s <%i>", strPath.c_str(), rssi);
+    else
+        snprintf(msg_text, sizeof(msg_text), "%s", strPath.c_str());
+
+    msg_text[20]=0x00;
+
+    String strAscii = "";//aprsmsg.msg_payload;
+
+    strAscii = utf8ascii(aprsmsg.msg_payload);
+
+    displayTFT(strPath, strAscii);
 
     #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     

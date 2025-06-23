@@ -12,13 +12,14 @@
 #include <TinyGPSPlus.h>
 #include <command_functions.h>
 
-#define GPS_BAUDRATE 9600
+#define GPS_DEFAULT_BAUDRATE 9600
 
-//    #define GPS_SERIAL_NUM 2
-//    HardwareSerial GPS(GPS_SERIAL_NUM);
-
+#if defined (BOARD_TRACKER)
+    HardwareSerial GPS(1);
+#else
 #include "SoftwareSerial.h"
-SoftwareSerial GPS(GPS_RX_PIN, GPS_TX_PIN);
+    SoftwareSerial GPS(GPS_RX_PIN, GPS_TX_PIN);
+#endif
 
 
 #if defined(XPOWERS_CHIP_AXP192) || defined(XPOWERS_CHIP_AXP2101)
@@ -361,8 +362,6 @@ void setupPMU(bool bGPSPOWER)
 
 unsigned int readGPS(void)
 {
-    //Serial.println("readGPS");
-
     #if defined(GPS_WAKEUP)
         pinMode(GPS_WAKEUP, OUTPUT);
         digitalWrite(GPS_WAKEUP, HIGH);
@@ -400,7 +399,7 @@ unsigned int readGPS(void)
 
     if(bGPSDEBUG)
     {
-        Serial.printf("newData:%i SAT:%d Fix:%d UPD:%d VAL:%d HDOP:%i\n", newData, tinyGPSPlus.satellites.value(), tinyGPSPlus.sentencesWithFix(), tinyGPSPlus.location.isUpdated(), tinyGPSPlus.location.isValid(), tinyGPSPlus.hdop.value());
+        Serial.printf("newData:%i SAT:%d Fix:%d UPD:%d VAL:%d HDOP:%i TIMEVAL:%i\n", newData, tinyGPSPlus.satellites.value(), tinyGPSPlus.sentencesWithFix(), tinyGPSPlus.location.isUpdated(), tinyGPSPlus.location.isValid(), tinyGPSPlus.hdop.value(), tinyGPSPlus.time.isValid());
     }
 
     if(tinyGPSPlus.date.year() > 2023 && tinyGPSPlus.time.isValid())
@@ -513,18 +512,34 @@ unsigned int getGPS(void)
         */
     }
 
+    #if defined (BOARD_TRACKER)
+        if(GPS.available())
+        {
+            return readGPS();
+        }
+        
+        GPS.begin(GPS_BAUDRATE, SERIAL_8N1, GPS_TX_PIN, GPS_RX_PIN);
+        
+        return POSINFO_INTERVAL;
+    #endif
+
+    int gpsBaudrate = GPS_DEFAULT_BAUDRATE;
+    #if defined GPS_BAUDRATE
+        gpsBaudrate = GPS_BAUDRATE;
+    #endif
+
     switch (state)
     {
         case 0: // auto-baud connection, then switch to 38400 and save config
             do
             {
-                Serial.printf("GPS: trying 9600 baud <%i>\n", maxStateCount);
+                Serial.printf("GPS: trying %i baud <%i>\n", gpsBaudrate, maxStateCount);
 
-                GPS.begin(9600);
+                GPS.begin(gpsBaudrate);
 
                 if (myGPS.begin(GPS))
                 {
-                    Serial.println("GPS: connected at 9600 baud");
+                    Serial.printf("GPS: connected at %i baud\n", gpsBaudrate);
                     maxStateCount=1;
                     break;
                 }
@@ -608,7 +623,7 @@ unsigned int getGPS(void)
 
                 myGPS.hardReset();
                 delay(3000);
-                GPS.begin(9600);
+                GPS.begin(gpsBaudrate);
 
                 if (myGPS.begin(GPS))
                 {
@@ -616,7 +631,7 @@ unsigned int getGPS(void)
                 }
                 else
                 {
-                    Serial.println("*** GPS did not respond at 9600 baud, starting over.");
+                    Serial.printf("*** GPS did not respond at %i baud, starting over.\n", gpsBaudrate);
                     state = 2;
                     //bMitHardReset=false;
                     break;
@@ -627,20 +642,20 @@ unsigned int getGPS(void)
 
             break;
             
-        case 2: // factoryReset, expect to see GPS back at 9600 baud
+        case 2: // factoryReset, expect to see GPS back at gpsBaudrate baud
             if(bMitHardReset)
             {
                 Serial.println("Issuing factoryReset");
 
                 myGPS.factoryReset();
                 delay(3000); // takes more than one second... a loop to resync would be best
-                GPS.begin(9600);
+                GPS.begin(gpsBaudrate);
 
                 if (myGPS.begin(GPS))
                 {
                     Serial.println("Success.");
                 } else {
-                    Serial.println("*** GPS did not come back at 9600 baud, starting over.");
+                    Serial.printf("*** GPS did not come back at %i baud, starting over.\n", gpsBaudrate);
                     state = 0;
                     bMitHardReset=false;
                     break;

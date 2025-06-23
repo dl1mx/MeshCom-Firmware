@@ -86,6 +86,7 @@ definitions for HELTEC_V3
 
 #define GPS_RX_PIN 34 //*
 #define GPS_TX_PIN 33 //*
+#define GPS_BAUDRATE 115200 //*
 
 #define VEXT_CTRL   3   // To turn on GPS and TFT
 #define ADC_CTRL    2   // ADC_CTRL = HIGH
