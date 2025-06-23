@@ -1563,7 +1563,7 @@ void esp32loop()
 
     // !posinfo_fix && !bNTPDateTimeValid
     // Time NTP
-    if(meshcom_settings.node_hasIPaddress)
+    if(meshcom_settings.node_hasIPaddress && !posinfo_fix)
     {
         strTime = "none";
 
@@ -2026,6 +2026,8 @@ void esp32loop()
                 if(bDisplayCont)
                     Serial.printf("[readBatteryVoltage]...PMU.volt %.1f PMU.proz %i %i\n", global_batt, global_proz, pmu_proz);
             #else
+            
+            //#ifndef BOARD_TRACKER
                 global_batt = read_batt();
                 global_proz = mv_to_percent(global_batt);
                 
@@ -2033,10 +2035,12 @@ void esp32loop()
                 {
                     Serial.printf("[readBatteryVoltage]...volt %.2f proz %i max_batt %.3f\n", global_batt/1000., global_proz, meshcom_settings.node_maxv);
                 }
+            //#endif
 
                 #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
                 tdeck_update_batt_label(global_batt/1000., global_proz);
                 #endif 
+            
             #endif
 
             if(bDisplayCont)

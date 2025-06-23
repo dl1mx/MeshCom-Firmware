@@ -132,6 +132,29 @@
         sprite.createSprite(160,80);
     }
 
+    void displayTFT(const String& header, const String& line)
+    {
+        #ifdef HAS_TFT
+            sprite.fillSprite(TFT_BLACK); 
+            sprite.fillRect(0, 0, 160, 19, redColor);
+            sprite.setTextFont(0);
+            sprite.setTextSize(bigSizeFont);
+            sprite.setTextColor(TFT_WHITE, redColor);
+            sprite.drawString(header, 3, 3);
+
+            sprite.setTextSize(smallSizeFont);
+            sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+
+            int yLineOffset = (lineSpacing * 2) - 2;
+
+            sprite.setCursor(2, yLineOffset);
+
+            sprite.println(line);
+
+            sprite.pushSprite(0,0);
+        #endif
+    }
+
     void displayTFT(const String& header, const String& line1, const String& line2, const String& line3, const String& line4, int wait)
     {
         #ifdef HAS_TFT
