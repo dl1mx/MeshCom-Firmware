@@ -843,10 +843,20 @@ void NrfETH::startUDP()
 
   if (local_addr[0] == 44 || meshcom_settings.node_hamnet_only)
   {
-    if(bDisplayCont)
-      Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.143.8.143");
+    if(memcmp(meshcom_settings.node_gwsrv, "DL", 2) == 0)
+    {
+      if(bDisplayCont)
+        Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.148.230.197");
 
-    udp_dest_addr = IPAddress(44, 143, 8, 143);
+      udp_dest_addr = IPAddress(44, 148, 230, 197);
+    }
+    else
+    {
+      if(bDisplayCont)
+        Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.143.8.143");
+
+      udp_dest_addr = IPAddress(44, 143, 8, 143);
+    }
 
     //DEBUG_MSG("NTP", "Setting Hamnet NTP");
     timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));
@@ -920,10 +930,20 @@ void NrfETH::startFIXUDP()
 
   if (memcmp(meshcom_settings.node_ip, "44", 2) == 0 || meshcom_settings.node_hamnet_only)
   {
-    if(bDisplayCont)
-      Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.143.8.143");
+    if(memcmp(meshcom_settings.node_gwsrv, "DL", 2) == 0)
+    {
+      if(bDisplayCont)
+        Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.148.230.197");
 
-    udp_dest_addr = IPAddress(44, 143, 8, 143);
+      udp_dest_addr = IPAddress(44, 148, 230, 197);
+    }
+    else
+    {
+      if(bDisplayCont)
+        Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.143.8.143");
+
+      udp_dest_addr = IPAddress(44, 143, 8, 143);
+    }
 
     //DEBUG_MSG("NTP", "Setting Hamnet NTP");
     timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));

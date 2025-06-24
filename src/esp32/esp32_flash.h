@@ -141,6 +141,8 @@ struct s_meshcom_settings
 	float node_analog_offset = 0.0;
 	float node_analog_atten = 0.0;
 
+	char node_gwsrv[3] = {0x00};
+
 	// nicht im Flash
 	int node_press_alt = 0;
 	float node_press_asl = 0;

@@ -26,6 +26,9 @@ void btn_event_handler_dropdown_modusselect(lv_event_t * e);
 void btn_event_handler_send(lv_event_t * e);
 void btn_event_handler_clear(lv_event_t * e);
 void btn_event_handler_up(lv_event_t * e);
+void btn_event_handler_sendpos(lv_event_t * e);
+void btn_event_handler_zoomin(lv_event_t * e);
+void btn_event_handler_zoomout(lv_event_t * e);
 
 void handleTrackballPressEvent(AceButton *, uint8_t eventType, uint8_t);
 

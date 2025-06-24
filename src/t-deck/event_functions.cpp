@@ -679,6 +679,63 @@ void btn_event_handler_up(lv_event_t * e)
 }
 
 /**
+ * Handler for sending position
+ */
+void btn_event_handler_sendpos(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if(code == LV_EVENT_CLICKED)
+    {
+        if(bDisplayCont)
+            Serial.println("sendpos Clicked");
+
+        if(bDisplayTrack)
+            commandAction((char*)"--sendtrack", false);
+        else
+            commandAction((char*)"--sendpos", false);
+    }
+}
+
+/**
+ * Handler for sending position
+ */
+void btn_event_handler_zoomin(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if(code == LV_EVENT_CLICKED)
+    {
+        if(bDisplayCont)
+            Serial.println("zoomin Clicked");
+
+        if (meshcom_settings.node_map < MAX_MAP-1)
+            meshcom_settings.node_map++;
+
+        set_map(meshcom_settings.node_map);
+    }
+}
+
+/**
+ * Handler for sending position
+ */
+void btn_event_handler_zoomout(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if(code == LV_EVENT_CLICKED)
+    {
+        if(bDisplayCont)
+            Serial.println("zoomout Clicked");
+
+        if (meshcom_settings.node_map > 0)
+            meshcom_settings.node_map--;
+        
+        set_map(meshcom_settings.node_map);
+    }
+}
+
+/**
  * event handler for tabview changes
  */
 void tabview_event_cb(lv_event_t * e)

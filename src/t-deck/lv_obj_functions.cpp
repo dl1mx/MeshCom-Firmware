@@ -781,10 +781,27 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_img_set_src(map_ta, &map_europe);
     lv_obj_align(map_ta, LV_ALIGN_CENTER, 0, 0);
     lv_obj_align(map_ta, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_set_size(map_ta, 310, LV_VER_RES * 0.74);
+    lv_obj_set_size(map_ta, 300, LV_VER_RES * 0.74);
     
     lv_obj_align(map_ta, LV_ALIGN_CENTER, 0, 0);
 
+    lv_obj_t * btzoomout = lv_btn_create(t7);
+    lv_obj_set_pos(btzoomout, 240, 135);
+    lv_obj_set_size(btzoomout, 20, 20);
+    lv_obj_add_event_cb(btzoomout, btn_event_handler_zoomout, LV_EVENT_ALL, NULL);
+
+    lv_obj_t * btnlabelzoomout = lv_label_create(btzoomout);
+    lv_label_set_text(btnlabelzoomout, "-");
+    lv_obj_center(btnlabelzoomout);
+
+    lv_obj_t * btzoomin = lv_btn_create(t7);
+    lv_obj_set_pos(btzoomin, 270, 135);
+    lv_obj_set_size(btzoomin, 20, 20);
+    lv_obj_add_event_cb(btzoomin, btn_event_handler_zoomin, LV_EVENT_ALL, NULL);
+
+    lv_obj_t * btnlabelzoomin = lv_label_create(btzoomin);
+    lv_label_set_text(btnlabelzoomin, "+");
+    lv_obj_center(btnlabelzoomin);
     
     ////////////////////////////////////////////////////////////////////////////
     // TRACK POSITION
@@ -792,11 +809,20 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_textarea_set_cursor_click_pos(track_ta, false);
     lv_textarea_set_text_selection(track_ta, false);
     lv_textarea_set_cursor_pos(track_ta, 0);
-    lv_obj_set_size(track_ta, 310, LV_VER_RES * 0.74);
+    lv_obj_set_size(track_ta, 300, LV_VER_RES * 0.72);
     lv_textarea_set_text(track_ta, "");
     lv_textarea_set_max_length(track_ta, 1000);
     lv_obj_align(track_ta, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_style(track_ta, &tr_style, LV_PART_MAIN);
+
+    lv_obj_t * btsendpos = lv_btn_create(t6);
+    lv_obj_set_pos(btsendpos, 200, 140);
+    lv_obj_set_size(btsendpos, 80, 20);
+    lv_obj_add_event_cb(btsendpos, btn_event_handler_sendpos, LV_EVENT_ALL, NULL);
+
+    lv_obj_t * btnlabelsendpos = lv_label_create(btsendpos);
+    lv_label_set_text(btnlabelsendpos, "SEND POS");
+    lv_obj_center(btnlabelsendpos);
 
     ////////////////////////////////////////////////////////////////////////////
     // TEXT MHEARD
@@ -1577,7 +1603,7 @@ void tdeck_refresh_TRK_view()
             }
             else
             {
-                snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nAGE  :%u\nSAT  :%u\nDIR  :%.0lf\nRATE :%4li %isec",
+                snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i\nSAT  :%u\nDIR  :%.0lf\nRATE :%4li %isec",
                 (posinfo_fix ? "fix" : "nofix"), 
                 posinfo_hdop, 
                 cDatum, 
@@ -1586,7 +1612,7 @@ void tdeck_refresh_TRK_view()
                 meshcom_settings.node_lat_c, 
                 meshcom_settings.node_lon, 
                 meshcom_settings.node_lon_c, 
-                posinfo_age,
+                meshcom_settings.node_alt,
                 posinfo_satcount,
                 posinfo_direction, 
                 posinfo_interval,

@@ -709,10 +709,20 @@ void startMeshComUDP()
     {
       if (node_ip[0] == 44 || meshcom_settings.node_hamnet_only == 1)
       {
-        // MeshCom Test-Server
-        Serial.printf("[WIFI]...Hamnet UDP-DEST 44.143.8.143");
-        node_hostip = IPAddress(44, 143, 8, 143);
-        s_node_hostip = node_hostip.toString();
+        if(memcmp(meshcom_settings.node_gwsrv, "DL", 2) == 0)
+        {
+          // MeshCom DL-Server
+          Serial.println("[WIFI]...Hamnet UDP-DEST meshcom.hamnet.cloud");
+          WiFi.hostByName("meshcom.hamnet.cloud", node_hostip);
+          s_node_hostip = node_hostip.toString();
+        }
+        else
+        {
+          // MeshCom OE-Server
+          Serial.println("[WIFI]...Hamnet UDP-DEST 44.143.8.143");
+          node_hostip = IPAddress(44, 143, 8, 143);
+          s_node_hostip = node_hostip.toString();
+        }
 
         // MeshCom NDP-Server
         // Austria
@@ -730,9 +740,18 @@ void startMeshComUDP()
       }
       else
       {
-        Serial.println("[WIFI]...Internet UDP-DEST meshcom.oevsv.at");
-        WiFi.hostByName("meshcom.oevsv.at", node_hostip);
-        s_node_hostip = node_hostip.toString();
+        if(memcmp(meshcom_settings.node_gwsrv, "DL", 2) == 0)
+        {
+          Serial.println("[WIFI]...Internet UDP-DEST DL 192.68.17.26");
+          node_hostip = IPAddress(192, 68, 17, 26);
+          s_node_hostip = node_hostip.toString();
+        }
+        else
+        {
+          Serial.println("[WIFI]...Internet UDP-DEST meshcom.oevsv.at");
+          WiFi.hostByName("meshcom.oevsv.at", node_hostip);
+          s_node_hostip = node_hostip.toString();
+        }
 
         Serial.println("[WIFI]...Internet NTP-DEST pool.ntp.org");
         IPAddress ntpServer;

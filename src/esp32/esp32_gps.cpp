@@ -411,7 +411,7 @@ unsigned int readGPS(void)
         snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
     }
 
-    if (newData && tinyGPSPlus.location.isUpdated() && tinyGPSPlus.location.isValid() && tinyGPSPlus.hdop.isValid() && tinyGPSPlus.hdop.value() < 800)
+    if (newData && tinyGPSPlus.location.isUpdated() && tinyGPSPlus.location.isValid() && tinyGPSPlus.hdop.isValid() && tinyGPSPlus.hdop.value() < 2000)
     {
         meshcom_settings.node_lat = cround4abs(tinyGPSPlus.location.lat());
         meshcom_settings.node_lon = cround4abs(tinyGPSPlus.location.lng());
@@ -454,28 +454,28 @@ unsigned int readGPS(void)
     return 0;
 }
 
-/*
-pinMode(PIN_GPS_EN, OUTPUT);
-setGPSPower(true);
+int gpsBaudrate = GPS_DEFAULT_BAUDRATE;
 
-    digitalWrite(PIN_GPS_RESET, GPS_RESET_MODE); // assert for 10ms
-    pinMode(PIN_GPS_RESET, OUTPUT);
-    delay(10);
-    digitalWrite(PIN_GPS_RESET, !GPS_RESET_MODE);
+/// @brief check GPS at Baudrate (OE3WAS)
+/// @param Baudrate 
+/// @return true if found
+bool checkGPS(uint32_t Baudrate)
+{
+    Serial.printf("GPS: trying %u baud <%i>\n", Baudrate, maxStateCount);
+    GPS.begin(Baudrate);
 
-digitalWrite(PIN_GPS_EN, on ? 1 : 0);
-
-*/
-
-/*
-// send the UBLOX Factory Reset Command regardless of detect state, something is very wrong, just assume it's UBLOX.
-// Factory Reset
-byte _message_reset[] = {0xB5, 0x62, 0x06, 0x09, 0x0D, 0x00, 0xFF, 0xFB, 0x00, 0x00, 0x00,
-                        0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00, 0x17, 0x2B, 0x7E};
-GPS.write(_message_reset, sizeof(_message_reset));
-
-delay(1000);
-*/
+    if (myGPS.begin(GPS))
+    {
+        Serial.printf("GPS: connected at %u baud\n", Baudrate);
+        gpsBaudrate = Baudrate;
+        maxStateCount=1;
+        return true;
+    }
+    myGPS.end();
+    GPS.end();
+    delay(100);
+    return false;
+}
 
 unsigned int getGPS(void)
 {
@@ -497,21 +497,6 @@ unsigned int getGPS(void)
         Serial.println(state);
     }
 
-    if(bGPSON)
-    {
-        /*
-        #if defined(XPOWERS_CHIP_AXP192)
-        PMU->enablePowerOutput(XPOWERS_LDO3);
-        #endif
-
-        #if defined(XPOWERS_CHIP_AXP2101)
-        PMU->enablePowerOutput(XPOWERS_ALDO3);
-        #endif
-
-        delay(300);
-        */
-    }
-
     #if defined (BOARD_TRACKER)
         if(GPS.available())
         {
@@ -523,72 +508,49 @@ unsigned int getGPS(void)
         return POSINFO_INTERVAL;
     #endif
 
-    int gpsBaudrate = GPS_DEFAULT_BAUDRATE;
     #if defined GPS_BAUDRATE
         gpsBaudrate = GPS_BAUDRATE;
     #endif
 
+    bool bw=true;
+
     switch (state)
     {
         case 0: // auto-baud connection, then switch to 38400 and save config
-            do
+            
+            while(bw)
             {
-                Serial.printf("GPS: trying %i baud <%i>\n", gpsBaudrate, maxStateCount);
-
-                GPS.begin(gpsBaudrate);
-
-                if (myGPS.begin(GPS))
+                if (checkGPS(gpsBaudrate))//priorisierte Baudrate zuerst testen
                 {
-                    Serial.printf("GPS: connected at %i baud\n", gpsBaudrate);
-                    maxStateCount=1;
-                    break;
-                }
-
-                delay(100);
-
-                Serial.printf("GPS: trying 38400 baud <%i>\n", maxStateCount);
-                GPS.begin(38400);
-                
-                if (myGPS.begin(GPS))
-                {
-                    Serial.println("GPS: connected at 38400 baud");
-                    maxStateCount=1;
-                    break;
+                    bw=false;
                 }
                 else
+                if (checkGPS(9600))//priorisierte Baudrate zuerst testen
                 {
-    
-                    delay(200); //Wait a bit before trying again to limit the Serial output flood
-                    maxStateCount++;
-
-                    if(maxStateCount > 3)
-                    {
-                        maxStateCount = 1;
-                        state = 0;
-
-                        bGPSON=false;
-
-                        /*
-                        #if defined(XPOWERS_CHIP_AXP192)
-                        PMU->disablePowerOutput(XPOWERS_LDO3);
-                        #endif
-
-                        #if defined(XPOWERS_CHIP_AXP2101)
-                        PMU->disablePowerOutput(XPOWERS_ALDO3);
-                        #endif
-
-                        delay(300);
-                        */
-
-                        commandAction((char*)"--gps off", true);
-                        
-                        Serial.println("GPS serial not connected (set GPS to off)");
-        
-                        break;
-                    }
+                    bw=false;
                 }
+                else
+                if (checkGPS(38400))//priorisierte Baudrate zuerst testen
+                {
+                    bw=false;
+                }
+                else
+                if (checkGPS(57600))//priorisierte Baudrate zuerst testen
+                {
+                    bw=false;
+                }
+                else
+                if (checkGPS(115200))//priorisierte Baudrate zuerst testen
+                {
+                    bw=false;
+                }
+
+                delay(200); //Wait a bit before trying again to limit the Serial output flood
+                maxStateCount++;
+
+                if(maxStateCount > 10)
+                    return POSINFO_INTERVAL;
             }
-            while(1);
 
             if(bGPSON)
             {
@@ -601,8 +563,6 @@ unsigned int getGPS(void)
                 myGPS.enableNMEAMessage(UBX_NMEA_RMC, COM_PORT_UART1);
                 delay(100);
                 myGPS.enableNMEAMessage(UBX_NMEA_VTG, COM_PORT_UART1);
-                delay(100);
-                myGPS.enableNMEAMessage(UBX_NMEA_RMC, COM_PORT_UART1);
                 delay(100);
                 myGPS.enableNMEAMessage(UBX_NMEA_GGA, COM_PORT_UART1);
                 delay(100);

@@ -58,6 +58,10 @@ struct aprsPosition
     float qnh;
     float gasres;
     float co2;
+
+    // more
+    int version;
+    int telemetry;
 };
 
 struct mheardLine

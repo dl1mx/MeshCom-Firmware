@@ -543,10 +543,14 @@ void esp32setup()
         Serial.println("WIFIAP starting...");
     }
 
+    if(meshcom_settings.node_gwsrv[0] == 0x00)
+        sprintf(meshcom_settings.node_gwsrv, "%s", "OE");
+
     // if Node is in WifiAP Mode -> no Gateway posible
     if(bWIFIAP && bGATEWAY)
     {
         bGATEWAY=false;
+        bEXTUDP=false;
     }
 
     if(bBMPON)

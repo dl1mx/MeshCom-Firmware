@@ -575,28 +575,30 @@ int esp32_isSSD1306(int address)
 
     // 0x00 == T-BEAM 1.3" 1106 !! sonst kommen artefakte
 
+    // 0x00 == T-BEAM 1.3" 1306
     // 0x16 == T-BEAM 1.3" 1306
     // 0x28 == T-BEAM 1.3" 1306
+
     // 0x28 == E22 1.3" 1306
     // 0x28 == T-BEAM 1.3" SUPREME 1306
 
     // 0x03 == T-BEAM 0.9"
-    // 0x07 == T-LORA 0.9! type 2
-    // 0x07 == T-LORA 0.9" type 2
-    // 0x09 == HELTEC V3 type 2
-    // 0x3F == HELTEC V3 type 2
+    // 0x07 == T-LORA 0.9"
+    // 0x07 == T-LORA 0.9"
+    // 0x09 == HELTEC V3
+    // 0x3F == HELTEC V3
 
     // check 1.3"
     byte checkByte = buffer[0] & 0x03f;
-    if(checkByte == 0x28 || checkByte == 0x16)
+    if(checkByte == 0x28 || checkByte == 0x16 || checkByte == 0x00)
     {
         Serial.println(F("[INIT]...OLED Display is SSD1306"));
-        return 1;
+        return 2;
     }
 
     // cheched 0.9"
     Serial.println(F("[INIT]...OLED Display is SH1106"));
-    return 2;
+    return 1;
 }
 
 void E290DisplayUpdate()
@@ -1010,7 +1012,7 @@ void sendDisplayTime()
             return;
     #endif
 
-    #if defined (BOARD_E290) || defined (BOARD_TRACKER) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS)
+    #if defined (BOARD_E290) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS)
         return;
     #endif
 
@@ -1051,7 +1053,9 @@ void sendDisplayTime()
     pageLine[0][0] = 3;
     pageLine[0][1] = dzeile[0];
 
-    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER)
+    #if defined (BOARD_TRACKER)
+        displayTFT(print_text);
+    #else
         sendDisplay1306(false, true, 3, dzeile[0], print_text);
     #endif
 
@@ -2118,7 +2122,7 @@ void sendMessage(char *msg_text, int len)
 
 }
 
-String PositionToAPRS(bool bConvPos, bool bWeather, bool bFuss, double plat, char lat_c, double plon, char lon_c, int alt,  float press, float hum, float temp, float temp2, float gasres, float co2, int qfe, float qnh)
+String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, char lat_c, double plon, char lon_c, int alt,  float press, float hum, float temp, float temp2, float gasres, float co2, int qfe, float qnh)
 {
     double lat=plat;
     if(plat < 0.0)
@@ -2165,187 +2169,200 @@ String PositionToAPRS(bool bConvPos, bool bWeather, bool bFuss, double plat, cha
     if(lat_c != 'N' && lat_c != 'S')
         lat_c = 'N';
 
-    if(bWeather)
-        snprintf(msg_start, sizeof(msg_start), "%02i%02i%02iz%07.2lf%c%c%08.2lf%c_", meshcom_settings.node_date_day, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, slat, lat_c, meshcom_settings.node_symid, slon, lon_c);
-    else
+    char cversion[5]={0};
+
+    char catxt[50]={0};
+    char cname[50]={0};
+    char cbatt[15]={0};
+    char calt[15]={0};
+    char cpress[15]={0};
+    char chum[15]={0};
+    char ctemp[15]={0};
+    char ctemp2[15]={0};
+    char cqfe[15]={0};
+    char cqnh[15]={0};
+    char cgasres[15]={0};
+    char cco2[15]={0};
+    char cgrc[50]={0};
+
+    char csfpegel[15]={0};
+    char csfpegel2[15]={0};
+    char csftemp[15]={0};
+    char csfbatt[15]={0};
+
+    char cinaU[15]={0};
+    char cinaI[15]={0};
+    
+    char ctele[15]={0};
+
+    if(strcmp(meshcom_settings.node_atxt, "none") != 0 && meshcom_settings.node_atxt[0] != 0x00)
     {
-        char cversion[5]={0};
+        snprintf(catxt,  sizeof(catxt), "%s", meshcom_settings.node_atxt);
+    }
 
-        char catxt[50]={0};
-        char cname[50]={0};
-        char cbatt[15]={0};
-        char calt[15]={0};
-        char cpress[15]={0};
-        char chum[15]={0};
-        char ctemp[15]={0};
-        char ctemp2[15]={0};
-        char cqfe[15]={0};
-        char cqnh[15]={0};
-        char cgasres[15]={0};
-        char cco2[15]={0};
-        char cgrc[50]={0};
+    if(strcmp(meshcom_settings.node_name, "none") != 0 && meshcom_settings.node_name[0] != 0x00)
+    {
+        snprintf(cname,  sizeof(cname), "#%s", meshcom_settings.node_name);
+    }
 
-        char csfpegel[15]={0};
-        char csfpegel2[15]={0};
-        char csftemp[15]={0};
-        char csfbatt[15]={0};
+    if(bSsendTele)
+    {
+        snprintf(ctele, sizeof(ctele), "/Y=1");
+    }
 
-        char cinaU[15]={0};
-        char cinaI[15]={0};
-        
-        if(strcmp(meshcom_settings.node_atxt, "none") != 0 && meshcom_settings.node_atxt[0] != 0x00)
+    // send INA226 Werte abwechselnd zu normal Pos
+    //////////
+    // TEST
+    //bINA226ON=true;
+    //meshcom_settings.node_vbus=meshcom_settings.node_vbus+1.0;
+    //meshcom_settings.node_vcurrent=meshcom_settings.node_vcurrent+1.0;
+    //////////
+
+    if(strlen(meshcom_settings.node_parm) != 0 && strcmp(meshcom_settings.node_parm, "none") != 0)
+    {
+        // keine automatischen Werte
+    }
+    else
+    if(bINA226ON)
+    {
+        snprintf(cversion, sizeof(cversion), "%s", "/V=5");
+        if(alt > 0)
         {
-            snprintf(catxt,  sizeof(catxt), "%s", meshcom_settings.node_atxt);
+            // auf Fuss umrechnen
+            if(bFuss)
+                snprintf(calt, sizeof(calt), "/A=%06i", conv_fuss(alt));
+            else
+                snprintf(calt, sizeof(calt), "/A=%05i", alt);
         }
+        snprintf(cbatt, sizeof(cbatt), "/B=%i", global_proz);
+        snprintf(cinaU, sizeof(cinaU), "/U=%.2f", meshcom_settings.node_vbus);
+        snprintf(cinaI, sizeof(cinaI), "/I=%.1f", meshcom_settings.node_vcurrent);
 
-        if(strcmp(meshcom_settings.node_name, "none") != 0 && meshcom_settings.node_name[0] != 0x00)
-        {
-            snprintf(cname,  sizeof(cname), "#%s", meshcom_settings.node_name);
-        }
-
-        // send INA226 Werte abwechselnd zu normal Pos
         //////////
         // TEST
-        //bINA226ON=true;
-        //meshcom_settings.node_vbus=meshcom_settings.node_vbus+1.0;
-        //meshcom_settings.node_vcurrent=meshcom_settings.node_vcurrent+1.0;
+        //bINA226ON=false;
         //////////
-
-        if(strlen(meshcom_settings.node_parm) != 0 && strcmp(meshcom_settings.node_parm, "none") != 0)
-        {
-            // keine automatischen Werte
-        }
-        else
-        if(bINA226ON)
-        {
-            snprintf(cversion, sizeof(cversion), "%s", "/V=5");
-            if(alt > 0)
-            {
-                // auf Fuss umrechnen
-                if(bFuss)
-                    snprintf(calt, sizeof(calt), "/A=%06i", conv_fuss(alt));
-                else
-                    snprintf(calt, sizeof(calt), "/A=%05i", alt);
-            }
-            snprintf(cbatt, sizeof(cbatt), "/B=%i", global_proz);
-            snprintf(cinaU, sizeof(cinaU), "/U=%.2f", meshcom_settings.node_vbus);
-            snprintf(cinaI, sizeof(cinaI), "/I=%.1f", meshcom_settings.node_vcurrent);
-
-            //////////
-            // TEST
-            //bINA226ON=false;
-            //////////
-        }
-        else
-        {
-            if(global_proz > 0)
-            {
-                snprintf(cbatt, sizeof(cbatt), "/B=%03d", global_proz);
-            }
-
-            if(alt > 0)
-            {
-                // auf Fuss umrechnen
-                if(bFuss)
-                    snprintf(calt, sizeof(calt), "/A=%06i", conv_fuss(alt));
-                else
-                    snprintf(calt, sizeof(calt), "/A=%05i", alt);
-            }
-
-            if(press > 0)
-            {
-                snprintf(cpress, sizeof(cpress), "/P=%.1f", press);
-                if(memcmp(cpress, "/P=nan", 6) == 0)
-                    return "";
-            }
-
-            if(hum > 0)
-            {
-                snprintf(chum, sizeof(chum), "/H=%.1f", hum);
-                if(memcmp(cpress, "/H=nan", 6) == 0)
-                    return "";
-            }
-
-            if(temp != 0)
-            {
-                snprintf(ctemp, sizeof(ctemp), "/T=%.1f", temp);
-                if(memcmp(cpress, "/T=nan", 6) == 0)
-                    return "";
-            }
-
-            if(temp2 != 0)
-            {
-                snprintf(ctemp2, sizeof(ctemp2), "/O=%.1f", temp2);
-                if(memcmp(cpress, "/O=nan", 6) == 0)
-                    return "";
-            }
-
-            if(qfe > 0)
-            {
-                snprintf(cqfe, sizeof(cqfe), "/F=%i", qfe);
-                if(memcmp(cpress, "/F=nan", 6) == 0)
-                    return "";
-            }
-
-            if(qnh > 0 && !bMCU811ON && !bBME680ON)
-            {
-                snprintf(cqnh, sizeof(cqnh), "/Q=%.1f", qnh);
-                if(memcmp(cpress, "/Q=nan", 6) == 0)
-                    return "";
-            }
-
-            if(gasres > 0 && bBME680ON)
-            {
-                snprintf(cversion, sizeof(cversion), "%s", "/V=3");
-
-                snprintf(cgasres, sizeof(cgasres), "/G=%.1f", gasres);
-                if(memcmp(cpress, "/G=nan", 6) == 0)
-                    return "";
-            }
-
-            if(co2 > 0 && bMCU811ON)
-            {
-                snprintf(cversion, sizeof(cversion),  "%s", "/V=2");
-
-                snprintf(cco2, sizeof(cco2), "/C=%.0f", co2);
-                if(memcmp(cpress, "/C=nan", 6) == 0)
-                    return "";
-            }
-        }
-
-        /////////////////////////////////////////////////////////////////
-        // send Group-Call settings zu MesCom-Server
-        String strGRC="";
-
-        char cGC[8];
-        for(int igrc=0;igrc<6;igrc++)
-        {
-            if(meshcom_settings.node_gcb[igrc] > 0 && meshcom_settings.node_gcb[igrc] < 100000)
-            {
-                snprintf(cGC, sizeof(cGC), "%i;", meshcom_settings.node_gcb[igrc]);
-                strGRC.concat(cGC);
-            }
-        }
-
-        if(strGRC.length() > 0)
-        {
-            snprintf(cgrc, sizeof(cgrc), "/R=%s", strGRC.c_str());
-        }
-        //
-        /////////////////////////////////////////////////////////////////
-
-        snprintf(msg_start, sizeof(msg_start), "%07.2lf%c%c%08.2lf%c%c%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", slat, lat_c, meshcom_settings.node_symid, slon, lon_c, meshcom_settings.node_symcd, catxt, cname, cbatt, calt, cpress, chum, ctemp, ctemp2, cqfe, cqnh, cgasres, cco2, cgrc, csfpegel, csfpegel2, csftemp, csfbatt, cversion, cinaU, cinaI);
     }
+    else
+    {
+        if(global_proz > 0)
+        {
+            snprintf(cbatt, sizeof(cbatt), "/B=%03d", global_proz);
+        }
+
+        if(alt > 0)
+        {
+            // auf Fuss umrechnen
+            if(bFuss)
+                snprintf(calt, sizeof(calt), "/A=%06i", conv_fuss(alt));
+            else
+                snprintf(calt, sizeof(calt), "/A=%05i", alt);
+        }
+
+        if(press > 0)
+        {
+            snprintf(cpress, sizeof(cpress), "/P=%.1f", press);
+            if(memcmp(cpress, "/P=nan", 6) == 0)
+                return "";
+        }
+
+        if(hum > 0)
+        {
+            snprintf(chum, sizeof(chum), "/H=%.1f", hum);
+            if(memcmp(cpress, "/H=nan", 6) == 0)
+                return "";
+        }
+
+        if(temp != 0)
+        {
+            snprintf(ctemp, sizeof(ctemp), "/T=%.1f", temp);
+            if(memcmp(cpress, "/T=nan", 6) == 0)
+                return "";
+        }
+
+        if(temp2 != 0)
+        {
+            snprintf(ctemp2, sizeof(ctemp2), "/O=%.1f", temp2);
+            if(memcmp(cpress, "/O=nan", 6) == 0)
+                return "";
+        }
+
+        if(qfe > 0)
+        {
+            snprintf(cqfe, sizeof(cqfe), "/F=%i", qfe);
+            if(memcmp(cpress, "/F=nan", 6) == 0)
+                return "";
+        }
+
+        if(qnh > 0 && !bMCU811ON && !bBME680ON)
+        {
+            snprintf(cqnh, sizeof(cqnh), "/Q=%.1f", qnh);
+            if(memcmp(cpress, "/Q=nan", 6) == 0)
+                return "";
+        }
+
+        if(gasres > 0 && bBME680ON)
+        {
+            snprintf(cversion, sizeof(cversion), "%s", "/V=3");
+
+            snprintf(cgasres, sizeof(cgasres), "/G=%.1f", gasres);
+            if(memcmp(cpress, "/G=nan", 6) == 0)
+                return "";
+        }
+
+        if(co2 > 0 && bMCU811ON)
+        {
+            snprintf(cversion, sizeof(cversion),  "%s", "/V=2");
+
+            snprintf(cco2, sizeof(cco2), "/C=%.0f", co2);
+            if(memcmp(cpress, "/C=nan", 6) == 0)
+                return "";
+        }
+    }
+
+    /////////////////////////////////////////////////////////////////
+    // send Group-Call settings zu MesCom-Server
+    String strGRC="";
+
+    char cGC[8];
+    for(int igrc=0;igrc<6;igrc++)
+    {
+        if(meshcom_settings.node_gcb[igrc] > 0 && meshcom_settings.node_gcb[igrc] < 100000)
+        {
+            snprintf(cGC, sizeof(cGC), "%i;", meshcom_settings.node_gcb[igrc]);
+            strGRC.concat(cGC);
+        }
+    }
+
+    if(strGRC.length() > 0)
+    {
+        snprintf(cgrc, sizeof(cgrc), "/R=%s", strGRC.c_str());
+    }
+    //
+    /////////////////////////////////////////////////////////////////
+
+    snprintf(msg_start, sizeof(msg_start), "%07.2lf%c%c%08.2lf%c%c%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", slat, lat_c, meshcom_settings.node_symid, slon, lon_c, meshcom_settings.node_symcd, catxt, cname, cbatt, calt, cpress, chum, ctemp, ctemp2, cqfe, cqnh, cgasres, cco2, cgrc, csfpegel, csfpegel2, csftemp, csfbatt, cversion, cinaU, cinaI, ctele);
 
     return String(msg_start);
 }
 
-void sendPosition(unsigned int intervall, double lat, char lat_c, double lon, char lon_c, int alt, float press, float hum, float temp, float temp2, float gasres, float co2, int qfe, float qnh)
+void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, char lon_c, int alt, float press, float hum, float temp, float temp2, float gasres, float co2, int qfe, float qnh)
 {
     uint8_t msg_buffer[MAX_MSG_LEN_PHONE];
 
     bool bSendViaAPRS = bDisplayTrack;
     bool bSendViaMesh = !bDisplayTrack;
+
+    unsigned int intervall = uintervall;
+
+    bool bsendTele = false;
+    if(intervall == 1)
+    {
+        intervall = 0;
+        bsendTele = true;
+        bSendViaMesh=true;  // only via MeshCom
+        bSendViaAPRS=false;
+    }
 
     if(lastHeardTime + 15000 < millis() && (intervall == POSINFO_INTERVAL || intervall == 0)) // wenn die letzte gehörte LoRa-Nachricht < 5sec dann auch via MeshCom
     {
@@ -2474,7 +2491,7 @@ void sendPosition(unsigned int intervall, double lat, char lat_c, double lon, ch
 
         aprsmsg.msg_source_path = meshcom_settings.node_call;
         aprsmsg.msg_destination_path = "*";
-        aprsmsg.msg_payload = PositionToAPRS(true, false, true, lat, lat_c, lon, lon_c, alt, press, hum, temp, temp2, gasres, co2, qfe, qnh);
+        aprsmsg.msg_payload = PositionToAPRS(true, bsendTele, true, lat, lat_c, lon, lon_c, alt, press, hum, temp, temp2, gasres, co2, qfe, qnh);
         
         if(aprsmsg.msg_payload == "")
             return;
