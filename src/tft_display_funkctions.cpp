@@ -4,7 +4,7 @@
 #include "tft_display_functions.h"
 
 #if defined(HAS_TFT)
-    #include "custom_colors.h"
+    #include "tft_custom_colors.h"
     #include "TFT_eSPI.h"
 
     TFT_eSPI    tft     = TFT_eSPI(); 
@@ -117,7 +117,7 @@
 
     void initTFT()
     {
-        uint8_t screenBrightness = 40;    //from 1 to 255 to regulate brightness of screens
+        uint8_t screenBrightness = 50;    //from 1 to 255 to regulate brightness of screens
 
         delay(500);
 
@@ -132,105 +132,112 @@
         sprite.createSprite(160,80);
     }
 
+    void displayTFT(const String& header)
+    {
+        sprite.fillRect(0, 0, 160, 19, redColor);
+        sprite.setTextFont(0);
+        sprite.setTextSize(smallSizeFont);
+        sprite.setTextColor(TFT_WHITE, redColor);
+        sprite.drawString(header, 3, 5);
+
+        sprite.pushSprite(0,0);
+    }
+
     void displayTFT(const String& header, const String& line)
     {
-        #ifdef HAS_TFT
-            sprite.fillSprite(TFT_BLACK); 
-            sprite.fillRect(0, 0, 160, 19, redColor);
-            sprite.setTextFont(0);
-            sprite.setTextSize(bigSizeFont);
-            sprite.setTextColor(TFT_WHITE, redColor);
-            sprite.drawString(header, 3, 3);
+        sprite.fillSprite(TFT_BLACK); 
+        sprite.fillRect(0, 0, 160, 19, redColor);
+        sprite.setTextFont(0);
+        sprite.setTextSize(smallSizeFont);
+        sprite.setTextColor(TFT_WHITE, redColor);
+        sprite.drawString(header, 3, 5);
 
-            sprite.setTextSize(smallSizeFont);
-            sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+        sprite.setTextSize(smallSizeFont);
+        sprite.setTextColor(TFT_WHITE, TFT_BLACK);
 
-            int yLineOffset = (lineSpacing * 2) - 2;
+        int yLineOffset = (lineSpacing * 2) - 2;
 
-            sprite.setCursor(2, yLineOffset);
+        sprite.setCursor(2, yLineOffset);
 
-            sprite.println(line);
+        sprite.setTextWrap(true, false);
 
-            sprite.pushSprite(0,0);
-        #endif
+        sprite.println(line);
+
+        sprite.pushSprite(0,0);
     }
 
     void displayTFT(const String& header, const String& line1, const String& line2, const String& line3, const String& line4, int wait)
     {
-        #ifdef HAS_TFT
-            sprite.fillSprite(TFT_BLACK); 
-            sprite.fillRect(0, 0, 160, 19, redColor);
-            sprite.setTextFont(0);
-            sprite.setTextSize(bigSizeFont);
-            sprite.setTextColor(TFT_WHITE, redColor);
-            sprite.drawString(header, 3, 3);
+        sprite.fillSprite(TFT_BLACK); 
+        sprite.fillRect(0, 0, 160, 19, redColor);
+        sprite.setTextFont(0);
+        sprite.setTextSize(bigSizeFont);
+        sprite.setTextColor(TFT_WHITE, redColor);
+        sprite.drawString(header, 3, 3);
 
-            const String* const lines[] = {&line1, &line2, &line3, &line4};
+        const String* const lines[] = {&line1, &line2, &line3, &line4};
 
-            sprite.setTextSize(smallSizeFont);
-            sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+        sprite.setTextSize(smallSizeFont);
+        sprite.setTextColor(TFT_WHITE, TFT_BLACK);
 
-            int yLineOffset = (lineSpacing * 2) - 2;
+        int yLineOffset = (lineSpacing * 2) - 2;
 
-            for (int i = 0; i < 4; i++) {
-                String text = *lines[i];
-                if (text.length() > 0)
-                {                    
-                    while (text.length() > 0)
-                    {
-                        String chunk = text.substring(0, maxLineLength);
-                        sprite.drawString(chunk, 3, yLineOffset);
-                        text = text.substring(maxLineLength);
-                        yLineOffset += lineSpacing;
-                    }
-                }
-                else
+        for (int i = 0; i < 4; i++) {
+            String text = *lines[i];
+            if (text.length() > 0)
+            {                    
+                while (text.length() > 0)
                 {
-                    sprite.drawString(text, 3, yLineOffset);
+                    String chunk = text.substring(0, maxLineLength);
+                    sprite.drawString(chunk, 3, yLineOffset);
+                    text = text.substring(maxLineLength);
                     yLineOffset += lineSpacing;
                 }
             }
-            sprite.pushSprite(0,0);
-        #endif
+            else
+            {
+                sprite.drawString(text, 3, yLineOffset);
+                yLineOffset += lineSpacing;
+            }
+        }
+        sprite.pushSprite(0,0);
 
         delay(wait);
     }
 
     void displayTFT(const String& header, const String& line1, const String& line2, const String& line3, const String& line4, const String& line5, int wait)
     {
-        #ifdef HAS_TFT
-            sprite.fillSprite(TFT_BLACK); 
-            sprite.fillRect(0, 0, 160, 19, redColor);
-            sprite.setTextFont(1);
-            sprite.setTextSize(smallSizeFont);
-            sprite.setTextColor(TFT_WHITE, redColor);
-            sprite.drawString(header, 3, 5);
+        sprite.fillSprite(TFT_BLACK); 
+        sprite.fillRect(0, 0, 160, 19, redColor);
+        sprite.setTextFont(1);
+        sprite.setTextSize(smallSizeFont);
+        sprite.setTextColor(TFT_WHITE, redColor);
+        sprite.drawString(header, 3, 5);
 
-            const String* const lines[] = {&line1, &line2, &line3, &line4, &line5};
+        const String* const lines[] = {&line1, &line2, &line3, &line4, &line5};
 
-            sprite.setTextSize(smallSizeFont);
-            sprite.setTextColor(TFT_WHITE, TFT_BLACK);
+        sprite.setTextSize(smallSizeFont);
+        sprite.setTextColor(TFT_WHITE, TFT_BLACK);
 
-            int yLineOffset = (lineSpacing * 2) - 2;
+        int yLineOffset = (lineSpacing * 2) - 2;
 
-            for (int i = 0; i < 5; i++) {
-                String text = *lines[i];
-                if (text.length() > 0) {
-                    while (text.length() > 0) {
-                        String chunk = text.substring(0, maxLineLength);
-                        sprite.drawString(chunk, 3, yLineOffset);
-                        text = text.substring(maxLineLength);
-                        yLineOffset += lineSpacing;
-                    }
-                } else {
-                    sprite.drawString(text, 3, yLineOffset);
+        for (int i = 0; i < 5; i++) {
+            String text = *lines[i];
+            if (text.length() > 0) {
+                while (text.length() > 0) {
+                    String chunk = text.substring(0, maxLineLength);
+                    sprite.drawString(chunk, 3, yLineOffset);
+                    text = text.substring(maxLineLength);
                     yLineOffset += lineSpacing;
                 }
+            } else {
+                sprite.drawString(text, 3, yLineOffset);
+                yLineOffset += lineSpacing;
             }
-            sprite.pushSprite(0,0);
-        
-            delay(wait);
-        #endif
+        }
+        sprite.pushSprite(0,0);
+    
+        delay(wait);
     }
 
 #endif

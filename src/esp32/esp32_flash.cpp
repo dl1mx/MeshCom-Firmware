@@ -205,6 +205,8 @@ void init_flash(void)
     meshcom_settings.node_analog_offset = preferences.getFloat("node_aoff", 0.0);
     meshcom_settings.node_analog_atten = preferences.getFloat("node_atten", 0.0);
     
+    strVar = preferences.getString("node_gwsrv", "OE");
+    snprintf(meshcom_settings.node_gwsrv, sizeof(meshcom_settings.node_gwsrv), "%s", strVar.c_str());
 }
 
 void save_settings(void)
@@ -403,6 +405,9 @@ void save_settings(void)
     preferences.putFloat("node_aslo", meshcom_settings.node_analog_slope);
     preferences.putFloat("node_aoff", meshcom_settings.node_analog_offset);
     preferences.putFloat("node_atten", meshcom_settings.node_analog_atten);
+
+    strVar = meshcom_settings.node_gwsrv;
+    preferences.putString("node_gwsrv", strVar);
 
     preferences.end();
 

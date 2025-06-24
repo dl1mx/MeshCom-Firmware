@@ -7,7 +7,7 @@
 #include <loop_functions.h>
 #include <loop_functions_extern.h>
 
-#ifdef GPS_L76K
+#if defined(GPS_L76K)
 
 #include <gps_l76k.h>
 

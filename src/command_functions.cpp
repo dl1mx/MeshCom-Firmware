@@ -1642,6 +1642,33 @@ void commandAction(char *umsg_text, bool ble)
         save_settings();
     }
     else
+    if(commandCheck(msg_text+2, (char*)"gateway srv ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+14);
+
+        String strCtry = _owner_c;
+        strCtry.toUpperCase();
+
+        if(strCtry != "OE" && strCtry != "DL")
+        {
+            Serial.printf("\nGateway-Server fault <%s> please only OE or DL\n", strCtry.c_str());
+            return;
+        }
+
+        sprintf(meshcom_settings.node_gwsrv, "%s", strCtry.c_str());
+
+        bReturn = true;
+
+        save_settings();
+
+        if(bGATEWAY)
+        {
+            Serial.println("Auto. Reboot after 5 sec.");
+
+            rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        }
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"webserver on") == 0)
     {
         bWEBSERVER=true;
@@ -2319,6 +2346,18 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"sendpos") == 0)
     {
         sendPosition(0, meshcom_settings.node_lat, meshcom_settings.node_lat_c, meshcom_settings.node_lon, meshcom_settings.node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
+
+        if(ble)
+        {
+            addBLECommandBack((char*)"--posted");
+        }
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"sendtele") == 0)
+    {
+        sendPosition(1, meshcom_settings.node_lat, meshcom_settings.node_lat_c, meshcom_settings.node_lon, meshcom_settings.node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
 
         if(ble)
         {
@@ -3886,6 +3925,7 @@ void commandAction(char *umsg_text, bool ble)
                 Serial.printf("...SUBNET-MASK  : %s\n", meshcom_settings.node_subnet);
                 if(!bWIFIAP)
                 {
+                    Serial.printf("...GW server    : %s\n", meshcom_settings.node_gwsrv);
                     Serial.printf("...GW address   : %s\n", meshcom_settings.node_gw);
                     Serial.printf("...DNS address  : %s\n", meshcom_settings.node_dns);
                 }

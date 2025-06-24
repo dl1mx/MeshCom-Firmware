@@ -209,6 +209,8 @@ void init_flash(void)
 		meshcom_settings.node_analog_slope = old_struct.node_analog_slope;
 		meshcom_settings.node_analog_offset = old_struct.node_analog_offset;
 		meshcom_settings.node_analog_atten = old_struct.node_analog_atten;
+		
+		memcpy(meshcom_settings.node_gwsrv, old_struct.node_gwsrv, 2);
 
 		save_settings();
 		// delay(1000);

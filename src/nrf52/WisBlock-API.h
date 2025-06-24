@@ -304,6 +304,8 @@ struct s_meshcom_settings
 	float node_analog_offset = 0.0;
 	float node_analog_atten = 0.0;
 
+	char node_gwsrv[3] = {0x00};
+
 	// nicht im Flash
 	float node_specstart = 432.0;
 	float node_specend = 434.0;
@@ -492,6 +494,8 @@ struct s_meshcomcompat_settings
 	float node_analog_slope = 0.0;
 	float node_analog_offset = 0.0;
 	float node_analog_atten = 0.0;
+
+	char node_gwsrv[3] = {0x00};
 
 	// not within RAK Flash
 	float node_specstart = 432.0;

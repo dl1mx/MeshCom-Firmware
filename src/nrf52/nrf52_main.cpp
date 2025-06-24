@@ -422,6 +422,18 @@ void nrf52setup()
     if(meshcom_settings.node_button_pin > 0)
         iButtonPin = meshcom_settings.node_button_pin;
 
+    // if Node not set --> WifiAP Mode on
+    if(memcmp(meshcom_settings.node_call, "XX0XXX", 6) == 0 || meshcom_settings.node_call[0] == 0x00 || memcmp(meshcom_settings.node_call, "none", 4) == 0)
+    {
+        bWIFIAP = true;
+        bWEBSERVER = true;
+
+        Serial.println("WIFIAP starting...");
+    }
+
+    if(meshcom_settings.node_gwsrv[0] == 0x00)
+        sprintf(meshcom_settings.node_gwsrv, "%s", "OE");
+
     // if Node is in WifiAP Mode -> no Gateway posible
     if(bWIFIAP && bGATEWAY)
     {
