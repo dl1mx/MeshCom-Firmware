@@ -383,7 +383,99 @@ void webSetup_setParam(setupStruct *setupData){
         setupData->returnCode = (bEXTUDP == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = bEXTUDP?"on":"off";
         return;
+    } else
+
+    /// ###################################### MCPIO ######################################
+    if(setupData->paramName.substring(0,5).equals("mcpio")) {
+        String port = setupData->paramName.substring(5);
+        port.toUpperCase();
+
+        if(port.length()!= 2) {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            return;
+        }
+
+        snprintf(message_text, sizeof(message_text), "--setio %s %s", port.c_str(), setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        
+        //MCP Module has 16 IO Ports named A0...7 and B0...7 ... but internally they are 0....15
+        uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48 
+        if(port.charAt(0)=='B') t_io+=8;
+        bool bOut =  ((t_io & 0x0001) == 0x0001);           //compare bitmask
+
+        setupData->returnCode = (bOut == (setupData->paramValue.compareTo("out")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = bOut?"out":"in";
+
+        return;
+    } else
+    /// ###################################### MCPOUT ######################################
+    if(setupData->paramName.substring(0,6).equals("mcpout")) {
+        String port = setupData->paramName.substring(6);
+        port.toUpperCase();
+
+        if(port.length()!= 2) {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            return;
+        }
+
+        snprintf(message_text, sizeof(message_text), "--setout %s %s", port.c_str(), setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        
+        //MCP Module has 16 IO Ports named A0...7 and B0...7 ... but internally they are 0....15
+        uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48 
+        if(port.charAt(0)=='B') t_io+=8;
+
+        int mask = 0x0001 << t_io;
+        bool outputEnabled = (meshcom_settings.node_mcp17io & mask) > 0;  // check PIN set to OUTPUT
+
+        setupData->returnCode = (outputEnabled == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = outputEnabled?"on":"off";
+
+        return;
+    } else
+    /// ###################################### MCPNAME ######################################
+    if(setupData->paramName.substring(0,7).equals("mcpname")) {
+        String port = setupData->paramName.substring(7);
+        port.toUpperCase();
+
+        if(port.length()!= 2) {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            return;
+        }
+
+        //MCP Module has 16 IO Ports named A0...7 and B0...7 ... but internally they are 0....15
+        uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48
+        if(port.charAt(0)=='B') t_io+=8;
+
+        snprintf(meshcom_settings.node_mcp17t[t_io], sizeof(meshcom_settings.node_mcp17t[t_io]), "%s", setupData->paramValue.c_str());
+        save_settings();
+
+        setupData->returnCode = (strcmp(meshcom_settings.node_mcp17t[t_io],setupData->paramValue.c_str()) == 0)?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = meshcom_settings.node_mcp17t[t_io];
+
+        save_settings();
+
+        return;
     }
+
+        /// ###################################### MCPNAME ######################################
+    if(setupData->paramName.substring(0,8).equals("mcpclear")) {
+
+        snprintf(message_text, sizeof(message_text), "--setio clear");
+        commandAction(message_text, bPhoneReady);
+
+        save_settings();
+
+        setupData->returnCode = WS_RETURNCODE_OKAY;
+        setupData->returnValue = "";
+
+        save_settings();
+
+        return;
+    }
+
+
+
 
     //if nothing matches the parameter name, we assume that we do not know the request, so we telling the caller.
     setupData->returnCode =  WS_RETURNCODE_UNKNOWN;

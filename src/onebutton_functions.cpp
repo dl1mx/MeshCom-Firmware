@@ -18,6 +18,10 @@ void singleClick()
   if(bDisplayCont)
     Serial.println("SingleClick");
 
+    #ifdef BOARD_T5_EPAPER
+        return;
+    #endif
+
   // no oneclick on TRACK=on
   if(!bDisplayTrack)
   {
@@ -77,6 +81,10 @@ void doubleClick()
   if(bDisplayCont)
     Serial.println("DoubleClick");
 
+  #ifdef BOARD_T5_EPAPER
+      return;
+  #endif
+
   if(bDisplayTrack)
       commandAction((char*)"--sendtrack", false);
   else
@@ -87,6 +95,10 @@ void tripleClick()
 {
   if(bDisplayCont)
     Serial.println("TripleClick");
+
+  #ifdef BOARD_T5_EPAPER
+    return;
+  #endif
 
   bDisplayTrack=!bDisplayTrack;
 

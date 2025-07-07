@@ -15,6 +15,7 @@
 #define HELTEC_V1 11
 #define TBEAM_AXP2101 12
 #define EBYTE_E22 39
+#define T5_EPAPER 40
 #define HELTEC_TRACKER 41
 #define HELTEC_STICK_V3 42
 #define HELTEC_V3 43

@@ -53,6 +53,11 @@ extern bool bMitHardReset;
 #include <t-deck/lv_obj_functions.h>
 #endif
 
+#if defined(BOARD_T5_EPAPER)
+#include <t5-epaper/t5epaper_extern.h>
+#include <t5-epaper/t5epaper_main.h>
+#endif
+
 uint16_t json_len = 0;
 void sendNodeSetting();
 void sendGpsJson();
@@ -260,6 +265,7 @@ void commandAction(char *umsg_text, bool ble)
         uint16_t Second = (uint16_t)strSetTime.substring(17).toInt();
 
         // set the clock
+        #if defined(ENABLE_RTC)
         if(bRTCON)
         {
             setRTCNow(Year, Month, Day, Hour, Minute, Second);
@@ -277,6 +283,7 @@ void commandAction(char *umsg_text, bool ble)
             meshcom_settings.node_date_second = now.second();
         }
         else
+        #endif
         {
             // check valid Date & Time
 
@@ -639,6 +646,22 @@ void commandAction(char *umsg_text, bool ble)
 
         return;
     }
+    
+    #if defined BOARD_T5_EPAPER
+    else
+    if(commandCheck(msg_text+2, (char*)"t5 on") == 0)
+    {
+        disp_next_power(true);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"t5 off") == 0)
+    {
+        disp_next_power(false);
+        return;
+    }
+    #endif
+
     else
     if(commandCheck(msg_text+2, (char*)"display on") == 0)
     {
@@ -2814,6 +2837,7 @@ void commandAction(char *umsg_text, bool ble)
 
         bPos=true;
     }
+    #if defined(ENABLE_RTC)
     else
     if(commandCheck(msg_text+2, (char*)"setrtc ") == 0)
     {
@@ -2828,6 +2852,7 @@ void commandAction(char *umsg_text, bool ble)
 
         bPos=true;
     }
+    #endif
     else
     if(commandCheck(msg_text+2, (char*)"io") == 0)
     {

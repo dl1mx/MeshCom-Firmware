@@ -91,4 +91,4 @@ definitions for HELTEC_V3
 #define VEXT_CTRL   3   // To turn on GPS and TFT
 #define ADC_CTRL    2   // ADC_CTRL = HIGH
 
-#define HAS_TFT
+#define HAS_TFT 1

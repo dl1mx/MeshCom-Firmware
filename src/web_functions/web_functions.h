@@ -39,12 +39,16 @@ void sub_page_spectrum();       // spectrum scan page
 void sub_page_unknown();        // a 404 - page
 void sub_content_messages();    // only the formatted messages, not the complete message page
 void sub_page_login();          // login page
+void sub_page_mcp23017();       // mcp23017 page
 
 // related functions
 void send_http_header(uint16_t http_status_code, uint8_t response_type);        // create and send a HTML Header 
 void _create_setup_textinput_element(const char id[], const char labelText[], String inputValue, const char placeHolder[], const char parameterName[], uint8_t maxlength, bool isPassword, bool needConfirm);  // create and send a textinput element used in setup
 void _create_setup_switch_element(const char id[], const char labelText[], const char descriptionText[], bool checked);     // create and send a switch element used in setup
 void _create_meshcom_subheader(String title);                                   // create the sub-page sub-header ( that header containing the date, time and title)
+void _create_button_component(bool needConfirm, String confirmText, String onClickHandler, String buttonCaption);
+
+
 
 // WEB REST API
 void send_message(String);                  // send a message to the mesh

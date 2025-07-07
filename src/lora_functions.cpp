@@ -50,6 +50,11 @@
     extern int transmissionState;
 #endif
 
+#if defined(BOARD_T5_EPAPER)
+#include <t5-epaper/t5epaper_extern.h>
+#include <t5-epaper/t5epaper_main.h>
+#endif
+
 #include "lora_functions.h"
 #include "loop_functions.h"
 #include <loop_functions_extern.h>
@@ -89,6 +94,9 @@ bool bNewLine = false;
 
 void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 {
+    // only for Test T5_EPAPER
+    //bDisplayInfo=true;
+
     uint8_t print_buff[30];
 
     //Serial.printf("Start OnRxDone:<%-20.20s> %i\n", payload, size);
@@ -312,11 +320,13 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                         }
                     }
 
+                    #ifndef BOARD_T5_EPAPER
                     if(lat != 0.0 && lon != 0.0 && meshcom_settings.node_lat != 0.0 && meshcom_settings.node_lon != 0.0)
                         mheardLine.mh_dist = tinyGPSPLus.distanceBetween(lat, lon, meshcom_settings.node_lat, meshcom_settings.node_lon)/1000.0;    // km;
 
                     updateMheard(mheardLine, isPhoneReady);
 
+                    #endif
                     // last heard LoRa MeshCom-Packet
                     lastHeardTime = millis();
 
@@ -957,7 +967,9 @@ bool doTX()
                     #if defined BOARD_RAK4630
                         Radio.Send(lora_tx_buffer, sendlng);
                     #else
+                        #ifndef BOARD_T5_EPAPER
                         transmissionState = radio.startTransmit(lora_tx_buffer, sendlng);
+                        #endif
                         bLED_RED = true;
                     #endif
 
@@ -977,7 +989,9 @@ bool doTX()
                 #if defined BOARD_RAK4630
                     Radio.Send(lora_tx_buffer, sendlng);
                 #else
+                    #ifndef BOARD_T5_EPAPER
                     transmissionState = radio.startTransmit(lora_tx_buffer, sendlng);
+                    #endif
                     bLED_ORANGE = true;
                 #endif
 
@@ -1036,7 +1050,9 @@ bool doTX()
                     #if defined BOARD_RAK4630
                         Radio.Send(lora_tx_buffer, sendlng);
                     #else
+                        #ifndef BOARD_T5_EPAPER
                         transmissionState = radio.startTransmit(lora_tx_buffer, sendlng);
+                        #endif
                         bLED_RED = true;
                     #endif
 

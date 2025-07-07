@@ -30,12 +30,6 @@ bool setupSOFTSER()
     }
 
 #ifdef ESP32
-    
-    #ifdef GPS_TX_PIN
-        meshcom_settings.node_ss_tx_pin = GPS_RX_PIN;
-        meshcom_settings.node_ss_rx_pin = GPS_TX_PIN;
-    #endif
-
     SOFTSER.begin((uint32_t)meshcom_settings.node_ss_baud, EspSoftwareSerial::SWSERIAL_8N1, (int8_t)meshcom_settings.node_ss_rx_pin, (int8_t)meshcom_settings.node_ss_tx_pin);
     SOFTSER.setTimeout(50);
 #else
@@ -237,8 +231,8 @@ bool getSOFTSER()
                 break;
             }
 
-            //if(bSOFTSERDEBUG)
-            //    Serial.print(c);
+            if(bSOFTSERDEBUG)
+                Serial.print(c);
 
             if((c < 0x20 || c > 0x7f) && c != 0x0d && c != 0x0a)
             {
