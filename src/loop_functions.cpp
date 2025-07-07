@@ -20,6 +20,11 @@
 #include <t-deck/lv_obj_functions.h>
 #endif 
 
+#if defined(BOARD_T5_EPAPER)
+#include <t5-epaper/t5epaper_extern.h>
+#include <t5-epaper/t5epaper_main.h>
+#endif
+
 #include "tft_display_functions.h"
 
 // TinyGPS
@@ -158,6 +163,9 @@ float BATTexp12 = 0.0;
 float BATexp12pre = 0.0;
 float BATexp2 = 0.0;
 
+// T5Paper
+int t5_cursor_y = 50;
+
 // common variables
 char msg_text[MAX_MSG_LEN_PHONE * 2] = {0};
 
@@ -184,7 +192,7 @@ int dzeile[6] = {42, 52, 62, 0, 0, 0};
 int dzeile[6] = {8, 21, 31, 41, 51, 61};
 #endif
 
-#if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK) && !defined (BOARD_T_DECK_PLUS)
+#if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK) && !defined (BOARD_T_DECK_PLUS)  && !defined (BOARD_T5_EPAPER)
 
 #include <U8g2lib.h>
 
@@ -546,6 +554,10 @@ int esp32_isSSD1306(int address)
         return 1;
     #endif
 
+    #if defined (BOARD_T5_EPAPER)
+        return 1;
+    #endif
+
     TwoWire *w = NULL;
 
     w = &Wire;
@@ -612,7 +624,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
 {
     #if !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS)
 
-    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER)
+    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T5_EPAPER)
         if(u8g2 == NULL)
             return;
     #endif
@@ -630,7 +642,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
             e290_display.fastmodeOn();
             
             e290_display.setFont(&FreeMonoBold12pt7b);
-        #elif defined(BOARD_TRACKER)
+        #elif defined(BOARD_TRACKER) || defined (BOARD_T5_EPAPER)
         #else
             u8g2->setFont(u8g2_font_6x10_mf);
         #endif
@@ -755,6 +767,8 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
             displayTFT(strLine[0], strLine[1], strLine[2], strLine[3], strLine[4], strLine[5], 0);
         }
 
+        #elif defined (BOARD_T5_EPAPER)
+        // extra source
         #elif defined (BOARD_STICK_V3)
 
         u8g2->firstPage();
@@ -881,6 +895,11 @@ void sendDisplayHead(bool bInit)
 
     bSetDisplay=true;
 
+    #ifdef BOARD_T5_EPAPER
+        bSetDisplay=false;
+        return;
+    #endif
+
     if(bDisplayIsOff)
     {
         sendDisplay1306(true, true, 0, 0, (char*)"#C");
@@ -923,6 +942,11 @@ void sendDisplayTrack()
 
     bSetDisplay=true;
 
+    #ifdef BOARD_T5_EPAPER
+        bSetDisplay=false;
+        return;
+    #endif
+
     if(bDisplayIsOff)
     {
         sendDisplay1306(true, true, 0, 0, (char*)"#C");
@@ -961,6 +985,11 @@ void sendDisplayWX()
         return;
 
     bSetDisplay=true;
+
+    #ifdef BOARD_T5_EPAPER
+        bSetDisplay=false;
+        return;
+    #endif
 
     if(bDisplayIsOff)
     {
@@ -1006,13 +1035,13 @@ void sendDisplayTime()
             pagePointer=PAGE_MAX-1;
     }
 
-    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS)
+    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS) && !defined (BOARD_T5_EPAPER)
 
         if(u8g2 == NULL)
             return;
     #endif
 
-    #if defined (BOARD_E290) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS)
+    #if defined (BOARD_E290) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS) ||defined (BOARD_T5_EPAPER)
         return;
     #endif
 
@@ -1028,6 +1057,11 @@ void sendDisplayTime()
         return;
 
     bSetDisplay = true;
+
+    #ifdef BOARD_T5_EPAPER
+        bSetDisplay=false;
+        return;
+    #endif
 
     char print_text[500];
     char cbatt[10];
@@ -1053,7 +1087,9 @@ void sendDisplayTime()
     pageLine[0][0] = 3;
     pageLine[0][1] = dzeile[0];
 
-    #if defined (BOARD_TRACKER)
+    #if defined (BOARD_T5_EPAPER)
+    // etxra source
+    #elif defined (BOARD_TRACKER)
         displayTFT(print_text);
     #else
         sendDisplay1306(false, true, 3, dzeile[0], print_text);
@@ -1342,6 +1378,44 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     
     iDisplayType = 0;
 
+    #ifdef BOARD_T5_EPAPER
+
+        int cursor_x;
+        int cursor_y;
+
+        if(t5_cursor_y > 850)
+        {
+            disp_full_clean();
+
+            cursor_x = 20;
+            cursor_y = 50;
+            disp_next_status("LORA MSG ...", &cursor_x, &cursor_y, true);
+
+            t5_cursor_y = 50;
+        }
+
+        // 1. Zeile
+        t5_cursor_y+=40;    // large font
+
+        cursor_x = 20;
+        cursor_y = t5_cursor_y;
+        String strMsgT5=getTimeString()+" "+"<"+aprsmsg.msg_source_call+">"+aprsmsg.msg_destination_call;
+        disp_next_status(strMsgT5, &cursor_x, &cursor_y, true);
+        
+
+        // 2. Zeile
+        t5_cursor_y+=30; // small font
+
+        cursor_x = 20;
+        cursor_y = t5_cursor_y;
+        strMsgT5=aprsmsg.msg_payload;
+        disp_next_status(strMsgT5, &cursor_x, &cursor_y, false);
+        
+        bSetDisplay = false;
+
+        return;
+    #endif
+
     sendDisplayMainline();
 
     #ifdef BOARD_E290
@@ -1384,6 +1458,8 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     e290_display.update();
 
+    #elif defined (BOARD_T5_EPAPER)
+    // extra source
     #elif defined(BOARD_TRACKER)
 
     sendDisplay1306(false, true, 0, dzeile[0], (char*)"#F");    // not fastmode for CET display
@@ -1602,6 +1678,11 @@ void sendDisplayPosition(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
         return;
 
     bSetDisplay=true;
+
+    #ifdef BOARD_T5_EPAPER
+        bSetDisplay=false;
+        return;
+    #endif
 
     if(bDisplayIsOff)
     {

@@ -5,10 +5,15 @@
 #include <Arduino.h>
 #include <Wire.h>               
 
+
+#if defined(ENABLE_RTC)
+
 #include <rtc_functions.h>
 
-#ifdef BOARD_TBEAM_V3
+#if defined (BOARD_TBEAM_V3)
     RTC_PCF8563 rtc;
+#elif defined (BOARD_T5_EPAPER)
+    extern RTC_PCF8563 rtc;
 #else
     RTC_DS3231 rtc; 
 #endif
@@ -115,3 +120,4 @@ String getStringRTCNow()
 
     return strDate;
 }
+#endif

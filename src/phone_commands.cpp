@@ -462,6 +462,7 @@ void readPhoneCommand(uint8_t conf_data[MAX_MSG_LEN_PHONE])
 			uint16_t Second = (uint16_t)strDateTime.substring(17).toInt();
 
 			// set the clock
+		    #if defined(ENABLE_RTC)
 			if(bRTCON)
 			{
 				setRTCNow(Year, Month, Day, Hour, Minute, Second);
@@ -479,6 +480,7 @@ void readPhoneCommand(uint8_t conf_data[MAX_MSG_LEN_PHONE])
 				meshcom_settings.node_date_second = now.second();
 			}
 			else
+			#endif
 			{
 				// check valid Date & Time
 

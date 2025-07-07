@@ -1145,7 +1145,7 @@ void add_map_point(String callsign, double dlat, double dlon, bool bHome)
         map_point_lon[map_point_count] = 0.0;
     }
 
-    Serial.printf("[MAP]...%-10.10s point:%2i node_lat:%.4lf node_lon:%.4lf latd:%.4lf lonf:%.4lf xe:%.4lf, ye:%.4lf <%3i/%3i)\n", callsign.c_str(), ipoint, dlat, dlon, latdiff, londiff, xe, ye, x, y);
+    Serial.printf("\n[MAP]...%-10.10s point:%2i node_lat:%.4lf node_lon:%.4lf latd:%.4lf lonf:%.4lf xe:%.4lf, ye:%.4lf <%3i/%3i)\n", callsign.c_str(), ipoint, dlat, dlon, latdiff, londiff, xe, ye, x, y);
 
     map_point[ipoint] = lv_obj_create(map_ta);
     lv_obj_set_size(map_point[ipoint],10, 10);

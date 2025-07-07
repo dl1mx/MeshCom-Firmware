@@ -56,7 +56,7 @@ bool CheckOwnGroup(String callsign)
     int checkgroup = CheckGroup(callsign);
 
     if(bDisplayInfo && checkgroup <= 99999)
-        Serial.printf("[INFO]...Check GRC %i for own-node\n", checkgroup);
+        Serial.printf("\n[INFO]...Check GRC %i for own-node\n", checkgroup);
 
     if(checkgroup == 0)
         return false;

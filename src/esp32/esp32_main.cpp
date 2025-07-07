@@ -29,7 +29,9 @@
 #include "mcu811.h"
 #include "io_functions.h"
 #include "ina226_functions.h"
-#include "rtc_functions.h"
+#ifdef ENABLE_RTC
+    #include "rtc_functions.h"
+#endif
 #include "softser_functions.h"
 
 // MeshCom Common (ers32/nrf52) Funktions
@@ -90,6 +92,12 @@ bool bLED = true;
 #include <t-deck/tdeck_main.h>
 #include <t-deck/tdeck_extern.h>
 #include <t-deck/lv_obj_functions.h>
+#endif
+
+#if defined(BOARD_T5_EPAPER)
+#include <t5-epaper/t5epaper_main.h>
+#include <t5-epaper/t5epaper_extern.h>
+//#include <t-deck/lv_obj_functions.h>
 #endif
 
 /**
@@ -328,7 +336,7 @@ LLCC68 radio = new Module(LORA_CS, LORA_DIO0, LORA_RST, LORA_DIO1);
 #endif
 
 // Lora callback Function declarations
-int checkRX(void);
+int checkRX(bool bRadio);
 
 // save transmission state between loops
 int transmissionState = RADIOLIB_ERR_UNKNOWN;
@@ -441,6 +449,7 @@ int delay_bme680 = 0;
 
 void esp32setup()
 {
+    // Initialize T5-EPAPER GUI
     Serial.begin(MONITOR_SPEED);
     int isc=10;
     while(!Serial && isc > 0)
@@ -450,7 +459,17 @@ void esp32setup()
         isc--;
     }
 
-    Wire.begin(I2C_SDA, I2C_SCL);
+    #if defined BOARD_T5_EPAPER
+        if (psramInit()) {
+            Serial.println("\nThe PSRAM is correctly initialized");
+        } else {
+            Serial.println("\nPSRAM does not work");
+        }
+    #endif
+
+    #ifndef BOARD_T5_EPAPER
+        Wire.begin(I2C_SDA, I2C_SCL);
+    #endif
     
     #ifdef PMU_USE_WIRE1
         Wire1.begin(I2C1_SDA, I2C1_SCL);
@@ -526,12 +545,16 @@ void esp32setup()
         iButtonPin = meshcom_settings.node_button_pin;
 
     #if defined(ENABLE_AUDIO)
-    init_audio();
+        init_audio();
     #endif
 
     // Initialize T-Deck GUI
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-    initTDeck();
+        initTDeck();
+    #endif
+
+    #if defined(BOARD_T5_EPAPER)
+        idf_setup();
     #endif
 
     // if Node not set --> WifiAP Mode on
@@ -675,6 +698,7 @@ void esp32setup()
         beginGPS();
     #elif defined (GPS_L76K_TDECK)
         switchL76KGPS();
+    #elif defined (BOARD_T5_EPAPER)
     #else
         setupPMU(bSETGPS_POWER);
     #endif
@@ -758,7 +782,9 @@ void esp32setup()
         radio.setRfSwitchPins(E22_RXEN, E22_TXEN);
     #endif
 
-    #ifdef HAS_TFT
+    #if defined (BOARD_T5_EPAPER)
+    //
+    #elif HAS_TFT
         initTFT();
     #else
         initDisplay();
@@ -768,7 +794,9 @@ void esp32setup()
     delay(500);
     #endif
 
-    #ifdef HAS_TFT
+    #ifdef BOARD_T5_EPAPER
+    //
+    #elif HAS_TFT
         char cvers[22];
         sprintf(cvers, "  FW %s/%-1.1s <%s>", SOURCE_VERSION, SOURCE_VERSION_SUB, getCountry(meshcom_settings.node_country).c_str());
         String  version = cvers;
@@ -814,18 +842,24 @@ void esp32setup()
     Serial.print(F("[LoRa]...SX1262 E290 chip"));
     #endif
 
-    Serial.print(F(" Initializing ... "));
 
-    #ifdef BOARD_TRACKER
+    #if defined (BOARD_TRACKER)
         SPI.begin(RADIO_SCLK_PIN, RADIO_MISO_PIN, RADIO_MOSI_PIN);
     #endif
 
-    #if defined(BOARD_E220)
+    #if defined(BOARD_T5_EPAPER)
+    // extra source
+    #elif defined(BOARD_E220)
+        Serial.print(F(" Initializing ... "));
         int state = radio.begin(434.0F, 125.0F, 9, 7, SYNC_WORD_SX127x, 10, LORA_PREAMBLE_LENGTH, /*float tcxoVoltage = 0*/ 1.6F, /*bool useRegulatorLDO = false*/ false);
     #else
+        Serial.print(F(" Initializing ... "));
         int state = radio.begin();
     #endif
     
+    #if defined(BOARD_T5_EPAPER)
+    // extra source
+    #else
     if (state == RADIOLIB_ERR_NONE)
     {
         Serial.println(F("success"));
@@ -845,6 +879,7 @@ void esp32setup()
         tdeck_addMessage(false);
         #endif
     }
+    #endif
 
     #if defined(BOARD_E220)
         bRadio = false; // no detailed setting
@@ -862,6 +897,9 @@ void esp32setup()
 
     // you can also change the settings at runtime
     // and check if the configuration was changed successfully
+    #if defined(BOARD_T5_EPAPER)
+    // extra source
+    #else
     if(bRadio)
     {
         // set boosted gain
@@ -1058,14 +1096,14 @@ void esp32setup()
             }
         #endif
         
-        // setup for E290 Radios
+        // setup for E220 Radios
         #if defined(BOARD_E220)
 
             // interrupt pin
             radio.setDio1Action(setFlag);
 
             // start scanning the channel
-            Serial.print(F("[E290] Starting to listen ... "));
+            Serial.print(F("[E220] Starting to listen ... "));
             state = radio.startReceive();
             if (state == RADIOLIB_ERR_NONE)
             {
@@ -1087,6 +1125,7 @@ void esp32setup()
     }
 
     Serial.println(F("[LoRa]...All settings successfully changed"));
+    #endif
 
     //#endif
 
@@ -1188,7 +1227,6 @@ void esp32setup()
     startAudio();
     #endif
 
-
     Serial.println("==============");
     Serial.println("CLIENT STARTED");
     Serial.println("==============");
@@ -1214,7 +1252,6 @@ void esp32setup()
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     tdeck_clear_text_ta();
     #endif
-
 }
 
 // BLE TX Function -> Node to Client
@@ -1332,6 +1369,10 @@ void esp32loop()
     #endif
 
     // LoRa-Chip found
+    #if defined(BOARD_T5_EPAPER)
+        idf_loop();
+    #else
+
     if(bRadio)
     {
         if(bLORADEBUG && receiveFlag)
@@ -1418,7 +1459,7 @@ void esp32loop()
                 // DIO triggered while reception is ongoing
                 // that means we got a packet
 
-                checkRX();
+                checkRX(bRadio);
 
                 // clear Receive Interrupt
                 bEnableInterruptReceive = false; // KBC 0801
@@ -1561,6 +1602,8 @@ void esp32loop()
         }
     } // bRadio active
 
+    #endif
+
     // get RTC Now
     // RTC hat Vorrang zu Zeit via MeshCom-Server
     bool bMyClock = true;
@@ -1603,6 +1646,7 @@ void esp32loop()
             bNTPDateTimeValid = false;
 
     }
+    #if defined(ENABLE_RTC)
     else
     if(bRTCON)
     {
@@ -1645,6 +1689,7 @@ void esp32loop()
             }
         }
     }
+    #endif
     else
     {
         bNTPDateTimeValid = false;
@@ -1672,6 +1717,7 @@ void esp32loop()
             snprintf(meshcom_settings.node_update, sizeof(meshcom_settings.node_update), "%04i-%02i-%02i %02i:%02i:%02i",
              meshcom_settings.node_date_year, meshcom_settings.node_date_month, meshcom_settings.node_date_day, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second);
 
+            #if defined(ENABLE_RTC)
             if(bRTCON && bNTPDateTimeValid) // NTP hat Vorang zur RTC und setzt RTC
             {
                 if((rtc_refresh_timer + 60000) > millis())
@@ -1682,6 +1728,7 @@ void esp32loop()
                     rtc_refresh_timer = millis();
                 }
             }
+            #endif
         }
     }
 
@@ -2313,7 +2360,7 @@ void esp32loop()
 }
 
 
-int checkRX(void)
+int checkRX(bool bRadio)
 {
     // you can receive data as an Arduino String
     // NOTE: receive() is a blocking method!

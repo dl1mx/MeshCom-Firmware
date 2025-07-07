@@ -47,6 +47,10 @@
     extern int transmissionState;
 #endif
 
+#if defined(BOARD_T5_EPAPER)
+#include <t5-epaper/t5epaper_extern.h>
+#endif
+
 bool rf_crc = true;
 uint16_t rf_preamble_length = LORA_PREAMBLE_LENGTH;
 
@@ -574,7 +578,9 @@ void RadioInit();
 bool lora_setchip_new(float rf_freq, float rf_bw, int rf_sf, int rf_cr, int rf_syncword, uint16_t rf_preamble_length, bool rf_crc)
 {
 
-#ifdef ESP32
+#if defined(BOARD_T5_EPAPER)
+//extra source
+#elif defined (ESP32)
 
     if(bLORADEBUG)
         Serial.printf("[LoRa]...RF_FREQUENCY: %.3f MHz\n", rf_freq);
