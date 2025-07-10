@@ -99,7 +99,7 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 
     uint8_t print_buff[30];
 
-    Serial.printf("Start OnRxDone:<%c#%-20.20s> %i\n", payload[0], payload+6, size);
+    //Serial.printf("Start OnRxDone:<%c#%-20.20s> %i\n", payload[0], payload+6, size);
 
     bNewLine=false;
 
