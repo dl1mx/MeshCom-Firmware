@@ -198,7 +198,7 @@ void loop_onewire()
         //// default is 12 bit resolution, 750 ms conversion time
     }
 */
-    celsius = TemperatureSum;
+    celsius = TemperatureSum + meshcom_settings.node_tempo_off;
     fahrenheit = celsius * 1.8 + 32.0;
 
     if(bWXDEBUG)

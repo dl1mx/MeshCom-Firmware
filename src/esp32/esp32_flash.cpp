@@ -207,6 +207,9 @@ void init_flash(void)
     
     strVar = preferences.getString("node_gwsrv", "OE");
     snprintf(meshcom_settings.node_gwsrv, sizeof(meshcom_settings.node_gwsrv), "%s", strVar.c_str());
+
+    meshcom_settings.node_tempi_off = preferences.getFloat("node_tmpiof", 0.0);
+    meshcom_settings.node_tempo_off = preferences.getFloat("node_tmpoof", 0.0);
 }
 
 void save_settings(void)
@@ -408,6 +411,9 @@ void save_settings(void)
 
     strVar = meshcom_settings.node_gwsrv;
     preferences.putString("node_gwsrv", strVar);
+
+    preferences.putFloat("node_tmpiof", meshcom_settings.node_tempi_off);
+    preferences.putFloat("node_tmpoof", meshcom_settings.node_tempo_off);
 
     preferences.end();
 

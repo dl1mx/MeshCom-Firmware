@@ -25,8 +25,9 @@
 #include <t5-epaper/t5epaper_main.h>
 #endif
 
+#if defined(HAS_TFT)
 #include "tft_display_functions.h"
-
+#endif
 // TinyGPS
 extern TinyGPSPlus tinyGPSPLus;
 
@@ -764,7 +765,9 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
                 }
             }
 
+            #if defined(HAS_TFT)
             displayTFT(strLine[0], strLine[1], strLine[2], strLine[3], strLine[4], strLine[5], 0);
+            #endif
         }
 
         #elif defined (BOARD_T5_EPAPER)
@@ -1089,7 +1092,7 @@ void sendDisplayTime()
 
     #if defined (BOARD_T5_EPAPER)
     // etxra source
-    #elif defined (BOARD_TRACKER)
+    #elif defined (HAS_TFT)
         displayTFT(print_text);
     #else
         sendDisplay1306(false, true, 3, dzeile[0], print_text);
@@ -1487,7 +1490,9 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     strAscii = utf8ascii(aprsmsg.msg_payload);
 
+    #if defined(HAS_TFT)
     displayTFT(strPath, strAscii);
+    #endif
 
     #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     

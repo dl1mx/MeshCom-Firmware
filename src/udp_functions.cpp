@@ -587,6 +587,8 @@ bool doWiFiConnect()
 
   timeClient.begin();
 
+  btimeClient=true;
+
   // run startMeshComUDP() to get IP Address
   startMeshComUDP();
 

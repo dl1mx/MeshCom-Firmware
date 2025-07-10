@@ -1,4 +1,5 @@
 #include "configuration.h"
+#include "loop_functions.h"
 #include "loop_functions_extern.h"
 
 #if defined (ENABLE_BMX280)
@@ -243,7 +244,8 @@ bool loopBMX280()
   	if(bmx280.getTemperature() == (float)NAN)
 		fTemp = 0.0;
 	else
-  		fTemp = bmx280.getTemperature();
+  		fTemp = bmx280.getTemperature() + meshcom_settings.node_tempi_off;
+
 
   	if(bmx280.getPressure() == (float)NAN)
 		fPress = 0.0;

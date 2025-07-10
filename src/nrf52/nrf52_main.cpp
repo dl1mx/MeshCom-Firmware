@@ -926,36 +926,41 @@ void nrf52loop()
     {
         strTime = "none";
 
+extern bool btimeClient;
+
         // every 15 minutes
-        if((updateTimeClient + 1000 * 60 * 15) < millis() || updateTimeClient == 0)
+        if(btimeClient)
         {
-            strTime = neth.udpUpdateTimeClient();
+            if((updateTimeClient + 1000 * 60 * 15) < millis() || updateTimeClient == 0)
+            {
+                strTime = neth.udpUpdateTimeClient();
 
-            updateTimeClient = millis();
+                updateTimeClient = millis();
+            }
+            else
+                strTime = neth.udpGetTimeClient();
+
+            strDate = neth.udpGetDateClient();
+
+            uint16_t Year = (uint16_t)strDate.substring(0, 4).toInt();
+            uint16_t Month = (uint16_t)strDate.substring(5, 7).toInt();
+            uint16_t Day = (uint16_t)strDate.substring(8, 10).toInt();
+
+            uint16_t Hour = (uint16_t)strTime.substring(0, 2).toInt();
+            uint16_t Minute = (uint16_t)strTime.substring(3, 5).toInt();
+            uint16_t Second = (uint16_t)strTime.substring(6, 8).toInt();
+        
+            // check valid Date & Time
+            if(Year > 2023 && strTime.compareTo("none") != 0)
+            {
+                MyClock.setCurrentTime(meshcom_settings.node_utcoff, Year, Month, Day, Hour, Minute, Second);
+                bNTPDateTimeValid = true;
+
+                snprintf(cTimeSource, sizeof(cTimeSource), (char*)"NTP");
+            }
+            else
+                bNTPDateTimeValid = false;
         }
-        else
-            strTime = neth.udpGetTimeClient();
-
-        strDate = neth.udpGetDateClient();
-
-        uint16_t Year = (uint16_t)strDate.substring(0, 4).toInt();
-        uint16_t Month = (uint16_t)strDate.substring(5, 7).toInt();
-        uint16_t Day = (uint16_t)strDate.substring(8, 10).toInt();
-
-        uint16_t Hour = (uint16_t)strTime.substring(0, 2).toInt();
-        uint16_t Minute = (uint16_t)strTime.substring(3, 5).toInt();
-        uint16_t Second = (uint16_t)strTime.substring(6, 8).toInt();
-    
-        // check valid Date & Time
-        if(Year > 2023 && strTime.compareTo("none") != 0)
-        {
-            MyClock.setCurrentTime(meshcom_settings.node_utcoff, Year, Month, Day, Hour, Minute, Second);
-            bNTPDateTimeValid = true;
-
-            snprintf(cTimeSource, sizeof(cTimeSource), (char*)"NTP");
-        }
-        else
-            bNTPDateTimeValid = false;
     }
     else
     {

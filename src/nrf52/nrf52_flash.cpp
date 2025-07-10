@@ -212,6 +212,9 @@ void init_flash(void)
 		
 		memcpy(meshcom_settings.node_gwsrv, old_struct.node_gwsrv, 2);
 
+		meshcom_settings.node_tempi_off = old_struct.node_tempi_off;
+		meshcom_settings.node_tempo_off = old_struct.node_tempo_off;
+
 		save_settings();
 		// delay(1000);
 		// sd_nvic_SystemReset();

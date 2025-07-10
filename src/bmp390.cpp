@@ -1,4 +1,5 @@
 #include "configuration.h"
+#include "loop_functions.h"
 #include "loop_functions_extern.h"
 
 #if defined (ENABLE_BMX280)
@@ -93,7 +94,7 @@ bool loopBMP390()
         return false;
     }
 
-    dTemp = bmp.temperature;
+    dTemp = bmp.temperature + meshcom_settings.node_tempi_off;
     dPress = bmp.pressure / 100.0;
     fAltidude = bmp.readAltitude(SEALEVELPRESSURE_HPA);
 
