@@ -143,6 +143,9 @@ struct s_meshcom_settings
 
 	char node_gwsrv[3] = {0x00};
 
+	float node_tempi_off = 0.0;
+	float node_tempo_off = 0.0;
+
 	// nicht im Flash
 	int node_press_alt = 0;
 	float node_press_asl = 0;

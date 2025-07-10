@@ -21,6 +21,8 @@ EthernetUDP Udp;
 
 NTPClient timeClient(Udp);
 
+bool btimeClient = false;
+
 // byte macaddr[] = {0xDE, 0xAD, 0xBE, 0xEF, 0xFE, 0xEC}; // Set the MAC address, do not repeat in a network.
 uint8_t macaddr[6] = {0};
 
@@ -841,46 +843,59 @@ void NrfETH::startUDP()
   snprintf(sn, sizeof(sn), "%i.%i.%i.%i", local_addr[0], local_addr[1], local_addr[2], local_addr[3]);
   s_node_ip=sn;
 
-  if (local_addr[0] == 44 || meshcom_settings.node_hamnet_only)
+  if(local_addr[0] == 0)
   {
-    if(memcmp(meshcom_settings.node_gwsrv, "DL", 2) == 0)
+    // keine weiteren IP setzen
+    btimeClient = false;
+  }
+  else
+  {
+    if (local_addr[0] == 44 || meshcom_settings.node_hamnet_only)
     {
-      if(bDisplayCont)
-        Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.148.230.197");
+      if(memcmp(meshcom_settings.node_gwsrv, "DL", 2) == 0)
+      {
+        if(bDisplayCont)
+          Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.148.230.197");
 
-      udp_dest_addr = IPAddress(44, 148, 230, 197);
+        udp_dest_addr = IPAddress(44, 148, 230, 197);
+
+        //DEBUG_MSG("NTP", "Setting Hamnet NTP");
+        timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));
+      }
+      else
+      {
+        if(bDisplayCont)
+          Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.143.8.143");
+
+        udp_dest_addr = IPAddress(44, 143, 8, 143);
+
+        //DEBUG_MSG("NTP", "Setting Hamnet NTP");
+        timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));
+      }
     }
     else
     {
       if(bDisplayCont)
-        Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.143.8.143");
+        Serial.println("[UDP-DEST] Setting I-NET UDP-DEST 89.185.97.38");
 
-      udp_dest_addr = IPAddress(44, 143, 8, 143);
+      //DEBUG_MSG("UDP-DEST", "Setting I-NET UDP-DEST 213.47.219.169");
+      udp_dest_addr = IPAddress(89, 185, 97, 38);
+
+      //DEBUG_MSG("NTP", "Setting I-NET 3.at.pool.ntp.org NTP");
+      timeClient.setPoolServerIP(IPAddress(162, 159, 200, 1));
     }
 
-    //DEBUG_MSG("NTP", "Setting Hamnet NTP");
-    timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));
+    snprintf(sn, sizeof(sn), "%i.%i.%i.%i", udp_dest_addr[0], udp_dest_addr[1], udp_dest_addr[2], udp_dest_addr[3]);
+    s_node_hostip = sn;
+
+    Udp.begin(LOCAL_PORT); // Start UDP.
+
+    DEBUG_MSG("UDP_ETH", "UDP init successful!");
+
+    timeClient.begin();
+
+    btimeClient = true;
   }
-  else
-  {
-    if(bDisplayCont)
-      Serial.println("[UDP-DEST] Setting I-NET UDP-DEST 89.185.97.38");
-
-    //DEBUG_MSG("UDP-DEST", "Setting I-NET UDP-DEST 213.47.219.169");
-    udp_dest_addr = IPAddress(89, 185, 97, 38);
-
-    //DEBUG_MSG("NTP", "Setting I-NET 3.at.pool.ntp.org NTP");
-    timeClient.setPoolServerIP(IPAddress(162, 159, 200, 1));
-  }
-
-  snprintf(sn, sizeof(sn), "%i.%i.%i.%i", udp_dest_addr[0], udp_dest_addr[1], udp_dest_addr[2], udp_dest_addr[3]);
-  s_node_hostip = sn;
-
-  Udp.begin(LOCAL_PORT); // Start UDP.
-
-  DEBUG_MSG("UDP_ETH", "UDP init successful!");
-
-  timeClient.begin();
 
   last_upd_timer = millis();
 
@@ -888,6 +903,9 @@ void NrfETH::startUDP()
 
 String NrfETH::udpUpdateTimeClient()
 {
+  if(!btimeClient)
+    return "none";
+
   if(!timeClient.update())
   {
     Serial.println("TimeClient no update posible");
@@ -914,11 +932,17 @@ String NrfETH::udpUpdateTimeClient()
 
 String NrfETH::udpGetTimeClient()
 {
+  if(!btimeClient)
+    return "none";
+
   return timeClient.getFormattedTime();
 }
 
 String NrfETH::udpGetDateClient()
 {
+  if(!btimeClient)
+    return "none";
+    
   return getDateTime(timeClient.getEpochTime());
 }
 
@@ -936,6 +960,9 @@ void NrfETH::startFIXUDP()
         Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.148.230.197");
 
       udp_dest_addr = IPAddress(44, 148, 230, 197);
+    
+      //DEBUG_MSG("NTP", "Setting Hamnet NTP");
+      timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));
     }
     else
     {
@@ -943,10 +970,11 @@ void NrfETH::startFIXUDP()
         Serial.println("[UDP-DEST] Setting Hamnet UDP-DEST 44.143.8.143");
 
       udp_dest_addr = IPAddress(44, 143, 8, 143);
+    
+      //DEBUG_MSG("NTP", "Setting Hamnet NTP");
+      timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));
     }
 
-    //DEBUG_MSG("NTP", "Setting Hamnet NTP");
-    timeClient.setPoolServerIP(IPAddress(44, 143, 0, 9));
   }
   else
   {
@@ -966,4 +994,9 @@ void NrfETH::startFIXUDP()
 
   Serial.print("[UDP_ETH]...UDP init successful - Port:");
   Serial.println(LOCAL_PORT);
+
+  timeClient.begin();
+
+  btimeClient = true;
+
 }

@@ -2270,6 +2270,24 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    if(commandCheck(msg_text+2, (char*)"softser rxpin ") == 0)
+    {
+        sscanf(msg_text+15, "%d", &meshcom_settings.node_ss_rx_pin);
+
+        save_settings();
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"softser txpin ") == 0)
+    {
+        sscanf(msg_text+15, "%d", &meshcom_settings.node_ss_tx_pin);
+
+        save_settings();
+
+        return;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"softser fixpegel ") == 0)
     {
         // max. 40 char

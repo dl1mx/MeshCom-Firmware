@@ -1644,7 +1644,6 @@ void esp32loop()
         }
         else
             bNTPDateTimeValid = false;
-
     }
     #if defined(ENABLE_RTC)
     else
