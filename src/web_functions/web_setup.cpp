@@ -396,12 +396,16 @@ void webSetup_setParam(setupStruct *setupData){
         }
 
         snprintf(message_text, sizeof(message_text), "--setio %s %s", port.c_str(), setupData->paramValue.c_str());
+        Serial.println(message_text);
         commandAction(message_text, bPhoneReady);
         
         //MCP Module has 16 IO Ports named A0...7 and B0...7 ... but internally they are 0....15
         uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48 
         if(port.charAt(0)=='B') t_io+=8;
-        bool bOut =  ((t_io & 0x0001) == 0x0001);           //compare bitmask
+
+        uint16_t bitmask = 1 << t_io;
+        bool bOut =  ((bitmask & meshcom_settings.node_mcp17io) >0);           //compare bitmask
+
 
         setupData->returnCode = (bOut == (setupData->paramValue.compareTo("out")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = bOut?"out":"in";
@@ -425,8 +429,8 @@ void webSetup_setParam(setupStruct *setupData){
         uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48 
         if(port.charAt(0)=='B') t_io+=8;
 
-        int mask = 0x0001 << t_io;
-        bool outputEnabled = (meshcom_settings.node_mcp17io & mask) > 0;  // check PIN set to OUTPUT
+        uint16_t bitmask = 1 << t_io;
+        bool outputEnabled = (meshcom_settings.node_mcp17out & bitmask) > 0;  // check PIN set to OUTPUT
 
         setupData->returnCode = (outputEnabled == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = outputEnabled?"on":"off";
@@ -448,7 +452,6 @@ void webSetup_setParam(setupStruct *setupData){
         if(port.charAt(0)=='B') t_io+=8;
 
         snprintf(meshcom_settings.node_mcp17t[t_io], sizeof(meshcom_settings.node_mcp17t[t_io]), "%s", setupData->paramValue.c_str());
-        save_settings();
 
         setupData->returnCode = (strcmp(meshcom_settings.node_mcp17t[t_io],setupData->paramValue.c_str()) == 0)?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = meshcom_settings.node_mcp17t[t_io];
@@ -456,9 +459,9 @@ void webSetup_setParam(setupStruct *setupData){
         save_settings();
 
         return;
-    }
+    } else
 
-        /// ###################################### MCPNAME ######################################
+    /// ###################################### MCPNAME ######################################
     if(setupData->paramName.substring(0,8).equals("mcpclear")) {
 
         snprintf(message_text, sizeof(message_text), "--setio clear");
@@ -469,10 +472,40 @@ void webSetup_setParam(setupStruct *setupData){
         setupData->returnCode = WS_RETURNCODE_OKAY;
         setupData->returnValue = "";
 
-        save_settings();
-
         return;
-    }
+    } else 
+
+    /// ###################################### Indoor Temperature Offset ######################################
+    if(setupData->paramName.equals("tempoffsetindoor")) {
+        float offset = 0.0;
+        if(sscanf(setupData->paramValue.c_str(), "%f", &offset) == 1) {     //was there exactly ONE flaot value in this string?
+            meshcom_settings.node_tempi_off = offset;
+            setupData->returnCode = WS_RETURNCODE_OKAY;
+            setupData->returnValue = setupData->paramValue;
+
+            save_settings();
+        } else {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            setupData->returnValue = String(meshcom_settings.node_tempi_off);
+        }
+        return;
+    } else
+    /// ###################################### Outdoor Temperature Offset ######################################
+    if(setupData->paramName.equals("tempoffsetoutdoor")) {
+        float offset = 0.0;
+        if(sscanf(setupData->paramValue.c_str(), "%f", &offset) == 1) {     //was there exactly ONE flaot value in this string?
+            meshcom_settings.node_tempo_off = offset;
+            setupData->returnCode = WS_RETURNCODE_OKAY;
+            setupData->returnValue = setupData->paramValue;
+
+            save_settings();
+        } else {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            setupData->returnValue = String(meshcom_settings.node_tempo_off);
+        }
+        return;
+    } 
+
 
 
 

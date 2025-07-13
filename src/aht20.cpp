@@ -80,7 +80,7 @@ bool loopAHT20()
     aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
 
     fAHT20Temp = temp.temperature;
-    fAHT20Hum = temp.relative_humidity;
+    fAHT20Hum = humidity.relative_humidity;
 
     if(bWXDEBUG)
     {	

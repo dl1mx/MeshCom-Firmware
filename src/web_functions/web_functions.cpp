@@ -16,7 +16,6 @@
 #include "web_UIComponents.h"
 #include "web_setup.h"
 #include "web_nodefunctioncalls.h"
-
 #include "web_commonServer.h"
 
 
@@ -24,24 +23,6 @@ CommonWebServer web_server(80);
 CommonWebClient web_client;
 
 void web_client_html(CommonWebClient web_client);
-
-/*#ifdef ESP32
-// WIFI
-#include <WiFi.h>
-#include <WiFiClient.h>
-#include <ESPmDNS.h>
-WiFiServer web_server(80);
-WiFiClient web_client;
-
-void web_client_html(WiFiClient web_client);
-#else
-#include <SPI.h>
-#include <RAK13800_W5100S.h> // Click to install library: http://librarymanager/All#RAK13800-W5100S
-EthernetServer web_server(80);
-EthernetClient web_client;
-void web_client_html(EthernetClient web_client);
-#endif*/
-
 
 
 String web_header;
@@ -88,6 +69,7 @@ void startWebserver()
     {
         Serial.print(getTimeString());
         Serial.println("[Web]...Error setting up MDNS responder!");
+        Serial.println("[Web]...Error setting up MDNS responder!");
         return;
     }
 
@@ -95,9 +77,11 @@ void startWebserver()
     {
         Serial.print(getTimeString());
         Serial.println("[Web]...mDNS responder started");
+        Serial.println("[Web]...mDNS responder started");
     }
 
     web_server.begin();
+
 
 #else
     if (web_server.server_port[1] == 0)
@@ -127,7 +111,6 @@ void stopWebserver()
  */
 void loopWebserver()
 {
-
     if (!bweb_server_running)
         return;
 
@@ -143,8 +126,6 @@ void loopWebserver()
         return;
     }
 
-
-    
     web_client = web_server.available(); // Create a client connection.
 
     // HTML Page formating
@@ -156,17 +137,12 @@ void loopWebserver()
 
     // Close the connection
     web_client.stop();
-
-
-    // HTML Page formating
-    
 }
 
 /**
  * ###########################################################################################################################
  * Web Client Handler
  */
-
 void web_client_html(CommonWebClient web_client)
 {
     IPAddress web_ip_now = web_client.remoteIP();
@@ -175,7 +151,10 @@ void web_client_html(CommonWebClient web_client)
 
     if(bDEBUG) {
         Serial.print("[Web]...Client IP: ");
+    if(bDEBUG) {
+        Serial.print("[Web]...Client IP: ");
         Serial.println(web_ip_now);
+    }
     }
     bool bPasswordOk = false;
 
@@ -392,6 +371,11 @@ String work_webpage(bool bget_password, int webid)
                             send_http_header(200, RESPONSE_TYPE_TEXT);
                             sub_page_mcp23017();
                         }
+                        else if (web_header.indexOf("/?page=mcp23017") >= 0)
+                        { // user requested the path page
+                            send_http_header(200, RESPONSE_TYPE_TEXT);
+                            sub_page_mcp23017();
+                        }
                         else if (web_header.indexOf("/?page=info") >= 0)
                         { // user requested the info page
                             send_http_header(200, RESPONSE_TYPE_TEXT);
@@ -529,9 +513,8 @@ void deliver_scaffold(bool bget_password)
     web_client.println("function updateCharsLeft() {let maxlength=149;if(document.getElementById(\"sendcall\").value.length>0) {maxlength-=(document.getElementById(\"sendcall\").value.length)+2;}let msglength=document.getElementById(\"messagetext\").value.length;if(msglength>maxlength){document.getElementById(\"messagetext\").value=document.getElementById(\"messagetext\").value.substring(0,maxlength);msglength=maxlength;}document.getElementById(\"indicator_charsleft\").innerHTML=maxlength-msglength;}\n");
     // this function is an ayncronous loader that is used to update the received messages without re-loading the whole page, it will re-call itself after a timeout as long as the message-page is displayed
     web_client.println("function updateMessages() {var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){if(document.getElementById(\"messages_panel\")!=null)document.getElementById(\"messages_panel\").innerHTML=this.responseText;}};setTimeout(function(){xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();},1000);}\n");
-    // web_client.println("function updateMessages() {var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){document.getElementById(\"messages_panel\").innerHTML=this.responseText;};xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();};\n");
     //  this function sends a parameter:value request to the backend
-    web_client.println("function setvalue(param,value) {fetch(\"/setparam/?\"+param+\"=\"+value).then(function(response){return response.json();}).then(function(jsonResponse){if(jsonResponse['returncode']==1)alert(\"Value could not be set.\");if(jsonResponse['returncode']==2)alert(\"Parameter unknown to node.\");if(jsonResponse['returncode']>0){loadPage(cpage,csender,false)}});}\n");
+    web_client.println("function setvalue(param,value,refresh) {fetch(\"/setparam/?\"+param+\"=\"+value).then(function(response){return response.json();}).then(function(jsonResponse){if(jsonResponse['returncode']==1)alert(\"Value could not be set.\");if(jsonResponse['returncode']==2)alert(\"Parameter unknown to node.\");if(jsonResponse['returncode']>0){loadPage(cpage,csender,false)}if(refresh)loadPage(cpage,csender,false);});}\n");
     // this function invokes a function call to the backend passing the function name and an optional parameter (e.g. sendpos)
     web_client.println("function callfunction(functionname,functionparameter){fetch(\"/callfunction/?\"+functionname+\"=\"+functionparameter).then(function(response){return response.json();}).then(function (jsonResponse) {/*Nothing todo yet.*/})}\n");
     // This function is used to toggle a css class so setup cars can collapse / expand
@@ -645,13 +628,12 @@ void deliver_scaffold(bool bget_password)
     web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('path',this,true)\"><svg viewBox=\"0 0 16 16\" xmlns=\"http://www.w3.org/2000/svg\" fill=\"none\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g><path fill=\"#ffffff\" fill-rule=\"evenodd\" d=\"M13 0a3 3 0 00-1.65 5.506 7.338 7.338 0 01-.78 1.493c-.22.32-.472.635-.8 1.025a1.509 1.509 0 00-.832.085 12.722 12.722 0 00-1.773-1.124c-.66-.34-1.366-.616-2.215-.871a1.5 1.5 0 10-2.708 1.204c-.9 1.935-1.236 3.607-1.409 5.838a1.5 1.5 0 101.497.095c.162-2.07.464-3.55 1.25-5.253.381-.02.725-.183.979-.435.763.23 1.367.471 1.919.756a11.13 11.13 0 011.536.973 1.5 1.5 0 102.899-.296c.348-.415.64-.779.894-1.148.375-.548.665-1.103.964-1.857A3 3 0 1013 0zm-1.5 3a1.5 1.5 0 113 0 1.5 1.5 0 01-3 0z\" clip-rule=\"evenodd\"></path></g></svg></Button>\n");
     web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('rxlog',this,true)\"><svg viewBox=\"0 0 32 32\" version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" xmlns:sketch=\"http://www.bohemiancoding.com/sketch/ns\" fill=\"#ffffff\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g> <title>book-album</title> <desc>Created with Sketch Beta.</desc><defs></defs><g stroke=\"none\" stroke-width=\"1\" fill=\"none\" fill-rule=\"evenodd\" sketch:type=\"MSPage\"> <g sketch:type=\"MSLayerGroup\" transform=\"translate(-412.000000, -99.000000)\" fill=\"#ffffff\"> <path d=\"M442,124 C442,125.104 441.073,125.656 440,126 C440,126 434.557,127.515 429,128.977 L429,104 L440,101 C441.104,101 442,101.896 442,103 L442,124 L442,124 Z M427,128.998 C421.538,127.53 416,126 416,126 C414.864,125.688 414,125.104 414,124 L414,103 C414,101.896 414.896,101 416,101 L427,104 L427,128.998 L427,128.998 Z M440,99 C440,99 434.211,100.594 428.95,102 C428.291,102.025 427.627,102 426.967,102 C421.955,100.656 416,99 416,99 C413.791,99 412,100.791 412,103 L412,124 C412,126.209 413.885,127.313 416,128 C416,128 421.393,129.5 426.967,131 L428.992,131 C434.612,129.5 440,128 440,128 C442.053,127.469 444,126.209 444,124 L444,103 C444,100.791 442.209,99 440,99 L440,99 Z\" sketch:type=\"MSShapeGroup\"> </path> </g> </g> </g></svg></Button>\n");
     web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('spectrum',this,true)\"><svg viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><g><path d=\"M13,11v4M9,7v8m8-6v6\" style=\"fill:none;stroke:#ffffff;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;\"></path><path d=\"M3,19H21M5,3V21\" style=\"fill:none;stroke:#ffffff;stroke-linecap:round;stroke-linejoin:round;stroke-width:2;\"></path></g></svg></Button>\n");
-    // Setup Button (Image as base64 and split ti several print() so RAK can handle it)
     if(bMCP23017) {
         web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('mcp23017',this,true)\"><svg width=\"48\" height=\"48\" version=\"1.1\" viewBox=\"0 0 12.7 12.7\" xmlns=\"http://www.w3.org/2000/svg\"><g fill=\"none\" stroke=\"#ffffff\" stroke-linejoin=\"round\"><rect x=\".78644\" y=\".78644\" width=\"11.127\" height=\"5.4354\" stroke-width=\"1.0\"/><g stroke-linecap=\"round\" stroke-width=\"1.0\"><path d=\"m0.79071 8.2113h11.119\"/><path d=\"m0.79679 9.7926h11.119\"/><path d=\"m0.79679 11.38h11.119\"/></g></g></svg></Button>\n");
     }
-    
+
+    // Setup Button (Image as base64 and split t0 several print() so RAK can handle it)
     web_client.print("<Button class=\"nav_button\" onclick=\"loadPage('setup',this,true)\"><img src=\"data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcgc3Ryb2tlLXdpZHRoPSIwIj48L2c+PGcgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48L2c+PGc+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMiIgcj0iMyIgc3Ryb2tlPSIjZmZmZmZmIiBzdHJva2Utd2lkdGg9IjEuNSI+PC9jaXJjbGU+PHBhdGggZD0iTTEzLjc2NTQgMi4xNTIyNEMxMy4zOTc4IDIgMTIuOTMxOSAyIDEyIDJDMTEuMDY4MSAyIDEwLjYwMjIgMiAxMC4yMzQ2IDIuMTUyMjRDOS43NDQ1NyAyLjM1NTIzIDkuMzU1MjIgMi43NDQ1OCA5LjE1MjIzIDMuMjM0NjNDOS4wNTk1NyAzLjQ1ODM0IDkuMDIzMyAzLjcxODUgOS4wMDkxMSA0LjA5Nzk5QzguOTg4MjYgNC42NTU2OCA4LjcwMjI2IDUuMTcxODkgOC4yMTg5NCA1LjQ1MDkzQzcuNzM1NjQgNS43Mjk5NiA3LjE0NTU5IDUuNzE5NTQgNi42NTIxOSA1LjQ1ODc2QzYuMzE2NDUgNS4yODEzIDYuMDczMDEgNS4xODI2MiA1LjgzMjk0IDUuMTUxMDJDNS4zMDcwNCA1LjA4MTc4IDQuNzc1MTggNS4yMjQyOSA0LjM1NDM2IDUuNTQ3MkM0LjAzODc0IDUuNzg5MzggMy44MDU3NyA2LjE5MjkgMy4zMzk4MyA2Ljk5OTkzQzIuODczODkgNy44MDY5NyAyLjY0MDkyIDguMjEwNDggMi41ODg5OSA4LjYwNDkxQz");
-    
     web_client.print("IuNTE5NzYgOS4xMzA4IDIuNjYyMjcgOS42NjI2NiAyLjk4NTE4IDEwLjA4MzVDMy4xMzI1NiAxMC4yNzU2IDMuMzM5NyAxMC40MzcgMy42NjExOSAxMC42MzlDNC4xMzM4IDEwLjkzNiA0LjQzNzg5IDExLjQ0MTkgNC40Mzc4NiAxMkM0LjQzNzgzIDEyLjU1ODEgNC4xMzM3NSAxMy4wNjM5IDMuNjYxMTggMTMuMzYwOEMzLjMzOTY1IDEzLjU2MjkgMy4xMzI0OCAxMy43MjQ0IDIuOTg1MDggMTMuOTE2NUMyLjY2MjE3IDE0LjMzNzMgMi41MTk2NiAxNC44NjkxIDIuNTg4OSAxNS4zOTVDMi42NDA4MiAxNS43ODk0IDIuODczNzkgMTYuMTkzIDMuMzM5NzMgMTdDMy44MDU2OCAxNy44MDcgNC4wMzg2NSAxOC4yMTA2IDQuMzU0MjYgMTguNDUyN0M0Ljc3NTA4IDE4Ljc3NTYgNS4zMDY5NCAxOC45MTgxIDUuODMyODQgMTguODQ4OUM2LjA3Mjg5IDE4LjgxNzMgNi4zMTYzMiAxOC43MTg2IDYuNjUyMDQgMTguNTQxMkM3LjE0NTQ3IDE4LjI4MDQgNy43MzU1NiAxOC4yNyA4LjIxODkgMTguNTQ5QzguNzAyMjQgMTguODI4MSA4Ljk4ODI2IDE5LjM0NDMgOS4wMDkxMSAxOS45MDIxQzkuMDIzMzEgMjAuMjgxNSA5LjA1OTU3IDIwLjU0MTcgOS4xNTIyMyAyMC43NjU0QzkuMzU1MjIgMjEuMjU1NCA5Ljc0NDU3IDIxLjY0NDggMTAuMjM0NiAyMS44NDc4QzEwLjYwMjIgMjIgMTEuMDY4MSAyMiAxMiAyMkMxMi45MzE5IDIyIDEzLjM5NzggMjIgMTMuNzY1NCAyMS44NDc4QzE0LjI1NTQgMjEuNjQ0OCAxNC42NDQ4IDIxLjI1NTQgMTQuODQ3NyAyMC43NjU0QzE0Ljk0MDQgM");
     web_client.print("jAuNTQxNyAxNC45NzY3IDIwLjI4MTUgMTQuOTkwOSAxOS45MDJDMTUuMDExNyAxOS4zNDQzIDE1LjI5NzcgMTguODI4MSAxNS43ODEgMTguNTQ5QzE2LjI2NDMgMTguMjY5OSAxNi44NTQ0IDE4LjI4MDQgMTcuMzQ3OSAxOC41NDEyQzE3LjY4MzYgMTguNzE4NiAxNy45MjcgMTguODE3MiAxOC4xNjcgMTguODQ4OEMxOC42OTI5IDE4LjkxODEgMTkuMjI0OCAxOC43NzU2IDE5LjY0NTYgMTguNDUyN0MxOS45NjEyIDE4LjIxMDUgMjAuMTk0MiAxNy44MDcgMjAuNjYwMSAxNi45OTk5QzIxLjEyNjEgMTYuMTkyOSAyMS4zNTkxIDE1Ljc4OTQgMjEuNDExIDE1LjM5NUMyMS40ODAyIDE0Ljg2OTEgMjEuMzM3NyAxNC4zMzcyIDIxLjAxNDggMTMuOTE2NEMyMC44Njc0IDEzLjcyNDMgMjAuNjYwMiAxMy41NjI4IDIwLjMzODcgMTMuMzYwOEMxOS44NjYyIDEzLjA2MzkgMTkuNTYyMSAxMi41NTggMTkuNTYyMSAxMS45OTk5QzE5LjU2MjEgMTEuNDQxOCAxOS44NjYyIDEwLjkzNjEgMjAuMzM4NyAxMC42MzkyQzIwLjY2MDMgMTAuNDM3MSAyMC44Njc1IDEwLjI3NTcgMjEuMDE0OSAxMC4wODM1QzIxLjMzNzggOS42NjI3MyAyMS40ODAzIDkuMTMwODcgMjEuNDExMSA4LjYwNDk3QzIxLjM1OTIgOC4yMTA1NSAyMS4xMjYyIDcuODA3MDMgMjAuNjYwMiA3QzIwLjE5NDMgNi4xOTI5NyAxOS45NjEzIDUuNzg5NDUgMTkuNjQ1NyA1LjU0NzI3QzE5LjIyNDkgNS4yMjQzNiAxOC42OTMgNS4wODE4NSAxOC4xNjcxIDUuMTUxMDlDMTcuOTI3MSA1LjE4MjY5IDE3LjY4MzcgNS4y");
     web_client.println("ODEzNiAxNy4zNDc5IDUuNDU4OEMxNi44NTQ1IDUuNzE5NTkgMTYuMjY0NCA1LjczMDAyIDE1Ljc4MTEgNS40NTA5NkMxNS4yOTc3IDUuMTcxOTEgMTUuMDExNyA0LjY1NTY2IDE0Ljk5MDkgNC4wOTc5NEMxNC45NzY3IDMuNzE4NDggMTQuOTQwNCAzLjQ1ODMzIDE0Ljg0NzcgMy4yMzQ2M0MxNC42NDQ4IDIuNzQ0NTggMTQuMjU1NCAyLjM1NTIzIDEzLjc2NTQgMi4xNTIyNFoiIHN0cm9rZT0iI2ZmZmZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiPjwvcGF0aD48L2c+PC9zdmc+\"></Button>\n");
@@ -920,7 +902,7 @@ void sub_page_setup()
     web_client.println("<div class=\"grid\">");
     web_client.println("<span>Enter manual command:</span>");
     web_client.println("<input type=\"text\" id=\"manualcommand\" maxlength=\"40\" size=\"20\" style=\"width:100%\">");
-    web_client.println("<button onclick=\"setvalue('manualcommand', document.getElementById('manualcommand').value); document.getElementById('manualcommand').value='';\" style=\"justify-self:self-end;\">send command</button>");
+    web_client.println("<button onclick=\"setvalue('manualcommand', document.getElementById('manualcommand').value,false); document.getElementById('manualcommand').value='';\" style=\"justify-self:self-end;\">send command</button>");
     web_client.println("</div></div>");
 
     // Common Settings Section
@@ -941,7 +923,7 @@ void sub_page_setup()
         }
     }
     web_client.println("</select>");
-    web_client.println("<button onclick=\"setvalue('setctry', document.getElementById('country').value)\"><i class=\"btncheckmark\"></i></button>");
+    web_client.println("<button onclick=\"setvalue('setctry', document.getElementById('country').value,false)\"><i class=\"btncheckmark\"></i></button>");
 
     _create_setup_textinput_element("txpower", "TX Power", String(meshcom_settings.node_power), "15", "txpower", 2, false, false);                    // create Textinput-Element including Label and Button
     _create_setup_textinput_element("utcoffset", "UTC Offset", String(meshcom_settings.node_utcoff, 1).c_str(), "1.0", "utcoffset", 4, false, false); // create Textinput-Element including Label and Button
@@ -956,8 +938,11 @@ void sub_page_setup()
 
 // We support OTA only for ESP based devices, not RAK
 #ifdef ESP32
+// We support OTA only for ESP based devices, not RAK
+#ifdef ESP32
     web_client.println("<span>Reboot into OTA Updater</span>");
     web_client.println("<button onclick=\"if(confirm('Node will reboot to OTA Updater, are you sure?')){callfunction('otaupdate', '');setTimeout(function(){window.location.reload();},10000);}\"><i class=\"btncheckmark\"></i></button>");
+#endif
 #endif
 
     web_client.println("</div></div>");
@@ -1013,6 +998,8 @@ void sub_page_setup()
     _create_setup_textinput_element("aprstext", "APRS Text", String(meshcom_settings.node_atxt), "aprstext", "atxt", 25, false, false);    // create Textinput-Element including Label and Button
     _create_setup_textinput_element("aprssymbol", "APRS Symbol", String(meshcom_settings.node_symid), "S", "symid", 1, false, false);      // create Textinput-Element including Label and Button
     _create_setup_textinput_element("aprsgroup", "APRS Group", String(meshcom_settings.node_symcd), "/", "symcd", 1, false, false);        // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("aprssymbol", "APRS Symbol", String(meshcom_settings.node_symid), "S", "symid", 1, false, false);      // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("aprsgroup", "APRS Group", String(meshcom_settings.node_symcd), "/", "symcd", 1, false, false);        // create Textinput-Element including Label and Button
 
     web_client.println("</div></div>");
 
@@ -1058,6 +1045,12 @@ void sub_page_setup()
     _create_setup_switch_element("softser", "SoftSer", "enable software serial console", bSOFTSERON);      // create Switch-Element inclucing Label and Description
 
     web_client.println("</div>");
+    
+    web_client.println("<div class=\"grid grid3\">");
+    _create_setup_textinput_element("tempoffi", "Indoor Temp Offset", String(meshcom_settings.node_tempi_off), "0.0", "tempoffsetindoor", 3, false, false);                // create Textinput-Element including Label and Button
+    _create_setup_textinput_element("tempoffa", "Outdoor Temp Offset", String(meshcom_settings.node_tempo_off), "0.0", "tempoffsetoutdoor", 3, false, false); // create Textinput-Element including Label and Button
+    web_client.println("</div>");
+
     web_client.println("</div>");
 
     // Groups Settings Section
@@ -1073,7 +1066,7 @@ void sub_page_setup()
         web_client.printf("<input type=\"text\" id=\"grp%i\" value=\"%i\" maxlength=\"5\" size=\"20\" placeholder=\"0\"/>\n", i, meshcom_settings.node_gcb[i]);
     }
     web_client.println("<i></i>");
-    web_client.println("<button onclick=\"setvalue('setgrc', (document.getElementById('grp0').value+';'+document.getElementById('grp1').value+';'+document.getElementById('grp2').value+';'+document.getElementById('grp3').value+';'+document.getElementById('grp4').value+';'+document.getElementById('grp5').value))\"><i class=\"btncheckmark\"></i></button>");
+    web_client.println("<button onclick=\"setvalue('setgrc', (document.getElementById('grp0').value+';'+document.getElementById('grp1').value+';'+document.getElementById('grp2').value+';'+document.getElementById('grp3').value+';'+document.getElementById('grp4').value+';'+document.getElementById('grp5').value),false)\"><i class=\"btncheckmark\"></i></button>");
 
     _create_setup_switch_element("nomsgall", "No MSG All", "do not show messages send to all", bNoMSGtoALL); // create Switch-Element inclucing Label and Description
 
@@ -1198,6 +1191,8 @@ void sub_page_spectrum()
 {
     _create_meshcom_subheader("Spectrum Scan");
     web_client.println("<div id=\"content_inner\">");
+    _create_meshcom_subheader("Spectrum Scan");
+    web_client.println("<div id=\"content_inner\">");
 #if defined(SX1262X) || defined(SX126X) || defined(SX1262_V3) || defined(SX1262_E290)
     float spec_curr_freq = meshcom_settings.node_specstart; // scan start frequency
 
@@ -1214,6 +1209,7 @@ void sub_page_spectrum()
     uint16_t own_freq_marker_width = round(((meshcom_settings.node_bw / 1000) / meshcom_settings.node_specstep) * step_pixel_width);
     uint16_t own_freq_marker_center = start_x + (((meshcom_settings.node_freq - spec_curr_freq) / meshcom_settings.node_specstep) * step_pixel_width);
     uint16_t own_freq_marker_start = own_freq_marker_center - (own_freq_marker_width / 2);
+
 
 
     if (sx126x_spectral_init_scan(spec_curr_freq) != RADIOLIB_ERR_NONE)
@@ -1383,6 +1379,7 @@ void sub_page_info()
 
 void sub_page_mcp23017()
 {
+
     char onclick[100];
     char caption[40];
     char id[40];
@@ -1405,6 +1402,12 @@ void sub_page_mcp23017()
     web_client.println("</colgroup>");
     web_client.println("<thead><tr class=\"font-bold\"><td>PORT</td><td>In/Out</td><td>Name</td><td>Status</td><td>Set</td></tr></thead>");
 
+
+    if(bDisplayCont)
+    {
+        Serial.printf("t_out = %i\n", t_out);
+        Serial.printf("t_in = %i\n", t_in);
+    }
 
 
     for (int io = 0; io < 16; io++)
@@ -1429,17 +1432,20 @@ void sub_page_mcp23017()
             iAB = io;
         }
 
+        if(bDisplayCont)
+            Serial.printf("Port %c%i has mask %i and t_in %i and t_out %i\n",cAB, iAB, t_io, t_in, t_out);
+
         web_client.printf("<tr><td>[%c%i]</td><td>", cAB, iAB);
-        snprintf(onclick, 100, "setvalue('mcpio%c%i','%s')", cAB, iAB, bOut ?"out":"in");
-        snprintf(caption, 4, "%s",  bOut ?"out":"in");
+        snprintf(onclick, 100, "setvalue('mcpio%c%i','%s',true)", cAB, iAB, bOut ?"in":"out");
+        snprintf(caption, 4, "%s",  (bOut ?"out":"in"));
         uic_button(&web_client, onclick, caption);
         web_client.println("</td><td>");
 
         snprintf(id, 40, "mcpname%c%i", cAB, iAB);
         snprintf(value, 100, "%s", meshcom_settings.node_mcp17t[io]);
-        uic_input(&web_client, id, "", value);
+        uic_input(&web_client, id, (char*)"", value);
 
-        snprintf(onclick, 100, "setvalue('mcpname%c%i', document.getElementById('mcpname%c%i').value)", cAB, iAB, cAB, iAB);
+        snprintf(onclick, 100, "setvalue('mcpname%c%i', document.getElementById('mcpname%c%i').value,true);", cAB, iAB, cAB, iAB);
         snprintf(caption, 4,  "set");
         uic_button(&web_client, onclick, caption);
 
@@ -1447,18 +1453,18 @@ void sub_page_mcp23017()
 
         if (bOut)
         {
-                web_client.printf("<td>%s</td><td>", (bOutValue ? "OFF" : "ON"));
-                snprintf(onclick, 100, "setvalue('mcpout%c%i','%s')", cAB, iAB, (bOutValue ? "off" : "on"));
-                snprintf(caption, 4,  "%s", (bOutValue ? "ON" : "OFF"));
+                web_client.printf("<td>%s</td><td>", (bOutValue ? "ON" : "OFF"));
+                snprintf(onclick, 100, "setvalue('mcpout%c%i','%s',true)", cAB, iAB, (bOutValue ? "off" : "on"));
+                snprintf(caption, 4,  "%s", (bOutValue ? "OFF" : "ON"));
                 uic_button(&web_client, onclick, caption);
                 web_client.println("</td></tr>");
         }
         else
         {
             if (meshcom_settings.node_mcp17t[io][0] == 0x00)
-                web_client.printf("<td>%s</td><td></td></tr>\n", (bInValue ? "HIGH" : "LOW "));
+                web_client.printf("<td>%s</td><td></td></tr>\n", (bInValue ? "HIGH" : "LOW"));
             else
-                web_client.printf("<td><b>%s</b></td><td></td></tr>\n", (bInValue ? "HIGH" : "LOW "));
+                web_client.printf("<td><b>%s</b></td><td></td></tr>\n", (bInValue ? "HIGH" : "LOW"));
         }
 
         t_io >>= 1;
@@ -1467,7 +1473,7 @@ void sub_page_mcp23017()
     }
 
     web_client.println("<tr><td colspan=\"5\">");
-    snprintf(onclick, 100, "setvalue('mcpclear','')");
+    snprintf(onclick, 100, "setvalue('mcpclear','',true)");
     snprintf(caption, 10,  "%s", "clear all");
     uic_button(&web_client, onclick, caption);
     web_client.println("</td></tr></table></div>");
@@ -1539,13 +1545,11 @@ void _create_meshcom_subheader(String title)
 void _create_setup_textinput_element(const char id[], const char labelText[], String inputValue, const char placeHolder[], const char  parameterName[], uint8_t maxlength, bool isPassword, bool needConfirm){
     char onclick[100]; 
     char caption[100];
-    snprintf(onclick, 100, "setvalue('%s', document.getElementById('%s').value)", parameterName, id);
+    snprintf(onclick, 100, "setvalue('%s', document.getElementById('%s').value,false)", parameterName, id);
     snprintf(caption, 100, "<i class=\"btncheckmark\"></i>");
-
 
     web_client.printf("<label for=\"%s\">%s :</label>\n", id, labelText);
     web_client.printf("<input type=\"%s\" name=\"%s\" id=\"%s\" value=\"%s\" maxlength=\"%i\" size=\"10\" placeholder=\"%s\">\n", isPassword ? "password" : "text", id, id, inputValue.c_str(), maxlength, placeHolder);
-
 
     if(needConfirm) {
         char confirm[200];
@@ -1569,7 +1573,7 @@ void _create_setup_textinput_element(const char id[], const char labelText[], St
 void _create_setup_switch_element(const char id[], const char labelText[], const char descriptionText[], bool checked)
 {
     web_client.printf("<label for=\"%s\">%s <span class=\"font-small\">(%s)</span></label>\n", id, labelText, descriptionText);
-    web_client.printf("<input type=\"checkbox\" role=\"switch\" id=\"%s\" %s onchange=\"setvalue(this.id,this.checked?'on':'off')\"/>\n", id, checked ? "checked" : "");
+    web_client.printf("<input type=\"checkbox\" role=\"switch\" id=\"%s\" %s onchange=\"setvalue(this.id,this.checked?'on':'off',false)\"/>\n", id, checked ? "checked" : "");
 }
 
 /**
