@@ -17,6 +17,8 @@ definitions for E22 Board
 #define SX126X  // some functions differ from SX127x and SX126x in RadioLib based on Semtech Chip
 #define ENABLE_GPS
 #define ENABLE_BMX280
+#define ENABLE_BMP390
+#define ENABLE_AHT20
 #define ENABLE_BMX680
 #define ENABLE_MCP23017
 #define ENABLE_INA226

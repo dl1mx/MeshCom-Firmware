@@ -276,6 +276,7 @@ void checkSerialCommand(void);
 
 
 unsigned long gps_refresh_timer = 0;
+unsigned long mcp_refresh_timer = 0;
 unsigned long softser_refresh_timer = 0;
 
 // Client basic variables
@@ -1081,6 +1082,19 @@ extern bool btimeClient;
 
         hasMsgFromPhone = false;
     }
+
+    #if defined(ENABLE_MCP23017)
+    // 5 sec
+    if ((mcp_refresh_timer + 5000) < millis())
+    {
+        // get i/o state
+        if(loopMCP23017())
+        {
+        }
+
+        mcp_refresh_timer = millis();
+    }
+    #endif
 
     if(gKeyNum == 1)
     {

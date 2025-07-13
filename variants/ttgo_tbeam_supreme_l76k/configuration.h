@@ -15,6 +15,8 @@ definitions for T-Beam-Supreme-L76K
 #define ENABLE_GPS
 #define GPS_L76K
 #define ENABLE_BMX280
+#define ENABLE_BMP390
+#define ENABLE_AHT20
 #define ENABLE_BMX680
 #define ENABLE_MCP23017
 #define ENABLE_INA226

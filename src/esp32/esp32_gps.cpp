@@ -13,6 +13,7 @@
 #include <command_functions.h>
 
 #define GPS_DEFAULT_BAUDRATE 9600
+#define GPS_BAUDRATE 38400
 
 #if defined (BOARD_TRACKER)
     HardwareSerial GPS(1);
@@ -554,7 +555,7 @@ unsigned int getGPS(void)
 
             if(bGPSON)
             {
-                myGPS.setUART2Output(COM_TYPE_NMEA); //Set the UART port to output NMEA only
+                myGPS.setUART1Output(COM_TYPE_NMEA); //Set the UART port to output NMEA only
                 delay(100);
                 myGPS.enableNMEAMessage(UBX_NMEA_GLL, COM_PORT_UART1);
                 delay(100);
@@ -566,8 +567,23 @@ unsigned int getGPS(void)
                 delay(100);
                 myGPS.enableNMEAMessage(UBX_NMEA_GGA, COM_PORT_UART1);
                 delay(100);
+                myGPS.setMeasurementRate(1000);
+                delay(100);
                 myGPS.saveConfiguration(); //Save the current settings to flash and BBR
                 delay(100);
+
+                if(gpsBaudrate != GPS_BAUDRATE)
+                {
+                    myGPS.setSerialRate(GPS_BAUDRATE, COM_PORT_UART1);
+    
+                    GPS.end();
+                    delay(100);
+                    GPS.begin(GPS_BAUDRATE);
+                    delay(100);
+    
+                    myGPS.saveConfiguration();
+                    delay(100);
+                }
 
                 Serial.println("GPS serial connected, saved config");
                 

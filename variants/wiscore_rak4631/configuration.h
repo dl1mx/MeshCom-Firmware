@@ -15,11 +15,14 @@ definitions for RAK4631
 #define TX_POWER_MAX 22  // max 22 dBm
 #define TX_POWER_MIN 2
 #define ENABLE_BMX280
+#define ENABLE_BMP390
+#define ENABLE_AHT20
 #define ENABLE_BMX680
 #define ENABLE_INA226
 #define ENABLE_MC811
 #define ENABLE_RTC
 // #define ENABLE_SOFTSER
+
 #define ENABLE_MCP23017
 #define BUTTON_PIN WB_IO6       // only in combination with RAK13002
 #define OneWire_GPIO WB_IO1     // only in combination with RAK13002

@@ -14,6 +14,8 @@ definitions for HELTEC_V2_1
 #define SX127X
 #define ENABLE_GPS
 #define ENABLE_BMX280
+#define ENABLE_BMP390
+#define ENABLE_AHT20
 #define ENABLE_BMX680
 #define ENABLE_MCP23017
 #define ENABLE_INA226

@@ -462,7 +462,7 @@ bool startWIFI()
     WiFi.softAP(meshcom_settings.node_call);
     
     if(meshcom_settings.node_wifi_power > 0)
-      esp_wifi_set_max_tx_power((int8_t)meshcom_settings.node_wifi_power);
+      esp_wifi_set_max_tx_power((int8_t)meshcom_settings.node_wifi_power*4);
     else
       WiFi.setTxPower(WIFI_POWER_8_5dBm);
 
@@ -515,7 +515,7 @@ bool startWIFI()
     WiFi.mode(WIFI_STA);
     
     if(meshcom_settings.node_wifi_power > 0)
-      esp_wifi_set_max_tx_power((int8_t)meshcom_settings.node_wifi_power);
+      esp_wifi_set_max_tx_power((int8_t)meshcom_settings.node_wifi_power*4);
     else
       WiFi.setTxPower(WIFI_POWER_8_5dBm);
 
@@ -540,7 +540,7 @@ bool startWIFI()
     WiFi.mode(WIFI_STA);
 
     if(meshcom_settings.node_wifi_power > 0)
-      esp_wifi_set_max_tx_power((int8_t)meshcom_settings.node_wifi_power);
+      esp_wifi_set_max_tx_power((int8_t)meshcom_settings.node_wifi_power*4);
     else
       WiFi.setTxPower(WIFI_POWER_8_5dBm);
 

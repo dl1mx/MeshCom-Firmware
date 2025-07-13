@@ -742,9 +742,9 @@ void commandAction(char *umsg_text, bool ble)
 
         sscanf(msg_text+14, "%d", &meshcom_settings.node_button_pin);
 
-        if(meshcom_settings.node_button_pin <= 0 || meshcom_settings.node_button_pin >= 99)
+        if(meshcom_settings.node_button_pin < 0 || meshcom_settings.node_button_pin > 99)
         {
-            Serial.printf("Wrong BUTTON GPIO PIN only > 0 and < 99");
+            Serial.printf("Wrong BUTTON GPIO PIN only >= 0 and <= 99");
             
             meshcom_settings.node_button_pin = ibt;
 
@@ -2367,6 +2367,40 @@ void commandAction(char *umsg_text, bool ble)
         bShowPos=true;
     }
     else
+    if(commandCheck(msg_text+2, (char*)"tempoff in ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+13);
+        sscanf(_owner_c, "%f", &fVar);
+
+        meshcom_settings.node_tempi_off=fVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bWeather=true;
+        }
+        else
+            return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"tempoff out ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+14);
+        sscanf(_owner_c, "%f", &fVar);
+
+        meshcom_settings.node_tempo_off=fVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bWeather=true;
+        }
+        else
+            return;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"weather") == 0 || commandCheck(msg_text+2, (char*)"wx") == 0)
     {
         bWeather=true;
@@ -2491,11 +2525,15 @@ void commandAction(char *umsg_text, bool ble)
 
         sVar.trim();
 
+        if(sVar == "none")
+            sVar = "";
+
+
         snprintf(meshcom_settings.node_atxt, sizeof(meshcom_settings.node_atxt), "%s", sVar.c_str());
 
         if(ble)
         {
-            addBLECommandBack((char*)msg_text);
+            sendAPRSset();
         }
 
         save_settings();
@@ -2926,14 +2964,14 @@ void commandAction(char *umsg_text, bool ble)
 
                 //Serial.printf("strsep:%s\n", strsep.c_str());
 
-                if(strsep.startsWith("ON"))
+                if(strsep.startsWith("HIGH") || strsep.startsWith("ON"))
                 {
                     meshcom_settings.node_mcp17out = meshcom_settings.node_mcp17out | mask;
 
                     bSet = true;
                 }
                 else
-                if(strsep.startsWith("OFF"))
+                if(strsep.startsWith("LOW") || strsep.startsWith("OFF"))
                 {
                     meshcom_settings.node_mcp17out = meshcom_settings.node_mcp17out & (mask ^ 0xFFFF);
 
@@ -3109,7 +3147,7 @@ void commandAction(char *umsg_text, bool ble)
         {
             meshcom_settings.node_wifi_power = iVar;
 
-            Serial.printf("set wifitxpower to %i dBm (factor:%i)\n", iVar, meshcom_settings.node_wifi_power/4);
+            Serial.printf("set wifitxpower to %i dBm (factor:%i)\n", iVar, meshcom_settings.node_wifi_power*4);
 
             save_settings();
             
@@ -3657,7 +3695,9 @@ void commandAction(char *umsg_text, bool ble)
 
             wdoc["TYP"] = "W";
             wdoc["TEMP"] = meshcom_settings.node_temp;
+            wdoc["TOFFI"] = meshcom_settings.node_tempi_off;
             wdoc["TOUT"] = meshcom_settings.node_temp2;
+            wdoc["TOFFO"] = meshcom_settings.node_tempo_off;
             wdoc["HUM"] = meshcom_settings.node_hum;
             wdoc["PRES"] = meshcom_settings.node_press;
             wdoc["QNH"] = meshcom_settings.node_press_asl;
@@ -3705,15 +3745,19 @@ void commandAction(char *umsg_text, bool ble)
             if(bMCU811ON)
                 snprintf(c811, sizeof(c811), " (%s)",  (mcu811_found?"found":"error"));
 
+            char cAHT20[10]={0};
+            if(bAHT20ON)
+                snprintf(cAHT20, sizeof(cAHT20), " (%s)",  (aht20_found?"found":"error"));
+
             char cone[10]={0};
             if(bONEWIRE)
                 snprintf(cone, sizeof(cone), " (%s)",  (one_found?"found":"error"));
 
-            Serial.printf("\n\nMeshCom %-4.4s%-1.1s\n...BMP280: %s / BME280: %s%s\n...BMP390: %s%s\n...AHT200: %s%s\n...BME680: %s%s\n...MCU811: %s%s\n...INA226: %s\n...LPS33: %s (RAK)\n...ONEWIRE: %s%s (%i)\n", SOURCE_VERSION, SOURCE_VERSION_SUB,
-            (bBMPON?"on":"off"), (bBMEON?"on":"off"), cbme, (bBMP3ON?"on":"off"), cbmp3, (bAHT20ON?"on":"off"), caht20, (bBME680ON?"on":"off"), c680, (bMCU811ON?"on":"off"), c811, (bINA226ON?"on":"off"), (bLPS33?"on":"off"), (bONEWIRE?"on":"off"), cone, meshcom_settings.node_owgpio);
+            Serial.printf("\n\nMeshCom %-4.4s%-1.1s\n...BMP280: %s / BME280: %s%s\n...BMP390: %s%s\n...AHT200: %s%s\n...BME680: %s%s\n...MCU811: %s%s\n...AHT20: %s%s\n...INA226: %s\n...LPS33: %s (RAK)\n...ONEWIRE: %s%s (%i)\n", SOURCE_VERSION, SOURCE_VERSION_SUB,
+            (bBMPON?"on":"off"), (bBMEON?"on":"off"), cbme, (bBMP3ON?"on":"off"), cbmp3, (bAHT20ON?"on":"off"), caht20, (bBME680ON?"on":"off"), c680, (bMCU811ON?"on":"off"), c811, (bAHT20ON?"on":"off"), cAHT20, (bINA226ON?"on":"off"), (bLPS33?"on":"off"), (bONEWIRE?"on":"off"), cone, meshcom_settings.node_owgpio);
 
-            Serial.printf("...TEMP: %.1f °C\n...TOUT: %.1f °C\n...HUM: %.1f %%rH\n...QFE: %.1f hPa\n...QNH: %.1f hPa\n...ALT asl: %i m\n...GAS: %.1f kOhm\n...eCO2: %.0f ppm\n", 
-            meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_hum, meshcom_settings.node_press, meshcom_settings.node_press_asl, meshcom_settings.node_press_alt, meshcom_settings.node_gas_res, meshcom_settings.node_co2);
+            Serial.printf("...TEMP: %.1f °C off %.3f\n...TOUT: %.1f °C off %.3f\n...HUM: %.1f %%rH\n...QFE: %.1f hPa\n...QNH: %.1f hPa\n...ALT asl: %i m\n...GAS: %.1f kOhm\n...eCO2: %.0f ppm\n", 
+            meshcom_settings.node_temp, meshcom_settings.node_tempi_off, meshcom_settings.node_temp2, meshcom_settings.node_tempo_off, meshcom_settings.node_hum, meshcom_settings.node_press, meshcom_settings.node_press_asl, meshcom_settings.node_press_alt, meshcom_settings.node_gas_res, meshcom_settings.node_co2);
         }
 
         return;
@@ -3804,7 +3848,7 @@ void commandAction(char *umsg_text, bool ble)
                     Serial.printf("...MCP17[B%i]: %-3.3s", io-8, (bOut?"OUT":"IN"));
 
                 if(bOut)
-                    Serial.printf(" value %s %s\n", (bOutValue?"ON  ":"OFF "), meshcom_settings.node_mcp17t[io]);
+                    Serial.printf(" value %s %s\n", (bOutValue?"HIGH":"LOW "), meshcom_settings.node_mcp17t[io]);
                 else
                     Serial.printf(" value %s %s\n", (bInValue?"HIGH":"LOW "), meshcom_settings.node_mcp17t[io]);
 
@@ -4017,12 +4061,15 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc["TYP"] = "SE";
         sensdoc["BME"] = bBMEON;
         sensdoc["BMP"] = bBMPON;
-        sensdoc["BMP3"] = bBMP3ON;
         sensdoc["BMXF"] = bmx_found;
+        sensdoc["BMP3"] = bBMP3ON;
+        sensdoc["BMP3F"] = bmp3_found;
         sensdoc["680"] = bBME680ON;
         sensdoc["680F"] = bme680_found;
         sensdoc["811"] = bMCU811ON;
         sensdoc["811F"] = mcu811_found;
+        sensdoc["AHT"] = bAHT20ON;
+        sensdoc["AHTF"] = aht20_found;
         sensdoc["SS"] = bSOFTSERON;
         sensdoc["LPS33"] = bLPS33;
         sensdoc["OW"] = bONEWIRE;
