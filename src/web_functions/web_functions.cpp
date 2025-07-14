@@ -1,4 +1,3 @@
-
 #include <Arduino.h>
 
 #include <configuration.h>
@@ -540,7 +539,7 @@ void deliver_scaffold(bool bget_password)
 
     // nav-bar definitions
     web_client.println("#nav_layer {height:100%;width:calc(60px*var(--widthfactor));background-color:var(--mcgray);position:fixed !important;overflow:auto;top:0px;}\n");
-    web_client.println("#mc_logo {width:90%;aspect-ratio:1/1;margin:10px auto 60px auto;display:block;}\n");
+    web_client.println("#mc_logo {width:100%;aspect-ratio:1/1;margin:0px auto 75px auto;padding:5px 0px;display:block;background-color:#000;}\n");
     web_client.println(".nav_button {background-color:var(--mcgray);border:solid 6px var(--mcgray);box-shadow:none;border-radius:10px 0px 0px 10px;cursor:pointer; width:100%; aspect-ratio:1/1; margin:calc(20px*var(--widthfactor)) auto; display:block;}\n");
     web_client.println(".nav_button>svg {display:block;width:90%;height:90%;margin:auto auto;}\n");
     web_client.println(".nav_button.nbactive {background-color:var(--mcbg);-webkit-transition:0.5s;transition:0.5s; border-right-color:var(--mcbg);}\n");
@@ -550,7 +549,7 @@ void deliver_scaffold(bool bget_password)
     web_client.println("select:focus,input:focus,textarea:focus {border:solid 1px var(--mcred);background-color:var(--mclightred);outline:none;}\n");
 
     // header (red bar with Call, Time, Date, etc) definitions
-    web_client.println("#head_layer {margin:0px 0px 0px calc(60px*var(--widthfactor)); padding:10px 30px 10px 0px;text-align:right;top:0px;overflow:hidden;background-color:#a2182f;color:#ffffff;width:auto;}\n");
+    web_client.println("#head_layer {margin:0px 0px 0px calc(60px*var(--widthfactor)); padding:10px 30px 10px 0px;text-align:right;top:0px;overflow:hidden;background-color:#a2182f;color:#ffffff;width:auto;height:39px;}\n");
     web_client.println("#head_layer>p {margin:0px 0px;}\n");
 
     // loader animation (the circling animation when content is loaded)
@@ -616,10 +615,22 @@ void deliver_scaffold(bool bget_password)
     // scaffold body
     web_client.println("</head>\n<body>\n");
     web_client.println("<div id=\"nav_layer\">\n");
-    // MC Logo (Image as base64 and split ti several print() so RAK can handle it)
-    web_client.print("<img id=\"mc_logo\" src=\"data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDhweCIgaGVpZ2h0PSI0OHB4IiB2aWV3Qm94PSIwIDAgMjcwLjkzMzMyIDI3MC45MzMzMiIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48ZyB0cmFuc2Zvcm09InRyYW5zbGF0ZSgyMS41NzI3MDIsLTYuNzE1MDM2OSkiPjxwYXRoIHN0eWxlPSJmaWxsOm5vbmU7c3Ryb2tlOiNmZjAwMDA7c3Ryb2tlLXdpZHRoOjYuMDAwMDE7c3Ryb2tlLWRhc2hhcnJheTpub25lIiBkPSJNIDQzLjMxMjg5Myw4NC45MDUyNTEgQyA1OS4wNzM3NDksMTE4Ljg4MzIgMTI4Ljg3MTgxLDIyNy45ODEwNiAxMjguODcxODEsMjI3Ljk4MTA2IEwgMTM2LjY0OTksNjQuNjQxMjkzIDM2LjM1MzU1NiwxODQuNTg3NTMgMTkyLjczMzk3LDE1Ni45NTQ4NiBaIE0gMzAuNjIyMzM2LDc1Ljg5OTA0OCAyNS41MDUxNzUsMTg5LjUwMDAxIDEyNC45ODI3OCwyMzcuODA2IDIwNi42NTI2NiwxNTUuNTIyMDYgMTQ2LjA2NTQ3LDQ4Ljg4MDQ0MSBjIDAsMCAtNzUuNDg4OTAyLDE3LjU3NDg3OSAtMTE1LjQ0MzEzNCwyNy4wMTg2MDcgeiIvPjxwYXRoIHN0eWxlPSJmaWxsOiMyNTIzMjM7c3Ryb2tlOiNmZjAwMDA7c3Ryb2tlLXdpZHRoOjYiIGQ9Ik0gNTUuNzAxNDcxLDE4Ny4xNTEwOSBBIDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMjYuMTc3NDA0LDIxNi42NzUxNiAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0zLjM0NjY2MjUsMTg3LjE1MTA5IDI5LjUyNDA2NywyOS41MjQwNjcgMCAw");
-    web_client.print("IDEgMjYuMTc3NDA0LDE1Ny42MjcwMyAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIDU1LjcwMTQ3MSwxODcuMTUxMDkgWiBtIDk4Ljk1NDE2OSw0Ny42MjUgYSAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNywyOS41MjQwNyAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNjgsLTI5LjUyNDA3IDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMjkuNTI0MDY4LC0yOS41MjQwNiAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIDI5LjUyNDA3LDI5LjUyNDA2IHogbSA3OC41ODEyNiwtODAuMTY4NzQgYSAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNywyOS41MjQwNiAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIC0yOS41MjQwNywtMjkuNTI0MDYgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAyOS41MjQwNywtMjkuNTI0MDcgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAyOS41MjQwNywyOS41MjQwNyB6IE0gMTc1LjAyODU1LDQ5LjMwMzE3NyBBIDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMTQ1LjUwNDQ5LDc4LjgyNzI0NCAyOS41MjQwNjcsMjkuNTI0MDY3IDAgMCAxIDExNS45ODA0Miw0OS4zMDMxNzcgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAxNDUuNTA0NDksMTkuNzc5MTEgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAxNzUuMDI4NTUsNDkuMzAzMTc3IFogTSA2MC45OTMxMzcsNzYuMjkwNjcyIEEgMjkuNTI0MDY3LDI5LjUyNDA2NyAwIDAgMSAzMS40NjkwNywxMDUuODE0NzQgMjkuNTI0MDY3LDI5");
-    web_client.println("LjUyNDA2NyAwIDAgMSAxLjk0NTAwMzUsNzYuMjkwNjcyIDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgMzEuNDY5MDcsNDYuNzY2NjA1IDI5LjUyNDA2NywyOS41MjQwNjcgMCAwIDEgNjAuOTkzMTM3LDc2LjI5MDY3MiBaIi8+PGNpcmNsZSBzdHlsZT0iZmlsbDojZmYwMDAwO2ZpbGwtb3BhY2l0eToxO3N0cm9rZTpub25lO3N0cm9rZS13aWR0aDo2LjM1NDc3O3N0cm9rZS1kYXNoYXJyYXk6bm9uZSIgaWQ9Im1jbG9nb19jaXJjbGUiIGN4PSIxMDguNTEwNzQiIGN5PSIxMzkuNjY0MDkiIHI9IjUyLjkxNjY2OCIvPjx0ZXh0IHhtbDpzcGFjZT0icHJlc2VydmUiIHN0eWxlPSJmb250LXNpemU6NjMuNXB4O3RleHQtYWxpZ246c3RhcnQ7d3JpdGluZy1tb2RlOmxyLXRiO2RpcmVjdGlvbjpsdHI7dGV4dC1hbmNob3I6c3RhcnQ7ZGlzcGxheTppbmxpbmU7ZmlsbDojZmZmZmZmO2ZpbGwtb3BhY2l0eToxO3N0cm9rZTojZmZmZmZmO3N0cm9rZS13aWR0aDo2LjAwMDAxO3N0cm9rZS1kYXNoYXJyYXk6bm9uZSIgeD0iNjMuMTY3NDgiIHk9IjE2MS4wNDg2Ij48dHNwYW4gc3R5bGU9ImZvbnQtc3R5bGU6bm9ybWFsO2ZvbnQtdmFyaWFudDpub3JtYWw7Zm9udC13ZWlnaHQ6Ym9sZDtmb250LXN0cmV0Y2g6bm9ybWFsO2ZvbnQtc2l6ZTo2M3B4O2ZvbnQtZmFtaWx5OnNhbnMtc2VyaWY7c3Ryb2tlOm5vbmU7c3Ryb2tlLXdpZHRoOjYiIHg9IjYzLjE2NzQ4IiB5PSIxNjEuMDQ4NiI+NC4wPC90c3Bhbj48L3RleHQ+PC9nPjwvc3ZnPg==\">\n");
+    // MC Logo (Image as base64 and split to several print() to adress limited print buffer
+    web_client.print("<svg id=\"mc_logo\" width=\"48px\" height=\"48px\" viewBox=\"0 0 270.93332 270.93332\" xmlns=\"http://www.w3.org/2000/svg\"><g transform=\"translate(21.572702,-6.7150369)\">");
+    web_client.print("<path style=\"fill:none;stroke:#ff0000;stroke-width:6.00001;stroke-dasharray:none\" d=\"M 43.312893,84.905251 C 59.073749,118.8832 128.87181,227.98106 128.87181,227.98106 L 136.6499,64.641293 36.353556,");
+    web_client.print("184.58753 192.73397,156.95486 Z M 30.622336,75.899048 25.505175,189.50001 124.98278,237.806 206.65266,155.52206 146.06547,48.880441 c 0,0 -75.488902,17.574879 -115.443134,27.018607 z\"/>");
+    web_client.print("<path style=\"fill:#000;stroke:#ff0000;stroke-width:6\" d=\"M 55.701471,187.15109 A 29.524067,29.524067 0 0 1 26.177404,216.67516 29.524067,29.524067 0 0 1 -3.3466625,187.15109 29.524067,29.524067 0 0 1 ");
+    web_client.print("26.177404,157.62703 29.524067,29.524067 0 0 1 55.701471,187.15109 Z m 98.954169,47.625 a 29.524067,29.524067 0 0 1 -29.52407,29.52407 29.524067,29.524067 0 0 1 -29.524068,-29.52407 29.524067,29.524067 0 0 ");
+    web_client.print("1 29.524068,-29.52406 29.524067,29.524067 0 0 1 29.52407,29.52406 z m 78.58126,-80.16874 a 29.524067,29.524067 0 0 1 -29.52407,29.52406 29.524067,29.524067 0 0 1 -29.52407,-29.52406 29.524067,29.524067 0 0 1 ");
+    web_client.print("29.52407,-29.52407 29.524067,29.524067 0 0 1 29.52407,29.52407 z M 175.02855,49.303177 A 29.524067,29.524067 0 0 1 145.50449,78.827244 29.524067,29.524067 0 0 1 115.98042,49.303177 29.524067,29.524067 0 0 1 ");
+    web_client.print("145.50449,19.77911 29.524067,29.524067 0 0 1 175.02855,49.303177 Z M 60.993137,76.290672 A 29.524067,29.524067 0 0 1 31.46907,105.81474 29.524067,29.524067 0 0 1 1.9450035,76.290672 29.524067,29.524067 0 0 1 ");
+    web_client.print("31.46907,46.766605 29.524067,29.524067 0 0 1 60.993137,76.290672 Z\"/><circle style=\"fill:#ff0000;fill-opacity:1;stroke:none;stroke-width:6.35477;stroke-dasharray:none\" id=\"mclogo_circle\" cx=\"108.51074\" ");
+    web_client.print("cy=\"139.66409\" r=\"52.916668\"/><text xml:space=\"preserve\" style=\"font-size:63.5px;text-align:start;writing-mode:lr-tb;direction:ltr;text-anchor:start;display:inline;fill:#ffffff;fill-opacity:1;");
+    web_client.print("stroke:#ffffff;stroke-width:6.00001;stroke-dasharray:none\" x=\"63.16748\" y=\"161.0486\"><tspan style=\"font-style:normal;font-variant:normal;font-weight:bold;font-stretch:normal;font-size:63px;");
+    web_client.println("font-family:sans-serif;stroke:none;stroke-width:6\" x=\"63.16748\" y=\"161.0486\">4.0</tspan></text></g></svg>");
+    
+    
+
     web_client.println("<Button class=\"nav_button nbactive\" onclick=\"loadPage('info',this,true)\"><svg viewBox=\"-0.5 0 25 25\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g> <path d=\"M12 21.5C17.1086 21.5 21.25 17.3586 21.25 12.25C21.25 7.14137 17.1086 3 12 3C6.89137 3 2.75 7.14137 2.75 12.25C2.75 17.3586 6.89137 21.5 12 21.5Z\" stroke=\"#ffffff\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path> <path d=\"M12.9309 8.15005C12.9256 8.39231 12.825 8.62272 12.6509 8.79123C12.4767 8.95974 12.2431 9.05271 12.0008 9.05002C11.8242 9.04413 11.6533 8.98641 11.5093 8.884C11.3652 8.7816 11.2546 8.63903 11.1911 8.47415C11.1275 8.30927 11.1139 8.12932 11.152 7.95675C11.19 7.78419 11.278 7.6267 11.405 7.50381C11.532 7.38093 11.6923 7.29814 11.866 7.26578C12.0397 7.23341 12.2192 7.25289 12.3819 7.32181C12.5446 7.39072 12.6834 7.506 12.781 7.65329C12.8787 7.80057 12.9308 7.97335 12.9309 8.15005ZM11.2909 16.5301V11.1501C11.2882 11.0556 11.3046 10.9615 11.3392 10.8736C11.3738 10.7857 11.4258 10.7057 11.4922 10.6385C11.5585 10.5712 11.6378 10.518 11.7252 10.4822C11.8126 10.4464 11.9064 10.4286 12.0008 10.43C12.094 10.4299 12.1863 10.4487 12.272 10.4853C12.3577 10.5218 12.4352 10.5753 12.4997 10.6426C12.5642 10.7099 12.6143 10.7895 12.6472 10.8767C12.6801 10.9639 12.6949 11.0569 12.6908 11.1501V16.5301C12.6908 16.622 12.6727 16.713 12.6376 16.7979C12.6024 16.8828 12.5508 16.96 12.4858 17.025C12.4208 17.09 12.3437 17.1415 12.2588 17.1767C12.1738 17.2119 12.0828 17.23 11.9909 17.23C11.899 17.23 11.8079 17.2119 11.723 17.1767C11.6381 17.1415 11.5609 17.09 11.4959 17.025C11.4309 16.96 11.3793 16.8828 11.3442 16.7979C11.309 16.713 11.2909 16.622 11.2909 16.5301Z\" fill=\"#ffffff\"></path> </g></svg></Button>\n");
     web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('messages',this,true)\"><svg viewBox=\"0 0 24 24\" fill=\"none\" xmlns=\"http://www.w3.org/2000/svg\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g> <path d=\"M7 9H17M7 13H17M21 20L17.6757 18.3378C17.4237 18.2118 17.2977 18.1488 17.1656 18.1044C17.0484 18.065 16.9277 18.0365 16.8052 18.0193C16.6672 18 16.5263 18 16.2446 18H6.2C5.07989 18 4.51984 18 4.09202 17.782C3.71569 17.5903 3.40973 17.2843 3.21799 16.908C3 16.4802 3 15.9201 3 14.8V7.2C3 6.07989 3 5.51984 3.21799 5.09202C3.40973 4.71569 3.71569 4.40973 4.09202 4.21799C4.51984 4 5.0799 4 6.2 4H17.8C18.9201 4 19.4802 4 19.908 4.21799C20.2843 4.40973 20.5903 4.71569 20.782 5.09202C21 5.51984 21 6.0799 21 7.2V20Z\" stroke=\"#ffffff\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"></path> </g></svg></Button>\n");
     web_client.println("<Button class=\"nav_button\" onclick=\"loadPage('wx',this,true)\"><svg version=\"1.1\" xmlns=\"http://www.w3.org/2000/svg\" xmlns:xlink=\"http://www.w3.org/1999/xlink\" viewBox=\"0 0 512 512\" xml:space=\"preserve\" fill=\"#000000\"><g stroke-width=\"0\"></g><g stroke-linecap=\"round\" stroke-linejoin=\"round\"></g><g > <style type=\"text/css\"> .st0{fill:#ffffff;} </style> <g> <path class=\"st0\" d=\"M115.958,269.922c16.999-10.12,36.842-15.916,58.04-15.916c2.556,0,5.127,0.078,7.682,0.234 c7.199-24.681,20.957-46.355,39.203-63.12c-3.49-39.437-36.562-70.32-76.879-70.32c-42.647,0-77.207,34.56-77.207,77.199 C66.798,230.766,87.194,258.719,115.958,269.922z\"></path> <rect x=\"135.652\" y=\"54.002\" class=\"st0\" width=\"16.696\" height=\"45.911\"></rect> <polygon class=\"st0\" points=\"102.184,108.88 79.232,69.116 64.772,77.467 87.724,117.232 \"></polygon> <polygon class=\"st0\" points=\"15.114,133.233 54.878,156.185 63.23,141.726 23.466,118.774 \"></polygon> <polygon class=\"st0\" points=\"45.919,189.654 0,189.654 0,206.35 45.919,206.342 \"></polygon> <polygon class=\"st0\" points=\"15.114,262.77 23.466,277.23 63.23,254.27 54.878,239.811 \"></polygon> <rect x=\"240.478\" y=\"114.523\" transform=\"matrix(0.4998 0.8661 -0.8661 0.4998 243.5358 -146.7501)\" class=\"st0\" width=\"16.694\" height=\"45.913\"></rect> <polygon class=\"st0\" points=\"223.228,77.467 208.776,69.116 185.817,108.88 200.269,117.232 \"></polygon> <path class=\"st0\" d=\"M431.997,298c-0.031,0-0.062,0.008-0.101,0.008c0.054-1.332,0.101-2.665,0.101-4.004 C431.997,229.932,380.064,178,316,178c-60.012,0-109.382,45.575-115.388,104.006c-8.414-2.602-17.342-4.005-26.614-4.005 C124.294,278.001,84,318.295,84,368c0,49.704,40.294,89.998,89.998,89.998h257.999c44.182,0,80.003-35.814,80.003-79.995 C512,333.814,476.178,298,431.997,298z\"></path> </g> </g></svg></Button>\n");
@@ -735,7 +746,7 @@ void sub_page_wx()
 
     _create_meshcom_subheader("WX Information");
     web_client.println("<div id=\"content_inner\">");
-    web_client.println("<table class=\"table\">");
+    web_client.println("<table class=\"table mw-600\">");
     web_client.println("<thead><tr class=\"font-bold\"><td>Item</td><td>Value</td></tr></thead>");
     web_client.printf("<tr><td>BME(P)280</td><td>%s %s</td></tr>\n", (bBMX ? "on" : "off"), cbme);
     web_client.printf("<tr><td>BME680</td><td>%s %s</td></tr>\n", (bBME680ON ? "on" : "off"), c680);
@@ -764,7 +775,7 @@ void sub_page_position()
 {
     _create_meshcom_subheader("Position Information");
     web_client.println("<div id=\"content_inner\">");
-    web_client.println("<table class=\"table\">");
+    web_client.println("<table class=\"table mw-600\">");
     web_client.println("<thead><tr class=\"font-bold\"><td>Item</td><td>Value</td></tr></thead>");
     web_client.printf("<tr><td>Latitude</td><td>%.4lf %c</td></tr>\n", meshcom_settings.node_lat, meshcom_settings.node_lat_c);
     web_client.printf("<tr><td>Longitude</td><td>%.4lf %c</td></tr>\n", meshcom_settings.node_lon, meshcom_settings.node_lon_c);
@@ -866,12 +877,12 @@ void sub_page_messages()
     web_client.println("<div id=\"content_inner\">");
 
     // this is where the asynchronous received messages will be displayed
-    web_client.println("<div id=\"messages_panel\">");
+    web_client.println("<div id=\"messages_panel\" class=\"mw-600\">");
     sub_content_messages(); // deliver all known messages
     web_client.println("</div>");
 
     // the input panel for new messages
-    web_client.println("<table><tbody><tr>");
+    web_client.println("<table class=\"mw-600\"><tbody><tr>");
     web_client.println("<td><label for=\"sendcall\" class=\"font-small font-bold\">DM Call (or empty):</label></td>");
     web_client.println("<td><input type=\"text\" id=\"sendcall\" name=\"sendcall\" maxlength=\"9\" size=\"9\" oninput=\"updateCharsLeft()\";></td>");
     web_client.println("</tr><tr>");
@@ -996,8 +1007,6 @@ void sub_page_setup()
 
     _create_setup_textinput_element("nametext", "APRS Name", String(meshcom_settings.node_name), "aprsname", "setname", 25, false, false); // create Textinput-Element including Label and Button
     _create_setup_textinput_element("aprstext", "APRS Text", String(meshcom_settings.node_atxt), "aprstext", "atxt", 25, false, false);    // create Textinput-Element including Label and Button
-    _create_setup_textinput_element("aprssymbol", "APRS Symbol", String(meshcom_settings.node_symid), "S", "symid", 1, false, false);      // create Textinput-Element including Label and Button
-    _create_setup_textinput_element("aprsgroup", "APRS Group", String(meshcom_settings.node_symcd), "/", "symcd", 1, false, false);        // create Textinput-Element including Label and Button
     _create_setup_textinput_element("aprssymbol", "APRS Symbol", String(meshcom_settings.node_symid), "S", "symid", 1, false, false);      // create Textinput-Element including Label and Button
     _create_setup_textinput_element("aprsgroup", "APRS Group", String(meshcom_settings.node_symcd), "/", "symcd", 1, false, false);        // create Textinput-Element including Label and Button
 
@@ -1191,8 +1200,6 @@ void sub_page_spectrum()
 {
     _create_meshcom_subheader("Spectrum Scan");
     web_client.println("<div id=\"content_inner\">");
-    _create_meshcom_subheader("Spectrum Scan");
-    web_client.println("<div id=\"content_inner\">");
 #if defined(SX1262X) || defined(SX126X) || defined(SX1262_V3) || defined(SX1262_E290)
     float spec_curr_freq = meshcom_settings.node_specstart; // scan start frequency
 
@@ -1286,7 +1293,7 @@ void sub_page_info()
     _create_meshcom_subheader("Node Information");
     web_client.println("<div id=\"content_inner\">");
 
-    web_client.println("<table class=\"table\">");
+    web_client.println("<table class=\"table mw-600\">");
     web_client.println("<thead><tr class=\"font-bold\"><td>Item</td><td>Value</td></tr></thead>");
 
     web_client.printf("<tr><td>Firmware</td><td>Meshcom %-4.4s%-1.1s<br>(build: %s / %s)</td></tr>\n", SOURCE_VERSION, SOURCE_VERSION_SUB, __DATE__, __TIME__);
@@ -1403,11 +1410,8 @@ void sub_page_mcp23017()
     web_client.println("<thead><tr class=\"font-bold\"><td>PORT</td><td>In/Out</td><td>Name</td><td>Status</td><td>Set</td></tr></thead>");
 
 
-    if(bDisplayCont)
-    {
-        Serial.printf("t_out = %i\n", t_out);
-        Serial.printf("t_in = %i\n", t_in);
-    }
+    Serial.printf("t_out = %i\n", t_out);
+    Serial.printf("t_in = %i\n", t_in);
 
 
     for (int io = 0; io < 16; io++)
@@ -1432,18 +1436,17 @@ void sub_page_mcp23017()
             iAB = io;
         }
 
-        if(bDisplayCont)
-            Serial.printf("Port %c%i has mask %i and t_in %i and t_out %i\n",cAB, iAB, t_io, t_in, t_out);
+        Serial.printf("Port %c%i has mask %i and t_in %i and t_out %i\n",cAB, iAB, t_io, t_in, t_out);
 
         web_client.printf("<tr><td>[%c%i]</td><td>", cAB, iAB);
         snprintf(onclick, 100, "setvalue('mcpio%c%i','%s',true)", cAB, iAB, bOut ?"in":"out");
-        snprintf(caption, 4, "%s",  (bOut ?"out":"in"));
+        snprintf(caption, 4, "%s",  bOut ?"out":"in");
         uic_button(&web_client, onclick, caption);
         web_client.println("</td><td>");
 
         snprintf(id, 40, "mcpname%c%i", cAB, iAB);
         snprintf(value, 100, "%s", meshcom_settings.node_mcp17t[io]);
-        uic_input(&web_client, id, (char*)"", value);
+        uic_input(&web_client, id, "", value);
 
         snprintf(onclick, 100, "setvalue('mcpname%c%i', document.getElementById('mcpname%c%i').value,true);", cAB, iAB, cAB, iAB);
         snprintf(caption, 4,  "set");

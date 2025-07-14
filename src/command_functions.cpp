@@ -3753,7 +3753,7 @@ void commandAction(char *umsg_text, bool ble)
             if(bONEWIRE)
                 snprintf(cone, sizeof(cone), " (%s)",  (one_found?"found":"error"));
 
-            Serial.printf("\n\nMeshCom %-4.4s%-1.1s\n...BMP280: %s / BME280: %s%s\n...BMP390: %s%s\n...AHT200: %s%s\n...BME680: %s%s\n...MCU811: %s%s\n...AHT20: %s%s\n...INA226: %s\n...LPS33: %s (RAK)\n...ONEWIRE: %s%s (%i)\n", SOURCE_VERSION, SOURCE_VERSION_SUB,
+            Serial.printf("\n\nMeshCom %-4.4s%-1.1s\n...BMP280: %s / BME280: %s%s\n...BMP390: %s%s\n...AHT20: %s%s\n...BME680: %s%s\n...MCU811: %s%s\n...AHT20: %s%s\n...INA226: %s\n...LPS33: %s (RAK)\n...ONEWIRE: %s%s (%i)\n", SOURCE_VERSION, SOURCE_VERSION_SUB,
             (bBMPON?"on":"off"), (bBMEON?"on":"off"), cbme, (bBMP3ON?"on":"off"), cbmp3, (bAHT20ON?"on":"off"), caht20, (bBME680ON?"on":"off"), c680, (bMCU811ON?"on":"off"), c811, (bAHT20ON?"on":"off"), cAHT20, (bINA226ON?"on":"off"), (bLPS33?"on":"off"), (bONEWIRE?"on":"off"), cone, meshcom_settings.node_owgpio);
 
             Serial.printf("...TEMP: %.1f °C off %.3f\n...TOUT: %.1f °C off %.3f\n...HUM: %.1f %%rH\n...QFE: %.1f hPa\n...QNH: %.1f hPa\n...ALT asl: %i m\n...GAS: %.1f kOhm\n...eCO2: %.0f ppm\n", 
@@ -4000,9 +4000,12 @@ void commandAction(char *umsg_text, bool ble)
 
             if(!bWIFIAP)
             {
-                Serial.printf("...OWNIP address: %s\n", meshcom_settings.node_ownip);
-                Serial.printf("...OWNMS address: %s\n", meshcom_settings.node_ownms);
-                Serial.printf("...OWNGW address: %s\n", meshcom_settings.node_owngw);
+                if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
+                {
+                    Serial.printf("...OWNIP address: %s\n", meshcom_settings.node_ownip);
+                    Serial.printf("...OWNMS address: %s\n", meshcom_settings.node_ownms);
+                    Serial.printf("...OWNGW address: %s\n", meshcom_settings.node_owngw);
+                }
             }
 
             Serial.printf("\n...hasIpAddress: %s\n", (meshcom_settings.node_hasIPaddress?"yes":"no"));
@@ -4012,9 +4015,17 @@ void commandAction(char *umsg_text, bool ble)
                 Serial.printf("...SUBNET-MASK  : %s\n", meshcom_settings.node_subnet);
                 if(!bWIFIAP)
                 {
-                    Serial.printf("...GW server    : %s\n", meshcom_settings.node_gwsrv);
-                    Serial.printf("...GW address   : %s\n", meshcom_settings.node_gw);
-                    Serial.printf("...DNS address  : %s\n", meshcom_settings.node_dns);
+                    if(bGATEWAY)
+                    {
+                        if(meshcom_settings.node_hamnet_only > 0)
+                        Serial.printf("...HAMNET ONLY  : true\n");
+                        else
+                        Serial.printf("...I-NET ONLY   : true\n");
+
+                        Serial.printf("...GW server    : %s\n", meshcom_settings.node_gwsrv);
+                        Serial.printf("...GW address   : %s\n", meshcom_settings.node_gw);
+                        Serial.printf("...DNS address  : %s\n", meshcom_settings.node_dns);
+                    }
                 }
     
                 if(!bWIFIAP)

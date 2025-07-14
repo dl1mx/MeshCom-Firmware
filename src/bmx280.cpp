@@ -254,9 +254,9 @@ bool loopBMX280()
 
 	if(bWXDEBUG)
 	{
-		Serial.print("Pressure: "); Serial.println(fPress);
+		Serial.print("Pressure (BMX280): "); Serial.println(fPress);
 		//Serial.print("Pressure (64 bit): "); Serial.println(bmx280.getPressure64());
-		Serial.print("Temperature: "); Serial.println(fTemp);
+		Serial.print("Temperature (BMX280): "); Serial.println(fTemp);
 	}
 
 	if (bmx280.isBME280())
