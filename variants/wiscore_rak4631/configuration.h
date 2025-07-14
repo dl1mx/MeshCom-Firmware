@@ -31,7 +31,7 @@ definitions for RAK4631
 
 
 #define LPS33     // Druckmesser
-//#define SHTC3     // Temperatur
+#define SHTC3     // Temperatur
 
 // Define RAK LoRa parameters
 #define TX_OUTPUT_POWER 22       // dBm

@@ -2143,9 +2143,13 @@ void esp32loop()
             #if defined(ENABLE_BMX280)
                 if(loopBMX280())
                 {
-                    if(!aht20_found)
+                    if(!aht20_found && !bmp3_found)
                     {
                         meshcom_settings.node_temp = getTemp();
+                    }
+
+                    if(!aht20_found)
+                    {
                         meshcom_settings.node_hum = getHum();
                     }
 
@@ -2187,7 +2191,10 @@ void esp32loop()
             if(loopBMP390())
             {
                 meshcom_settings.node_press = getPress3();
-                meshcom_settings.node_temp = getTemp3();
+                if(!aht20_found)
+                {
+                    meshcom_settings.node_temp = getTemp3();
+                }
                 meshcom_settings.node_press_asl = getPressASL3();
                 meshcom_settings.node_press_alt = getAltitude3();
             }
