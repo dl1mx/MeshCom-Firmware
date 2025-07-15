@@ -1456,9 +1456,9 @@ void sub_page_mcp23017()
 
         if (bOut)
         {
-                web_client.printf("<td>%s</td><td>", (bOutValue ? "ON" : "OFF"));
+                web_client.printf("<td>%s</td><td>", (bOutValue ? "HIGH" : "LOW"));
                 snprintf(onclick, 100, "setvalue('mcpout%c%i','%s',true)", cAB, iAB, (bOutValue ? "off" : "on"));
-                snprintf(caption, 4,  "%s", (bOutValue ? "OFF" : "ON"));
+                snprintf(caption, 5,  "%s", (bOutValue ? "LOW" : "HIGH"));
                 uic_button(&web_client, onclick, caption);
                 web_client.println("</td></tr>");
         }

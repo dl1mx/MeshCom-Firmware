@@ -2824,11 +2824,6 @@ void commandAction(char *umsg_text, bool ble)
             meshcom_settings.node_lat=fabs(dVar);
         }
 
-        if(ble)
-        {
-            addBLECommandBack((char*)msg_text);
-        }
-
         save_settings();
         
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
@@ -2854,11 +2849,6 @@ void commandAction(char *umsg_text, bool ble)
             meshcom_settings.node_lon=fabs(dVar);
         }
 
-        if(ble)
-        {
-            addBLECommandBack((char*)msg_text);
-        }
-
         save_settings();
         
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
@@ -2879,11 +2869,6 @@ void commandAction(char *umsg_text, bool ble)
         meshcom_settings.node_alt=iVar;
 
         Serial.printf("set alt to %i m\n", meshcom_settings.node_alt);
-
-        if(ble)
-        {
-            addBLECommandBack((char*)msg_text);
-        }
 
         save_settings();
         
@@ -2964,14 +2949,14 @@ void commandAction(char *umsg_text, bool ble)
 
                 //Serial.printf("strsep:%s\n", strsep.c_str());
 
-                if(strsep.startsWith("HIGH") || strsep.startsWith("ON"))
+                if(strsep.startsWith("HIGH"))
                 {
                     meshcom_settings.node_mcp17out = meshcom_settings.node_mcp17out | mask;
 
                     bSet = true;
                 }
                 else
-                if(strsep.startsWith("LOW") || strsep.startsWith("OFF"))
+                if(strsep.startsWith("LOW"))
                 {
                     meshcom_settings.node_mcp17out = meshcom_settings.node_mcp17out & (mask ^ 0xFFFF);
 

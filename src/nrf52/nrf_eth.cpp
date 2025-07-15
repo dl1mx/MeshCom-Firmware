@@ -758,7 +758,7 @@ int NrfETH::startETH()
 
   Serial.println("\nInitialize Ethernet"); // start the Ethernet connection.
 
-  if (Ethernet.begin(macaddr, 5000UL) == 0)
+  if (Ethernet.begin(macaddr, 10000UL) == 0)
   {
     Serial.println("Failed to configure Ethernet using FIX/DHCP");
     if (Ethernet.hardwareStatus() == EthernetNoHardware) // Check for Ethernet hardware present.
