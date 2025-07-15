@@ -150,8 +150,8 @@ extern int RAWLoRaRead;
 
 // RINGBUFFER for outgoing UDP lora packets for lora TX
 extern uint8_t ringBufferUDPout[MAX_RING_UDP][UDP_TX_BUF_SIZE+20];
-extern uint8_t udpWrite;
-extern uint8_t udpRead;
+extern int udpWrite;
+extern int udpRead;
 
 extern bool hasMsgFromPhone;
 

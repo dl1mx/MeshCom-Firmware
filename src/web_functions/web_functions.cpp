@@ -1446,7 +1446,7 @@ void sub_page_mcp23017()
 
         snprintf(id, 40, "mcpname%c%i", cAB, iAB);
         snprintf(value, 100, "%s", meshcom_settings.node_mcp17t[io]);
-        uic_input(&web_client, id, "", value);
+        uic_input(&web_client, id, (char*)"", value);
 
         snprintf(onclick, 100, "setvalue('mcpname%c%i', document.getElementById('mcpname%c%i').value,true);", cAB, iAB, cAB, iAB);
         snprintf(caption, 4,  "set");

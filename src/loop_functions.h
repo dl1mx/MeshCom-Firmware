@@ -94,4 +94,7 @@ String getTimeZone();
 
 int count_char(String s, char c);
 
+void addRingPointer(int &toPhoneWrite, int &toPhoneRead, int iMAX_RING);
+
+
 #endif // _LOOP_FUNCTIONS_H_
