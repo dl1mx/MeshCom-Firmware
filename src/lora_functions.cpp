@@ -159,9 +159,12 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                     ringBuffer[iWrite][1]=0xFF; // retransmission Status ...0xFF no retransmission
                     memcpy(ringBuffer[iWrite]+2, print_buff, 12);
 
+                    addRingPointer(iWrite, iRead, MAX_RING);
+                    /*
                     iWrite++;
                     if(iWrite >= MAX_RING)
                         iWrite=0;
+                    */
 
                     if(bDisplayInfo)
                     {
@@ -636,9 +639,13 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                                                 ringBuffer[iWrite][1]=0xFF; // retransmission Status ...0xFF no retransmission
                                                 memcpy(ringBuffer[iWrite]+2, print_buff, 12);
 
+                                                addRingPointer(iWrite, iRead, MAX_RING);
+
+                                                /*
                                                 iWrite++;
                                                 if(iWrite >= MAX_RING)
                                                     iWrite=0;
+                                                */
 
                                                 if(bDisplayInfo)
                                                 {
@@ -664,9 +671,13 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 
                                                 memcpy(ringBuffer[iWrite]+2, print_buff, 12);
 
+                                                addRingPointer(iWrite, iRead, MAX_RING);
+
+                                                /*
                                                 iWrite++;
                                                 if(iWrite >= MAX_RING)
                                                     iWrite=0;
+                                                */
 
                                                 mid = (print_buff[1]) | (print_buff[2]<<8) | (print_buff[3]<<16) | (print_buff[4]<<24);
                                                 
@@ -806,9 +817,13 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
                                     Serial.printf("einfügen retid:%i status:%02X lng;%02X msg-id: %c-%08X\n", iWrite, ringBuffer[iWrite][1], ringBuffer[iWrite][0], ringBuffer[iWrite][2], ring_msg_id);
                                 }
 
+                                addRingPointer(iWrite, iRead, MAX_RING);
+
+                                /*
                                 iWrite++;
                                 if(iWrite >= MAX_RING)
                                     iWrite=0;
+                                */
                                 
                                 if(bDisplayInfo)
                                 {
@@ -1138,9 +1153,13 @@ bool updateRetransmissionStatus()
                     ringBuffer[iWrite][1] = 0xFF; // retransmission Status ...0xFF no retransmission
                 
                 
+                addRingPointer(iWrite, iRead, MAX_RING);
+
+                /*
                 iWrite++;
                 if (iWrite >= MAX_RING) // if the buffer is full we start at index 0 -> take care of overwriting!
                     iWrite = 0;
+                */
 
                 return true;
             }

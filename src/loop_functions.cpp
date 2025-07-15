@@ -247,8 +247,8 @@ int RAWLoRaRead=0;
 
 // RINGBUFFER for outgoing UDP lora packets for lora TX
 uint8_t ringBufferUDPout[MAX_RING_UDP][UDP_TX_BUF_SIZE+20];
-uint8_t udpWrite=0;
-uint8_t udpRead=0;
+int udpWrite=0;
+int udpRead=0;
 
 // RINGBUFFER BLE to phone
 unsigned char BLEtoPhoneBuff[MAX_RING][MAX_MSG_LEN_PHONE+5] = {0};
@@ -330,7 +330,7 @@ unsigned long getUnixClock()
 }
 
 /** @brief Function adding messages into outgoing BLE ringbuffer
- * BLE to PHONE Buffer
+ *   BLE to PHONE Buffer
  */
 void addBLEOutBuffer(uint8_t *buffer, uint16_t len)
 {
@@ -364,12 +364,18 @@ void addBLEOutBuffer(uint8_t *buffer, uint16_t len)
         printBuffer(BLEtoPhoneBuff[toPhoneWrite], len + 1 + 4);
     }
 
-    toPhoneWrite++;
-    
-    //Serial.printf("toPhoneWrite:%i\n", toPhoneWrite);
+    //Serial.printf("toPhone write:%i read:%i max:%i ", toPhoneWrite, toPhoneRead, MAX_RING);
 
+    addRingPointer(toPhoneWrite, toPhoneRead, MAX_RING);
+
+    //Serial.printf("next write:%i read:%i max:%i\n", toPhoneWrite, toPhoneRead, MAX_RING);
+
+    /*
+    toPhoneWrite++;
+    //Serial.printf("toPhoneWrite:%i\n", toPhoneWrite);
     if (toPhoneWrite >= MAX_RING) // if the buffer is full we start at index 0 -> take care of overwriting!
         toPhoneWrite = 0;
+    */
 }
 
 /** @brief Function adding messages into outgoing BLE ringbuffer
@@ -2187,9 +2193,13 @@ void sendMessage(char *msg_text, int len)
         Serial.printf("einfügen retid:%i status:%02X lng;%02X msg-id: %c-%08X\n", iWrite, ringBuffer[iWrite][1], ringBuffer[iWrite][0], ringBuffer[iWrite][2], ring_msg_id);
     }
 
+    addRingPointer(iWrite, iRead, MAX_RING);
+
+    /*
     iWrite++;
     if(iWrite >= MAX_RING)
         iWrite=0;
+    */
     
     if(bGATEWAY && meshcom_settings.node_hasIPaddress)
     {
@@ -2508,9 +2518,14 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
         ringBuffer[iWrite][0]=ilng;
         ringBuffer[iWrite][1]=0xFF;    // Status byte for retransmission 0xFF no retransmission
         memcpy(ringBuffer[iWrite]+2, msg_buffer, ilng);
+
+        addRingPointer(iWrite, iRead, MAX_RING);
+
+        /*
         iWrite++;
         if(iWrite >= MAX_RING)
             iWrite=0;
+        */
 
         // An APP als Anzeige retour senden
         if(isPhoneReady == 1 || bGATEWAY)
@@ -2601,9 +2616,14 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
         ringBuffer[iWrite][0]=aprsmsg.msg_len;
         ringBuffer[iWrite][1]=0xFF;    // Status byte for retransmission 0xFF no retransmission
         memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
+
+        addRingPointer(iWrite, iRead, MAX_RING);
+
+        /*
         iWrite++;
         if(iWrite >= MAX_RING)
             iWrite=0;
+        */
 
         if(bGATEWAY)
         {
@@ -2670,9 +2690,14 @@ void sendAPPPosition(double lat, char lat_c, double lon, char lon_c, float temp2
     ringBuffer[iWrite][0]=aprsmsg.msg_len;
     ringBuffer[iWrite][1]=0xFF;    // Status byte for retransmission 0xFF no retransmission
     memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
+
+    addRingPointer(iWrite, iRead, MAX_RING);
+
+    /*
     iWrite++;
     if(iWrite >= MAX_RING)
         iWrite=0;
+    */
 
     if(bGATEWAY)
     {
@@ -2740,9 +2765,14 @@ void SendAckMessage(String dest_call, unsigned int iAckId)
     ringBuffer[iWrite][0]=aprsmsg.msg_len;
     ringBuffer[iWrite][1]=0xFF;    // ACK-Status byte 0xFF for no retransmission
     memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
+
+    addRingPointer(iWrite, iRead, MAX_RING);
+
+    /*
     iWrite++;
     if(iWrite >= MAX_RING)
         iWrite=0;
+    */
     
     if(bGATEWAY && meshcom_settings.node_hasIPaddress)
     {
@@ -2809,9 +2839,13 @@ void sendHey()
         ringBuffer[iWrite][1] = 0xFF; // retransmission Status ...0xFF no retransmission
         memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
 
+        addRingPointer(iWrite, iRead, MAX_RING);
+
+        /*
         iWrite++;
         if(iWrite >= MAX_RING)
             iWrite=0;
+        */
     }
 }
 
@@ -3072,9 +3106,13 @@ void sendTelemetry(int ID)
             ringBuffer[iWrite][1] = 0xFF; // retransmission Status ...0xFF no retransmission
             memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
 
+            addRingPointer(iWrite, iRead, MAX_RING);
+
+            /*
             iWrite++;
             if(iWrite >= MAX_RING)
                 iWrite=0;
+            */
         }
     }
 }
@@ -3361,4 +3399,21 @@ int count_char(String s, char c)
       if (s.charAt(i) == c) count++;
   
     return count;
+}
+
+// add RING Pointer
+void addRingPointer(int &pWrite, int &pRead, int iMAX_RING)
+{
+    pWrite++;
+    if (pWrite >= MAX_RING) // if the buffer is full we start at index 0 -> take care of overwriting!
+        pWrite = 0;
+
+    // if alle ring-elemets are full move read-pointer
+    if(pRead == pWrite)
+    {
+        pRead++;
+        
+        if (pRead >= MAX_RING) // if the buffer is full we start at index 0 -> take care of overwriting!
+            pRead = 0;
+    }
 }

@@ -168,7 +168,8 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
     if(inext == -1 && ipos == -1)
     {
         ipos=mheardWrite;
-            mheardWrite++;
+        
+        mheardWrite++;
 
         if(mheardWrite >= MAX_MHEARD)
             mheardWrite=0;
@@ -261,6 +262,7 @@ void updateHeyPath(struct mheardLine &mheardLine)
     if(inext == -1 && ipos == -1)
     {
         ipos=mheardPathWrite;
+        
         mheardPathWrite++;
 
         if(mheardPathWrite >= MAX_MHPATH)
