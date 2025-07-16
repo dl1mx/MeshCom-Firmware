@@ -1958,7 +1958,7 @@ void sendUDP()
 {
     if(udpWrite != udpRead)
     {
-        if(bDEBUG)
+        if(bDisplayCont)
             Serial.printf("udpWrite:%i udpRead:%i neth.udp_is_busy:%i\n", udpWrite, udpRead, neth.udp_is_busy);
 
         if(!neth.udp_is_busy)

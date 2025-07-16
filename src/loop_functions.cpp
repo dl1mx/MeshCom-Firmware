@@ -31,6 +31,9 @@
 // TinyGPS
 extern TinyGPSPlus tinyGPSPLus;
 
+bool bnextread=false;
+
+
 int BOARD_HARDWARE = MODUL_HARDWARE;
 bool bUSER_BOARD_LED = false;
 
@@ -3403,18 +3406,23 @@ int count_char(String s, char c)
 }
 
 // add RING Pointer
-void addRingPointer(int &pWrite, int &pRead, int iMAX_RING)
+void addRingPointer(int &pWrite, int &pRead, int iMAX)
 {
     pWrite++;
-    if (pWrite >= MAX_RING) // if the buffer is full we start at index 0 -> take care of overwriting!
+    if (pWrite >= iMAX) // if the buffer is full we start at index 0 -> take care of overwriting!
         pWrite = 0;
 
     // if alle ring-elemets are full move read-pointer
-    if(pRead == pWrite)
+    //if(bnextread)
     {
-        pRead++;
-        
-        if (pRead >= MAX_RING) // if the buffer is full we start at index 0 -> take care of overwriting!
-            pRead = 0;
+        if(pRead == pWrite)
+        {
+            pRead = pWrite+1;
+            
+            if (pRead >= iMAX) // if the buffer is full we start at index 0 -> take care of overwriting!
+                pRead = 0;
+        }
     }
+
+    bnextread=false;
 }

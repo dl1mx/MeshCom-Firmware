@@ -129,25 +129,25 @@ void setupBMX280(bool bNewStart)
   	if(bBMPON)
 	{
 		#ifdef BOARD_TBEAM_V3
-			bmx_i2c_address = 0x77;
 			Wire.end();
 			Wire.begin(I2C_SDA, I2C_SCL);
 		#else
 			Wire.endTransmission(true);
-			bmx_i2c_address = I2C_ADDRESS_BMP;
 		#endif
+
+		bmx_i2c_address = I2C_ADDRESS_BMP;
 	}
   	else
     	if(bBMEON)
 		{
 			#ifdef BOARD_TBEAM_V3
-				bmx_i2c_address = 0x77;
 				Wire.end();
 				Wire.begin(I2C_SDA, I2C_SCL);
 			#else
 				Wire.endTransmission(true);
-				bmx_i2c_address = I2C_ADDRESS_BME;
 			#endif
+
+			bmx_i2c_address = I2C_ADDRESS_BME;
 		}
     	else
       		return;
