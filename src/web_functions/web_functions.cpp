@@ -716,7 +716,7 @@ void sub_page_rxlog()
     web_client.println("<div style=\"overflow:scroll;\">");
     while (RAWLoRaWrite != iRead)
     {
-        web_client.printf("<p class=\"font-small no-wrap\">%s</nobr></td></tr>\n", ringbufferRAWLoraRX[iRead]);
+        web_client.printf("<p class=\"font-small no-wrap\"><%i>%s</nobr></td></tr>\n", iRead, ringbufferRAWLoraRX[iRead]);
         iRead++;
         if (iRead >= MAX_LOG)
             iRead = 0;

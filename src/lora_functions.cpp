@@ -227,17 +227,19 @@ void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
         else
         {
             // LoRx RX to RAW-Buffer
+            //Serial.printf("LOG Write: %i read:%i\n", RAWLoRaWrite, RAWLoRaRead);
             memcpy(ringbufferRAWLoraRX[RAWLoRaWrite], charBuffer_aprs((char*)"", aprsmsg).c_str(), UDP_TX_BUF_SIZE-1);
+
+            addRingPointer(RAWLoRaWrite, RAWLoRaRead, MAX_LOG);
+            
+            //Serial.printf("LOG Write next: %i read next:%i\n", RAWLoRaWrite, RAWLoRaRead);
+
+            /*
             RAWLoRaWrite++;
             if(RAWLoRaWrite >= MAX_LOG)
                 RAWLoRaWrite=0;
+            */
 
-            if(RAWLoRaRead == RAWLoRaWrite)
-            {
-                RAWLoRaRead++;
-                if(RAWLoRaRead >= MAX_LOG)
-                    RAWLoRaRead=0;
-            }
 
             if(aprsmsg.msg_source_last != meshcom_settings.node_call)
             {

@@ -3,6 +3,8 @@
 //
 // 20230326: Version 4.00: START
 
+extern bool bnextread;
+
 extern int BOARD_HARDWARE;
 extern bool bUSER_BOARD_LED;
 
