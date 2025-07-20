@@ -83,6 +83,7 @@ extern bool mcu811_found;
 extern bool one_found;
 extern bool ina226_found;
 extern bool shtc3_found;
+extern bool dht_found;
 
 extern bool bSHORTPATH;
 extern bool bGPSDEBUG;

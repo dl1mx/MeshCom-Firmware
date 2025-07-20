@@ -505,7 +505,10 @@ void nrf52setup()
     }
 
     if(bONEWIRE)
-        init_onewire();
+    {
+        init_onewire_ds18();
+        init_onewire_dht();
+    }
         
 
     //  Initialize the LoRa Module
@@ -1401,26 +1404,6 @@ if (isPhoneReady == 1)
 
     #endif
 
-    if(onewireTimeWait == 0)
-        onewireTimeWait = millis() - 10000;
-
-
-    if ((onewireTimeWait + 10000) < millis())  // 10 sec
-    {
-        //if (tx_is_active == false && is_receiving == false)
-        {
-            loop_onewire();
-
-            onewireTimeWait = millis();
-
-            if(wx_shot)
-            {
-                commandAction((char*)"--wx", isPhoneReady, true);
-                wx_shot = false;
-            }
-        }
-    }
-
     mainStartTimeLoop();
 
     if(DisplayOffWait > 0)
@@ -1476,11 +1459,15 @@ if (isPhoneReady == 1)
             onewireTimeWait = millis() - 10000;
 
 
-        if ((onewireTimeWait + 10000) < millis())  // 10 sec
+        if ((onewireTimeWait + 30000) < millis())  // 30 sec
         {
             //if (tx_is_active == false && is_receiving == false)
             {
-                loop_onewire();
+                if(one_found)
+                    loop_onewire_ds18();
+
+                if(dht_found)
+                    loop_onewire_dht();
 
                 onewireTimeWait = millis();
 

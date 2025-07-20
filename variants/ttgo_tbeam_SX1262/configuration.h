@@ -85,7 +85,9 @@ definitions for TBEAM 1262
 #define RESET_OLED RST_OLED
 
 #define VEXT_ENABLE Vext // active low, powers the oled display and the lora antenna boost
+
 #define BUTTON_PIN 38
+#define OneWire_GPIO  4
 
 #define BATTERY_PIN 1 // A battery voltage measurement pin, voltage divider connected here to measure battery voltage
 #define ADC_MULTIPLIER 4.9245
