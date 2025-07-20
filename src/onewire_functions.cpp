@@ -26,6 +26,9 @@ void init_onewire_dht()
 {
     dht_found = false;
     
+    if(!bONEWIRE)
+        return;
+
     meshcom_settings.node_temp = 0;
     meshcom_settings.node_hum = 0;
     
@@ -36,7 +39,7 @@ void init_onewire_dht()
         }
     #endif
 
-    Serial.printf("[INIT]...ONEWIRE - GPIO:%i\n", meshcom_settings.node_owgpio);
+    Serial.printf("[INIT]...ONEWIRE - DHT GPIO:%i\n", meshcom_settings.node_owgpio);
 
     if(meshcom_settings.node_owgpio > 0)
         DHT_Unified dht(meshcom_settings.node_owgpio, DHTTYPE);
@@ -46,12 +49,12 @@ void init_onewire_dht()
             meshcom_settings.node_owgpio = OneWire_GPIO;
             DHT_Unified dht(meshcom_settings.node_owgpio, DHTTYPE);
         #else
-            bONEWIRE = false;
             return;
         #endif
     }
 
     dht.begin();
+
     Serial.println(F("[INIT]...DHTxx Unified Sensor found"));
     // Print temperature sensor details.
     sensor_t sensor;
@@ -61,6 +64,7 @@ void init_onewire_dht()
     {
         dht_found = true;
 
+        /*
         Serial.println(F("------------------------------------"));
         Serial.println(F("Temperature Sensor"));
         Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
@@ -80,6 +84,8 @@ void init_onewire_dht()
         Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("%"));
         Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("%"));
         Serial.println(F("------------------------------------"));
+        */
+
         // Set delay between sensor readings based on sensor details.
         delayMS = sensor.min_delay / 1000;
     }
@@ -100,7 +106,9 @@ void loop_onewire_dht()
     if (isnan(event.temperature))
     {
         if(bWXDEBUG)
-            Serial.println(F("Error reading temperature!"));
+            Serial.println(F("Error reading temperature (DHT)!"));
+
+        dht_found=false;
     }
     else
     {
@@ -108,7 +116,7 @@ void loop_onewire_dht()
 
         if(bWXDEBUG)
         {
-            Serial.print(F("Temperature: "));
+            Serial.print(F("Temperature (DHT) = "));
             Serial.print(event.temperature);
             Serial.println(F("°C"));
         }
@@ -119,7 +127,9 @@ void loop_onewire_dht()
     if (isnan(event.relative_humidity))
     {
         if(bWXDEBUG)
-            Serial.println(F("Error reading humidity!"));
+            Serial.println(F("Error reading humidity (DHT)!"));
+
+        dht_found = false;
     }
     else
     {
@@ -127,7 +137,7 @@ void loop_onewire_dht()
 
         if(bWXDEBUG)
         {
-            Serial.print(F("Humidity: "));
+            Serial.print(F("Humidity (DHT) = "));
             Serial.print(event.relative_humidity);
             Serial.println(F("%"));
         }
@@ -166,17 +176,19 @@ void init_onewire_ds18(void)
         }
     #endif
 
-    Serial.printf("[INIT]...ONEWIRE - GPIO:%i\n", meshcom_settings.node_owgpio);
+    Serial.printf("[INIT]...ONEWIRE - DS18 GPIO:%i\n", meshcom_settings.node_owgpio);
 
     if(meshcom_settings.node_owgpio > 0)
+    {
         ds.begin(meshcom_settings.node_owgpio);
+        one_found=true;
+    }
     else
     {
         #ifdef OneWire_GPIO
             meshcom_settings.node_owgpio = OneWire_GPIO;
             ds.begin(meshcom_settings.node_owgpio);
-        #else
-            bONEWIRE = false;
+            one_found=true;
         #endif
     }
 }
@@ -198,7 +210,7 @@ void loop_onewire_ds18()
 
     if (!ds.search(addr))
     {
-        if(bWXDEBUG)
+        if(bWXDEBUG && bDisplayCont)
         {
             Serial.println("No more OneWire addresses.");
         }
@@ -206,7 +218,7 @@ void loop_onewire_ds18()
         return;
     }
 
-    if(bWXDEBUG)
+    if(bWXDEBUG && bDisplayCont)
     {
         Serial.print("ROM =");
         for( i = 0; i < 8; i++)
@@ -223,7 +235,7 @@ void loop_onewire_ds18()
         return;
     }
 
-    if(bWXDEBUG)
+    if(bWXDEBUG && bDisplayCont)
     {
         Serial.println();
     }
@@ -232,22 +244,22 @@ void loop_onewire_ds18()
     switch (addr[0])
     {
         case 0x10:
-            if(bWXDEBUG)
+            if(bWXDEBUG && bDisplayCont)
                 Serial.println("  Chip = DS18S20");  // or old DS1820
             //type_s = 1;
             break;
         case 0x28:
-            if(bWXDEBUG)
+            if(bWXDEBUG && bDisplayCont)
                 Serial.println("  Chip = DS18B20");
             //type_s = 0;
             break;
         case 0x22:
-            if(bWXDEBUG)
+            if(bWXDEBUG && bDisplayCont)
                 Serial.println("  Chip = DS1822");
             //type_s = 0;
             break;
         default:
-            if(bWXDEBUG)
+            if(bWXDEBUG && bDisplayCont)
                 Serial.println("Device is not a DS18x20 family device.");
             one_found=false;
             return;
@@ -264,16 +276,17 @@ void loop_onewire_ds18()
     ds.select(addr);    
     ds.write(0xBE);         // Read Scratchpad
 
-    if(bWXDEBUG)
+    if(bWXDEBUG && bDisplayCont)
     {
         Serial.print("  Data = ");
         Serial.print(present, HEX);
         Serial.print(" ");
     }
+
     for ( i = 0; i < 9; i++)
     {           // we need 9 bytes
         data[i] = ds.read();
-        if(bWXDEBUG)
+        if(bWXDEBUG && bDisplayCont)
         {
             Serial.print(data[i], HEX);
             Serial.print(" ");
@@ -282,7 +295,7 @@ void loop_onewire_ds18()
 
     ds.reset_search();
 
-    if(bWXDEBUG)
+    if(bWXDEBUG && bDisplayCont)
     {
         Serial.print(" CRC=");
         Serial.print(OneWire::crc8(data, 8), HEX);
@@ -330,7 +343,7 @@ void loop_onewire_ds18()
 
     if(bWXDEBUG)
     {
-        Serial.print("  Temperature = ");
+        Serial.print("Temperature (DS18) = ");
         Serial.print(celsius);
         Serial.print(" Celsius, ");
         Serial.print(fahrenheit);

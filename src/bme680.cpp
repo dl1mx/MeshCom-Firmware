@@ -42,7 +42,7 @@ int getPressALT680();
 void setupBME680()
 {
 
-	if(bWXDEBUG)	
+	if(bWXDEBUG && bDisplayCont)	
 		Serial.printf("bBME680ON:%i\n", bBME680ON);
 
   // Don't mix BME280 or BMP280 and BME680 they share same addresses

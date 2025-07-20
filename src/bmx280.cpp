@@ -113,7 +113,7 @@ void setupBMX280(bool bNewStart)
 	if(!bBMPON && !bBMEON)
 		return;
 		
-	if(bWXDEBUG)	
+	if(bWXDEBUG && bDisplayCont)	
 		Serial.printf("bBMPON:%i bBMEON:%i\n", bBMPON, bBMEON);
 
 	// Don't mix BME280 or BMP280 and BME680 they share same addresses
@@ -268,7 +268,7 @@ bool loopBMX280()
 
 		if(bWXDEBUG)
 		{
-			Serial.print("Humidity: "); 
+			Serial.print("Humidity (BMX280): "); 
 			Serial.println(fHum);
 		}
 	}

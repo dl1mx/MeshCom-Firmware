@@ -164,7 +164,7 @@ struct s_meshcom_settings
 	int max_hop_text = 0;
 	int max_hop_pos = 0;
 
-	char node_update[20] = {0};
+	char node_update[21] = {0};
 
 	char node_parm_1[100] = {0};
 	char node_parm_t[150] = {0};
