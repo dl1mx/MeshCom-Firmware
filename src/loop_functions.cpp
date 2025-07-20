@@ -98,6 +98,7 @@ bool mcu811_found = false;
 bool one_found = false;
 bool ina226_found = false;
 bool shtc3_found = false;
+bool dht_found = false;
 
 bool bGATEWAY = false;
 bool bGATEWAY_NOPOS = false;

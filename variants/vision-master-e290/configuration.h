@@ -96,6 +96,8 @@ definitions for HELTEC E290
 
 #define BUTTON_PIN 21
 
+#define OneWire_GPIO  99 // please test
+
 #define BATTERY_PIN 7 // A battery voltage measurement pin, voltage divider connected here to measure battery voltage
 #define ADC_MULTIPLIER 4.9245
 

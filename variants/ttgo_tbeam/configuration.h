@@ -74,7 +74,9 @@ definitions for T-Beam
 #define I2C_SDA    SDA_PIN
 #define I2C_SCL    SCL_PIN
 
-#define BUTTON_PIN 38
+#define BUTTON_PIN      38
+
+#define OneWire_GPIO    4
 
 #define GPS_RX_PIN 34
 #define GPS_TX_PIN 12

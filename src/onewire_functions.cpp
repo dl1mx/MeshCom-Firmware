@@ -3,6 +3,139 @@
 
 #include "onewire_functions.h"
 
+//--------------------------------------------------------------------------
+
+#include <DHT.h>
+#include <DHT_U.h>
+
+// Feather HUZZAH ESP8266 note: use pins 3, 4, 5, 12, 13 or 14 --
+// Pin 15 can work but DHT must be disconnected during program upload.
+
+// Uncomment the type of sensor in use:
+#define DHTTYPE    DHT11     // DHT 11
+//#define DHTTYPE    DHT22     // DHT 22 (AM2302)
+//#define DHTTYPE    DHT21     // DHT 21 (AM2301)
+
+// See guide for details on sensor wiring and usage:
+//   https://learn.adafruit.com/dht/overview
+
+uint32_t delayMS;
+DHT_Unified dht(OneWire_GPIO, DHTTYPE);
+
+void init_onewire_dht()
+{
+    dht_found = false;
+    
+    meshcom_settings.node_temp = 0;
+    meshcom_settings.node_hum = 0;
+    
+    #ifdef BOARD_TBEAM
+        if(meshcom_settings.node_owgpio == 16)
+        {
+            meshcom_settings.node_owgpio = 0;
+        }
+    #endif
+
+    Serial.printf("[INIT]...ONEWIRE - GPIO:%i\n", meshcom_settings.node_owgpio);
+
+    if(meshcom_settings.node_owgpio > 0)
+        DHT_Unified dht(meshcom_settings.node_owgpio, DHTTYPE);
+    else
+    {
+        #ifdef OneWire_GPIO
+            meshcom_settings.node_owgpio = OneWire_GPIO;
+            DHT_Unified dht(meshcom_settings.node_owgpio, DHTTYPE);
+        #else
+            bONEWIRE = false;
+            return;
+        #endif
+    }
+
+    dht.begin();
+    Serial.println(F("[INIT]...DHTxx Unified Sensor found"));
+    // Print temperature sensor details.
+    sensor_t sensor;
+    dht.temperature().getSensor(&sensor);
+
+    if(strcmp(sensor.name, "DHT11") == 0)
+    {
+        dht_found = true;
+
+        Serial.println(F("------------------------------------"));
+        Serial.println(F("Temperature Sensor"));
+        Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
+        Serial.print  (F("Driver Ver:  ")); Serial.println(sensor.version);
+        Serial.print  (F("Unique ID:   ")); Serial.println(sensor.sensor_id);
+        Serial.print  (F("Max Value:   ")); Serial.print(sensor.max_value); Serial.println(F("°C"));
+        Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("°C"));
+        Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("°C"));
+        Serial.println(F("------------------------------------"));
+        // Print humidity sensor details.
+        dht.humidity().getSensor(&sensor);
+        Serial.println(F("Humidity Sensor"));
+        Serial.print  (F("Sensor Type: ")); Serial.println(sensor.name);
+        Serial.print  (F("Driver Ver:  ")); Serial.println(sensor.version);
+        Serial.print  (F("Unique ID:   ")); Serial.println(sensor.sensor_id);
+        Serial.print  (F("Max Value:   ")); Serial.print(sensor.max_value); Serial.println(F("%"));
+        Serial.print  (F("Min Value:   ")); Serial.print(sensor.min_value); Serial.println(F("%"));
+        Serial.print  (F("Resolution:  ")); Serial.print(sensor.resolution); Serial.println(F("%"));
+        Serial.println(F("------------------------------------"));
+        // Set delay between sensor readings based on sensor details.
+        delayMS = sensor.min_delay / 1000;
+    }
+}
+
+void loop_onewire_dht()
+{
+    if(!dht_found)
+    {
+        return;
+    }
+
+    // Delay between measurements.
+    delay(delayMS);
+    // Get temperature event and print its value.
+    sensors_event_t event;
+    dht.temperature().getEvent(&event);
+    if (isnan(event.temperature))
+    {
+        if(bWXDEBUG)
+            Serial.println(F("Error reading temperature!"));
+    }
+    else
+    {
+        meshcom_settings.node_temp = event.temperature;
+
+        if(bWXDEBUG)
+        {
+            Serial.print(F("Temperature: "));
+            Serial.print(event.temperature);
+            Serial.println(F("°C"));
+        }
+    }
+
+    // Get humidity event and print its value.
+    dht.humidity().getEvent(&event);
+    if (isnan(event.relative_humidity))
+    {
+        if(bWXDEBUG)
+            Serial.println(F("Error reading humidity!"));
+    }
+    else
+    {
+        meshcom_settings.node_hum = event.relative_humidity;
+
+        if(bWXDEBUG)
+        {
+            Serial.print(F("Humidity: "));
+            Serial.print(event.relative_humidity);
+            Serial.println(F("%"));
+        }
+    }
+}
+
+//--------------------------------------------------------------------------
+
 #include <OneWire.h>
 
 unsigned long onewireTimeWait = 0;
@@ -19,7 +152,7 @@ void PrintBytes(const uint8_t* addr, uint8_t count, bool newline=false)
     Serial.println();
 }
 
-void init_onewire(void)
+void init_onewire_ds18(void)
 {
     one_found = false;
 
@@ -30,35 +163,31 @@ void init_onewire(void)
         if(meshcom_settings.node_owgpio == 16)
         {
             meshcom_settings.node_owgpio = 0;
-            bONEWIRE = false;
         }
     #endif
 
     Serial.printf("[INIT]...ONEWIRE - GPIO:%i\n", meshcom_settings.node_owgpio);
 
     if(meshcom_settings.node_owgpio > 0)
-        ds.begin(meshcom_settings.node_owgpio);  // default on pin 36
+        ds.begin(meshcom_settings.node_owgpio);
     else
     {
-        meshcom_settings.node_owgpio=0;
-
         #ifdef OneWire_GPIO
             meshcom_settings.node_owgpio = OneWire_GPIO;
             ds.begin(meshcom_settings.node_owgpio);
+        #else
+            bONEWIRE = false;
         #endif
     }
 }
 
-void loop_onewire()
+void loop_onewire_ds18()
 {
-    if(!bONEWIRE)
+    if(!one_found)
     {
         meshcom_settings.node_temp2 = 0;
         return;
     }
-
-    if(meshcom_settings.node_owgpio == 0)
-        return;
 
     byte i;
     byte present = 0;
@@ -72,10 +201,8 @@ void loop_onewire()
         if(bWXDEBUG)
         {
             Serial.println("No more OneWire addresses.");
-            Serial.println();
         }
         ds.reset_search();
-        delay(250);
         return;
     }
 
@@ -212,3 +339,4 @@ void loop_onewire()
 
     meshcom_settings.node_temp2 = celsius;
 }
+//--------------------------------------------------------------------------

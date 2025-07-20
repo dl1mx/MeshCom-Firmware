@@ -755,7 +755,7 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
         {
-            bNodeSetting=true;
+            bSensSetting=true;
         }
 
         bReturn = true;
@@ -1534,7 +1534,8 @@ void commandAction(char *umsg_text, bool ble)
 
         if(bONEWIRE)
         {
-            init_onewire();
+            init_onewire_ds18();
+            init_onewire_dht();
         }
     }
     else
@@ -1580,7 +1581,8 @@ void commandAction(char *umsg_text, bool ble)
 
         if(bONEWIRE)
         {
-            init_onewire();
+            init_onewire_ds18();
+            init_onewire_dht();
         }
     }
     else
@@ -1794,7 +1796,7 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
         {
-            addBLECommandBack((char*)msg_text);
+            sendAPRSset();
         }
 
         save_settings();

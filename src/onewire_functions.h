@@ -7,8 +7,11 @@
 #include <configuration.h>
 
 void PrintBytes(const uint8_t* addr, uint8_t count, bool newline);
-void init_onewire(void);
-void loop_onewire();
+void init_onewire_ds18(void);
+void loop_onewire_ds18();
+
+void init_onewire_dht(void);
+void loop_onewire_dht(void);
 
 //#endif
 

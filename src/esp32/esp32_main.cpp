@@ -752,7 +752,10 @@ void esp32setup()
 
     // Initialize temp sensor
     if(bONEWIRE)
-        init_onewire();
+    {
+        init_onewire_ds18();
+        init_onewire_dht();
+    }
 
     init_onebutton();
 
@@ -2120,7 +2123,11 @@ void esp32loop()
         {
             //if (tx_is_active == false && is_receiving == false)
             {
-                loop_onewire();
+                if(one_found)
+                    loop_onewire_ds18();
+
+                if(dht_found)
+                    loop_onewire_dht();
 
                 onewireTimeWait = millis();
 

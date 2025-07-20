@@ -98,3 +98,5 @@ definitions for T-Beam-Supreme-L76K
 #define GPS_RX_PIN 9
 #define GPS_TX_PIN 8
 #define GPS_WAKEUP 7
+
+#define OneWire_GPIO  99 // please test
