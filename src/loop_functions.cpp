@@ -570,6 +570,10 @@ int esp32_isSSD1306(int address)
         return 1;
     #endif
 
+    #if defined (BOARD_TBEAM_V3)
+        return 2;
+    #endif
+
     TwoWire *w = NULL;
 
     w = &Wire;

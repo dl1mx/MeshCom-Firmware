@@ -538,6 +538,7 @@ void esp32setup()
     bUSER_BOARD_LED = meshcom_settings.node_sset3 & 0x0080;
     
     bSOFTSERDEBUG = meshcom_settings.node_sset3 & 0x0100;
+    bWXDEBUG = meshcom_settings.node_sset3 & 0x0200;
 
     memset(meshcom_settings.node_update, 0x00, sizeof(meshcom_settings.node_update));
 
