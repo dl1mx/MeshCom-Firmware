@@ -215,6 +215,8 @@ void init_flash(void)
 		meshcom_settings.node_tempi_off = old_struct.node_tempi_off;
 		meshcom_settings.node_tempo_off = old_struct.node_tempo_off;
 
+		meshcom_settings.node_shunt = old_struct.node_shunt;
+
 		save_settings();
 		// delay(1000);
 		// sd_nvic_SystemReset();

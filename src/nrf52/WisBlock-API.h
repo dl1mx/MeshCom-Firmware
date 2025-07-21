@@ -309,6 +309,8 @@ struct s_meshcom_settings
 	float node_tempi_off = 0.0;
 	float node_tempo_off = 0.0;
 
+	float node_shunt = 0.0;
+
 	// nicht im Flash
 	float node_specstart = 432.0;
 	float node_specend = 434.0;
@@ -502,6 +504,8 @@ struct s_meshcomcompat_settings
 
 	float node_tempi_off = 0.0;
 	float node_tempo_off = 0.0;
+
+	float node_shunt = 0.0;
 
 	// not within RAK Flash
 	float node_specstart = 432.0;

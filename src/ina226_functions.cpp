@@ -35,7 +35,11 @@ bool setupINA226()
         return false;
     }
 
-    INA0.setMaxCurrentShunt(1, 0.002);
+    if(meshcom_settings.node_shunt > 0.0 && meshcom_settings.node_shunt < 500.0)
+        INA0.setMaxCurrentShunt(1, meshcom_settings.node_shunt);
+    else
+        INA0.setMaxCurrentShunt(1, 0.002);
+
     INA0.setAverage(INA226_1024_SAMPLES);
 
     Serial.println("[INIT]...INA226 set");

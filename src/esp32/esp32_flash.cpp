@@ -210,6 +210,8 @@ void init_flash(void)
 
     meshcom_settings.node_tempi_off = preferences.getFloat("node_tmpiof", 0.0);
     meshcom_settings.node_tempo_off = preferences.getFloat("node_tmpoof", 0.0);
+
+    meshcom_settings.node_shunt = preferences.getFloat("node_shunt", 0.002);
 }
 
 void save_settings(void)
@@ -414,6 +416,8 @@ void save_settings(void)
 
     preferences.putFloat("node_tmpiof", meshcom_settings.node_tempi_off);
     preferences.putFloat("node_tmpoof", meshcom_settings.node_tempo_off);
+
+    preferences.putFloat("node_shunt", meshcom_settings.node_shunt);
 
     preferences.end();
 
