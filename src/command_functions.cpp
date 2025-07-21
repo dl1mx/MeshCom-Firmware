@@ -1856,14 +1856,14 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
         {
-            addBLECommandBack((char*)"--extudp on");
+            bWifiSetting=true;
         }
 
         save_settings();
 
         resetExternUDP();
 
-        return;
+        bReturn = true;
     }
     else
     if(commandCheck(msg_text+2, (char*)"extudp off") == 0)
@@ -1874,12 +1874,12 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
         {
-            addBLECommandBack((char*)"--extudp off");
+            bWifiSetting=true;
         }
 
         save_settings();
 
-        return;
+        bReturn = true;
     }
     else
     if(commandCheck(msg_text+2, (char*)"extudpip") == 0)
@@ -1899,9 +1899,14 @@ void commandAction(char *umsg_text, bool ble)
             return;
         }
 
+        if(ble)
+        {
+            bWifiSetting=true;
+        }
+
         save_settings();
 
-        return;
+        bReturn = true;
     }
     else
     if(commandCheck(msg_text+2, (char*)"debug on") == 0)
@@ -4121,6 +4126,8 @@ void commandAction(char *umsg_text, bool ble)
         swdoc["OWNIP"] = meshcom_settings.node_ownip;
         swdoc["OWNGW"] = meshcom_settings.node_owngw;
         swdoc["OWNMS"] = meshcom_settings.node_ownms;
+        swdoc["EUDP"] = bEXTUDP;
+        swdoc["EUDPIP"] = meshcom_settings.node_extern;
 
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));
