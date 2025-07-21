@@ -967,6 +967,31 @@ void commandAction(char *umsg_text, bool ble)
     }
     else
     #endif
+    if(commandCheck(msg_text+2, (char*)"shunt ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+8);
+        sscanf(_owner_c, "%lf", &dVar);
+
+        //printf("_owner_c:%s fVar:%f\n", _owner_c, dVar);
+
+        if(dVar <= 0.0 || dVar > 500.0)
+        {
+            Serial.printf("INA226 Rs (shunt) not > 0 and < 500 OHM");
+            return;
+        }
+
+        meshcom_settings.node_shunt=dVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bSensSetting=true;
+        }
+
+        bReturn = true;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"batt factor ") == 0)
     {
         snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+14);
@@ -4082,6 +4107,7 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc["OWF"] = one_found;
         sensdoc["USERPIN"] = ibt;
         sensdoc["INA226"] = ina226_found;
+        sensdoc["SHUNT"] = meshcom_settings.node_shunt;
 
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));

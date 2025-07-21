@@ -2054,15 +2054,77 @@ void sendMessage(char *msg_text, int len)
         }
     }
 
-    if((len-ispos) < 1 || (len-ispos) > 160)
+    // umwandeln %F0%9F%98%80%
+    int ii=0;
+    int in=0;
+    unsigned int ib=0;
+    unsigned int ia=0;
+    char msg_text_check[200];
+    char msg_text_checked[200];
+
+    memset(msg_text_checked, 0x00, sizeof(msg_text_checked));
+
+    memset(msg_text_check, 0x00, sizeof(msg_text_check));
+    memcpy(msg_text_check, msg_text+1, len-ispos);
+
+    for(int iu=ispos; iu<(len-ispos); iu++)
     {
-        Serial.printf("sendMessage wrong text length:%i\n", len-ispos);
+        if(memcmp(msg_text_check+ii, "%0A", 3) == 0)
+        {
+            msg_text_checked[in] = ' ';
+            in++;
+
+            ii=ii+3;
+        }
+        else
+        if(memcmp(msg_text_check+ii, "%F0", 3) == 0)
+        {
+            for(int is=1;is<12;is=is+3)
+            {
+                if(msg_text_check[ii+is] >= 'A')
+                    ib = (msg_text_check[ii+is] - 'A') + 10;
+                else
+                    ib = msg_text_check[ii+is] - '0';
+
+                if(msg_text_check[ii+is+1] >= 'A')
+                    ib = (ib << 4) | ((msg_text_check[ii+is+1] - 'A') + 10);
+                else
+                    ib = (ib << 4) | (msg_text_check[ii+is+1] - '0');
+
+                msg_text_checked[in] = ib;
+                in++;
+            }
+
+            ii=ii+12;
+        }
+        else
+        {
+            msg_text_checked[in] = msg_text_check[ii];
+            in++;
+            ii++;
+        }
+    }
+
+    /*
+    Serial.println(msg_text_check);
+    Serial.println(msg_text_checked);
+    for(int iu=0;iu<50;iu++)
+    {
+        Serial.printf("%02X ", msg_text_checked[iu]);
+    }
+    Serial.println("");
+    */
+
+    String strMsg = msg_text_checked;
+
+    String strDestinationCall = "*";
+    
+    if(strMsg.length() < 1 || strMsg.length() > 160)
+    {
+        Serial.printf("sendMessage wrong text length:%i\n", strMsg.length());
         return;
     }
 
-    String strDestinationCall = "*";
-    String strMsg = msg_text+ispos;
-    
     bool bDM=false;
 
     if(strMsg.charAt(0) == '{')

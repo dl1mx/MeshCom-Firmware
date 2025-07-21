@@ -33,6 +33,7 @@ XPowersLibInterface *PMU = NULL;
 
 #endif
 
+
 // TinyGPS
 TinyGPSPlus tinyGPSPlus;
 
@@ -504,7 +505,7 @@ unsigned int getGPS(void)
             return readGPS();
         }
         
-        GPS.begin(GPS_BAUDRATE, SERIAL_8N1, GPS_TX_PIN, GPS_RX_PIN);
+        GPS.begin(GPS_BAUDRATE_MODUL, SERIAL_8N1, GPS_TX_PIN, GPS_RX_PIN);
         
         return POSINFO_INTERVAL;
     #endif
