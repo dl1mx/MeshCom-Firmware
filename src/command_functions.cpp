@@ -30,6 +30,7 @@
 #include <onewire_functions.h>
 #include <onebutton_functions.h>
 
+#include "INA226.h"
 //TEST #include "compress_functions.h"
 
 #if defined(ENABLE_BMX680)
@@ -975,13 +976,63 @@ void commandAction(char *umsg_text, bool ble)
 
         //printf("_owner_c:%s fVar:%f\n", _owner_c, dVar);
 
-        if(dVar <= 0.0 || dVar > 500.0)
+        if(dVar < INA226_MINIMAL_SHUNT_OHM || dVar > 0.5)
         {
-            Serial.printf("INA226 Rs (shunt) not > 0 and < 500 OHM");
+            Serial.printf("INA226 Rs (shunt) not > %.3f and < 0.500 OHM\n", INA226_MINIMAL_SHUNT_OHM);
             return;
         }
 
         meshcom_settings.node_shunt=dVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bSensSetting=true;
+        }
+
+        bReturn = true;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"imax ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+7);
+        sscanf(_owner_c, "%lf", &dVar);
+
+        //printf("_owner_c:%s fVar:%f\n", _owner_c, dVar);
+
+        if(dVar < 0 || dVar > 20)
+        {
+            Serial.printf("INA226 maxCurrent 20 A\n");
+            return;
+        }
+
+        meshcom_settings.node_imax=dVar;
+
+        save_settings();
+
+        if(ble)
+        {
+            bSensSetting=true;
+        }
+
+        bReturn = true;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"isamp ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+8);
+        sscanf(_owner_c, "%i", &iVar);
+
+        //printf("_owner_c:%s fVar:%f\n", _owner_c, dVar);
+
+        if(iVar < 0 || iVar > 7)
+        {
+            Serial.printf("INA226 Samples 0...7\n");
+            return;
+        }
+
+        meshcom_settings.node_isamp=iVar;
 
         save_settings();
 
@@ -4151,6 +4202,8 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc["USERPIN"] = ibt;
         sensdoc["INA226"] = ina226_found;
         sensdoc["SHUNT"] = meshcom_settings.node_shunt;
+        sensdoc["IMAX"] = meshcom_settings.node_imax;
+        sensdoc["SAMP"] = meshcom_settings.node_isamp;
 
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));
