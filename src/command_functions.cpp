@@ -978,7 +978,7 @@ void commandAction(char *umsg_text, bool ble)
 
         if(dVar < INA226_MINIMAL_SHUNT_OHM || dVar > 0.5)
         {
-            Serial.printf("INA226 Rs (shunt) not > %.3f and < 0.500 OHM\n", INA226_MINIMAL_SHUNT_OHM);
+            Serial.printf("INA226 Rs (shunt) not > %.3f and < 0.500 Ω\n", INA226_MINIMAL_SHUNT_OHM);
             return;
         }
 
@@ -3869,7 +3869,7 @@ void commandAction(char *umsg_text, bool ble)
 
             Serial.printf("...ONEWIRE: %s (%i) DS18%s DHT%s\n", (bONEWIRE?"on":"off"), meshcom_settings.node_owgpio, cone, cdht);
 
-            Serial.printf("...TEMP: %.1f °C off %.3f\n...TOUT: %.1f °C off %.3f\n...HUM: %.1f %%rH\n...QFE: %.1f hPa\n...QNH: %.1f hPa\n...ALT asl: %i m\n...GAS: %.1f kOhm\n...eCO2: %.0f ppm\n", 
+            Serial.printf("...TEMP: %.1f °C off %.3f\n...TOUT: %.1f °C off %.3f\n...HUM: %.1f %%rH\n...QFE: %.1f hPa\n...QNH: %.1f hPa\n...ALT asl: %i m\n...GAS: %.1f kΩ\n...eCO2: %.0f ppm\n", 
             meshcom_settings.node_temp, meshcom_settings.node_tempi_off, meshcom_settings.node_temp2, meshcom_settings.node_tempo_off, meshcom_settings.node_hum, meshcom_settings.node_press, meshcom_settings.node_press_asl, meshcom_settings.node_press_alt, meshcom_settings.node_gas_res, meshcom_settings.node_co2);
         }
 
@@ -4200,17 +4200,32 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc["OWPIN"] = meshcom_settings.node_owgpio;
         sensdoc["OWF"] = one_found;
         sensdoc["USERPIN"] = ibt;
-        sensdoc["INA226"] = ina226_found;
-        sensdoc["SHUNT"] = meshcom_settings.node_shunt;
-        sensdoc["IMAX"] = meshcom_settings.node_imax;
-        sensdoc["SAMP"] = meshcom_settings.node_isamp;
 
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));
 
         serializeJson(sensdoc, print_buff, measureJson(sensdoc));
 
-        // no flag needed anymore - json comes as is
+        // clear buffer
+        memset(msg_buffer, 0, sizeof(msg_buffer));
+
+        // set data message flag and tx ble
+        msg_buffer[0] = 0x44;
+        memcpy(msg_buffer +1, print_buff, strlen(print_buff));
+        addBLEComToOutBuffer(msg_buffer, strlen(print_buff) + 1);
+
+        JsonDocument sensdoc1;
+
+        sensdoc["TYP"] = "S1";
+        sensdoc1["INA226"] = ina226_found;
+        sensdoc1["SHUNT"] = meshcom_settings.node_shunt;
+        sensdoc1["IMAX"] = meshcom_settings.node_imax;
+        sensdoc1["SAMP"] = meshcom_settings.node_isamp;
+
+        // reset print buffer
+        memset(print_buff, 0, sizeof(print_buff));
+
+        serializeJson(sensdoc1, print_buff, measureJson(sensdoc1));
 
         // clear buffer
         memset(msg_buffer, 0, sizeof(msg_buffer));
