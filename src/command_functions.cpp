@@ -23,6 +23,7 @@
 #include "bmx280.h"
 #include "bmp390.h"
 #include "aht20.h"
+#include "sht21.h"
 #include "mcu811.h"
 #include "io_functions.h"
 #include "softser_functions.h"
@@ -1373,9 +1374,63 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        #if defined(ENABLE_AHT20)
-            setupAHT20(false);
-        #endif
+        setupAHT20(false);
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"aht20 off") == 0)
+    {
+        bAHT20ON=false;
+        aht20_found = false;
+        
+        meshcom_settings.node_sset3 &= ~0x0020; // AHT20 off
+
+        if(ble)
+        {
+            bSensSetting = true;
+        }
+
+        bReturn = true;
+
+        save_settings();
+    }
+    else
+    #endif
+
+    #if defined(ENABLE_SHT21)
+    if(commandCheck(msg_text+2, (char*)"sht21 on") == 0)
+    {
+        if(ble)
+        {
+            bSensSetting = true;
+        }
+
+        bReturn = true;
+
+        bSHT21ON = true;
+        sht21_found = false;
+        
+        meshcom_settings.node_sset3 |= 0x0400;
+
+        save_settings();
+
+        setupSHT21(false);
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"sht21 off") == 0)
+    {
+        if(ble)
+        {
+            bSensSetting = true;
+        }
+
+        bReturn = true;
+
+        bSHT21ON = false;
+        sht21_found = false;
+        
+        meshcom_settings.node_sset3 &= ~0x0400;
+
+        save_settings();
     }
     else
     #endif
@@ -1426,22 +1481,6 @@ void commandAction(char *umsg_text, bool ble)
         bBMP3ON=false;
         
         meshcom_settings.node_sset3 &= ~0x0010; // BMP390 off
-
-        if(ble)
-        {
-            bSensSetting = true;
-        }
-
-        bReturn = true;
-
-        save_settings();
-    }
-    else
-    if(commandCheck(msg_text+2, (char*)"aht20 off") == 0)
-    {
-        bAHT20ON=false;
-        
-        meshcom_settings.node_sset3 &= ~0x0020; // AHT20 off
 
         if(ble)
         {
@@ -3762,6 +3801,10 @@ void commandAction(char *umsg_text, bool ble)
             if(bAHT20ON)
                 snprintf(cAHT20, sizeof(cAHT20), " (%s)",  (aht20_found?"found":"error"));
 
+            char cSHT21[10]={0};
+            if(bSHT21ON)
+                snprintf(cSHT21, sizeof(cSHT21), " (%s)",  (sht21_found?"found":"error"));
+
             char cone[10]={0};
             char cdht[10]={0};
             if(bONEWIRE)
@@ -3770,8 +3813,8 @@ void commandAction(char *umsg_text, bool ble)
                 snprintf(cdht, sizeof(cdht), " (%s)",  (dht_found?"found":"error"));
             }
 
-            Serial.printf("\n\nMeshCom %-4.4s%-1.1s\n...BMP280: %s / BME280: %s%s\n...BMP390: %s%s\n...BME680: %s%s\n...MCU811: %s%s\n...AHT20: %s%s\n...INA226: %s\n...LPS33: %s (RAK)\n", SOURCE_VERSION, SOURCE_VERSION_SUB,
-            (bBMPON?"on":"off"), (bBMEON?"on":"off"), cbme, (bBMP3ON?"on":"off"), cbmp3, (bBME680ON?"on":"off"), c680, (bMCU811ON?"on":"off"), c811, (bAHT20ON?"on":"off"), cAHT20, (bINA226ON?"on":"off"), (bLPS33?"on":"off"));
+            Serial.printf("\n\nMeshCom %-4.4s%-1.1s\n...BMP280: %s / BME280: %s%s\n...BMP390: %s%s\n...BME680: %s%s\n...MCU811: %s%s\n...AHT20: %s%s\n...SHT21: %s%s\n...INA226: %s\n...LPS33: %s (RAK)\n", SOURCE_VERSION, SOURCE_VERSION_SUB,
+            (bBMPON?"on":"off"), (bBMEON?"on":"off"), cbme, (bBMP3ON?"on":"off"), cbmp3, (bBME680ON?"on":"off"), c680, (bMCU811ON?"on":"off"), c811, (bAHT20ON?"on":"off"), cAHT20, (bSHT21ON?"on":"off"), cSHT21, (bINA226ON?"on":"off"), (bLPS33?"on":"off"));
 
             Serial.printf("...ONEWIRE: %s (%i) DS18%s DHT%s\n", (bONEWIRE?"on":"off"), meshcom_settings.node_owgpio, cone, cdht);
 
@@ -4322,6 +4365,8 @@ void sendNodeSetting()
 
 void sendAnalogSetting()
 {
+    #ifndef BOARD_RAK4630
+    
     JsonDocument asetdoc;
 
     asetdoc["TYP"] = "AN";
@@ -4350,6 +4395,9 @@ void sendAnalogSetting()
     msg_buffer[0] = 0x44;
     memcpy(msg_buffer +1, print_buff, strlen(print_buff));
     addBLEComToOutBuffer(msg_buffer, strlen(print_buff) + 1);
+
+    #endif
+
 }
 
 // sends APRS settings to the phone

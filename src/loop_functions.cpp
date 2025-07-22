@@ -74,6 +74,7 @@ bool bGPSON = false;
 bool bBMPON = false;
 bool bBMP3ON = false;
 bool bAHT20ON = false;
+bool bSHT21ON = false;
 bool bBMEON = false;
 bool bBME680ON = false;
 bool bMCU811ON = false;
@@ -94,6 +95,7 @@ bool bme680_found = false;
 bool bmx_found = false;
 bool bmp3_found = false;
 bool aht20_found =false;
+bool sht21_found = false;
 bool mcu811_found = false;
 bool one_found = false;
 bool ina226_found = false;
@@ -149,17 +151,6 @@ String strSOFTSERAPP_NAME = "";  // Name der Messstelle
 // TELEMTRY global variables
 int iNextTelemetry=0;
 String strTelemetry="";
-
-// ANALOG values
-unsigned long analog_oversample_timer = 0;
-// ADC-filtering variables
-uint16_t ADCraw = 0;
-float ADCalpha = 0.1;
-float ADCexp1 = 0.0;
-float ADCexp1pre = 0.0;
-float ADCexp12 = 0.0;
-float ADCexp12pre = 0.0;
-float ADCexp2 = 0.0;
 
 // same set of variables for BATT
 float BATTalpha = 0.1;
@@ -2058,7 +2049,6 @@ void sendMessage(char *msg_text, int len)
     int ii=0;
     int in=0;
     unsigned int ib=0;
-    unsigned int ia=0;
     char msg_text_check[200];
     char msg_text_checked[200];
     int len_check=len-ispos;

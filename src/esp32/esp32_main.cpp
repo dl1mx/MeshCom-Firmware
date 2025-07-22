@@ -25,6 +25,7 @@
 #include "bmx280.h"
 #include "bmp390.h"
 #include "aht20.h"
+#include "sht21.h"
 #include "bme680.h"
 #include "mcu811.h"
 #include "io_functions.h"
@@ -539,6 +540,7 @@ void esp32setup()
     
     bSOFTSERDEBUG = meshcom_settings.node_sset3 & 0x0100;
     bWXDEBUG = meshcom_settings.node_sset3 & 0x0200;
+    bSHT21ON = meshcom_settings.node_sset3 & 0x0400;
 
     memset(meshcom_settings.node_update, 0x00, sizeof(meshcom_settings.node_update));
 
@@ -715,6 +717,10 @@ void esp32setup()
 
     #if defined(ENABLE_AHT20)
         setupAHT20(true);
+    #endif
+
+    #if defined(ENABLE_SHT21)
+        setupSHT21(true);
     #endif
 
     #if defined(ENABLE_MC811)
@@ -1775,9 +1781,7 @@ void esp32loop()
         }
     #endif
 
-    #if defined (ANALOG_PIN)
-        loop_ADCFunctions();    // OE3WAS
-    #endif
+    loop_ADCFunctions();    // OE3WAS
 
     // BLE
     if (deviceConnected)
@@ -2143,11 +2147,13 @@ void esp32loop()
 //#endif
 
     // read BMP Sensor
-    #if defined(ENABLE_BMX280) || defined(ENABLE_AHT20)
-    if(((bBMPON || bBMEON) && bmx_found) || (bAHT20ON && aht20_found))
+    #if defined(ENABLE_BMX280) || defined(ENABLE_AHT20) || defined(ENABLE_SHT21)
+    if(((bBMPON || bBMEON) && bmx_found) || (bAHT20ON && aht20_found) || (bSHT21ON && sht21_found))
     {
         if ((BMXTimeWait + 60000) < millis())   // 60 sec
         {
+            Serial.println("BMP Sensor");
+
             #if defined(ENABLE_BMX280)
                 if(loopBMX280())
                 {
@@ -2176,6 +2182,15 @@ void esp32loop()
                 {
                     meshcom_settings.node_temp = getAHT20Temp();
                     meshcom_settings.node_hum = getAHT20Hum();
+                }
+            #endif
+
+            #if defined(ENABLE_SHT21)
+            Serial.println("SHT Sensor");
+                if(loopSHT21())
+                {
+                    meshcom_settings.node_temp2 = getSHT21Temp();
+                    meshcom_settings.node_hum = getSHT21Hum();
                 }
             #endif
 

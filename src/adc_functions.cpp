@@ -4,7 +4,22 @@
 #include "loop_functions.h"
 #include <command_functions.h>
 
+#ifndef BOARD_RAK4630
+
 #include <adc_functions.h>
+#include <esp_adc_cal.h>
+
+// ANALOG values
+unsigned long analog_oversample_timer = 0;
+// ADC-filtering variables
+uint16_t ADCraw = 0;
+float ADCalpha = 0.1;
+float ADCexp1 = 0.0;
+float ADCexp1pre = 0.0;
+float ADCexp12 = 0.0;
+float ADCexp12pre = 0.0;
+float ADCexp2 = 0.0;
+
 
 // ADC general variables
 unsigned long analog_show_timer = 0;
@@ -35,13 +50,7 @@ uint16_t SampleCount = 0;
  * @return - ADCraw = 0..4095 12bit-Messwert ohne Umrechnung
  * @return - ADCexp1 = Messwert exponentielle Glättung 1. Ordnung
  * @return - ADCexp2 = Messwert exponentielle Glättung 2. Ordnung
-*/
-
-#define ADC_ATTEN_DB_0      0
-#define ADC_ATTEN_DB_2_5    1
-#define ADC_ATTEN_DB_6      2
-#define ADC_ATTEN_DB_12     3
-
+**/
 void loop_ADCFunctions()
 {    
     #if defined (ANALOG_PIN)
@@ -106,3 +115,5 @@ void loop_ADCFunctions()
         }
     #endif
 }
+
+#endif
