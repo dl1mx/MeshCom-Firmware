@@ -310,6 +310,8 @@ struct s_meshcom_settings
 	float node_tempo_off = 0.0;
 
 	float node_shunt = 0.0;
+	float node_imax = 0.0;
+	int node_isamp = 7;
 
 	// nicht im Flash
 	float node_specstart = 432.0;
@@ -506,6 +508,8 @@ struct s_meshcomcompat_settings
 	float node_tempo_off = 0.0;
 
 	float node_shunt = 0.0;
+	float node_imax = 0.0;
+	int node_isamp = 7;
 
 	// not within RAK Flash
 	float node_specstart = 432.0;
