@@ -109,6 +109,7 @@ String scanI2C()
 
                 if(address == 0x38)strDev="AHT20";
                 if(address == 0x40)strDev="INA226/T-DECK";
+                if(address == 0x44)strDev="SHT21";
                 if(address == 0x51)strDev="RTC PCF8563";
                 if(address == 0x55)strDev="T-DECK KEYBOARD";
                 if(address == 0x57)strDev="[RTC DS3231 EPROM]";

@@ -1,10 +1,10 @@
 /**************************************************************************
-   Tests the getTemperature and getHumidity functions of the aht20 library
+   Tests the getTemperature and getHumidity functions of the SHT21 library
  **************************************************************************/
 #include "configuration.h"
 #include "loop_functions_extern.h"
 
-#ifdef ENABLE_AHT20
+#ifdef ENABLE_SHT21
 
 /***************************************************************************
  This is a library for the BMP3XX temperature & pressure sensor
@@ -23,23 +23,19 @@ Written by Limor Fried & Kevin Townsend for Adafruit Industries.
 BSD license, all text above must be included in any redistribution
 ***************************************************************************/
 
-
 #include <Wire.h>
-#include <SPI.h>
+#include "SHTSensor.h"
 
-#include "aht20.h"
-#include <Adafruit_AHTX0.h>
+SHTSensor sht;
 
-Adafruit_AHTX0 aht;
+float fSHT21Temp = 0.0;
+float fSHT21Hum = 0.0;
 
-float fAHT20Temp = 0.0;
-float fAHT20Hum = 0.0;
-
-void setupAHT20(bool bInit)
+void setupSHT21(bool bInit)
 {
-    aht20_found = false;
+    sht21_found = false;
 
-    if(!bAHT20ON)
+    if(!bSHT21ON)
 		return;
 		
     #if defined(BOARD_TBEAM_V3) || (BOARD_E22_S3)
@@ -47,24 +43,26 @@ void setupAHT20(bool bInit)
         Wire.begin(I2C_SDA, I2C_SCL);
     #endif
 
-    if (!aht.begin(&Wire))
+    if (!sht.init())
     {
-        Serial.println("[INIT]...Could not find a valid AHT20 sensor, check wiring");
+        Serial.println("[INIT]...Could not find a valid SHT21 sensor, check wiring");
         return;
     }
 
-    Serial.printf("[INIT]...AHT20 startet\n");
+    // not used with SHT21 sht.setAccuracy(SHTSensor::SHT_ACCURACY_MEDIUM); // only supported by SHT3x
 
-    aht20_found = true;
+    Serial.printf("[INIT]...SHT21 startet\n");
+
+    sht21_found = true;
 }
 
 
-bool loopAHT20()
+bool loopSHT21()
 {
-	if(!bAHT20ON)
+	if(!bSHT21ON)
 		return false;
 
-	if(!aht20_found)
+	if(!sht21_found)
 		return false;
 
     #if defined(BOARD_TBEAM_V3) || (BOARD_E22_S3)
@@ -72,35 +70,38 @@ bool loopAHT20()
         Wire.begin(I2C_SDA, I2C_SCL);
     #endif
 
-    sensors_event_t humidity, temp;
-    
-    aht.getEvent(&humidity, &temp);// populate temp and humidity objects with fresh data
+    if(!sht.readSample())
+    {
+        Serial.printf("[INIT]...SHT21 readSample error\n");
+    }
+    else
+    {
+        fSHT21Temp = sht.getTemperature();
+        fSHT21Hum = sht.getHumidity();
 
-    fAHT20Temp = temp.temperature;
-    fAHT20Hum = humidity.relative_humidity;
-
-    if(bWXDEBUG)
-    {	
-        Serial.print("Temperature (AHT20): ");
-        Serial.print(fAHT20Temp);
-        Serial.println(" degrees C");
-        
-        Serial.print("Humidity (AHT20): ");
-        Serial.print(fAHT20Hum);
-        Serial.println("% rH");
+        if(bWXDEBUG)
+        {	
+            Serial.print("Temperature (SHT21): ");
+            Serial.print(fSHT21Temp);
+            Serial.println(" degrees C");
+            
+            Serial.print("Humidity (SHT21): ");
+            Serial.print(fSHT21Hum);
+            Serial.println("% rH");
+        }
     }
 
     return true;
 }
 
-float getAHT20Temp()
+float getSHT21Temp()
 {
-	return fAHT20Temp;
+	return fSHT21Temp;
 }
 
-float getAHT20Hum()
+float getSHT21Hum()
 {
-	return fAHT20Hum;
+	return fSHT21Hum;
 }
 
 #endif
