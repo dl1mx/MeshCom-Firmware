@@ -2065,8 +2065,17 @@ void sendMessage(char *msg_text, int len)
         Serial.println(msg_text_check);
     }
 
+    int iulng=0;
+
     for(int iu=ispos; iu<=len_check; iu++)
     {
+        if(memcmp(msg_text_check+ii, "%EF", 3) == 0)
+            iulng=9;
+        if(memcmp(msg_text_check+ii, "%E2", 3) == 0)
+            iulng=9;
+        if(memcmp(msg_text_check+ii, "%F0", 3) == 0)
+            iulng=12;
+
         if(memcmp(msg_text_check+ii, "%0A", 3) == 0)
         {
             msg_text_checked[in] = ' ';
@@ -2075,9 +2084,9 @@ void sendMessage(char *msg_text, int len)
             ii=ii+3;
         }
         else
-        if(memcmp(msg_text_check+ii, "%F0", 3) == 0)
+        if(iulng > 0)
         {
-            for(int is=1;is<12;is=is+3)
+            for(int is=1;is<iulng;is=is+3)
             {
                 if(msg_text_check[ii+is] >= 'A')
                     ib = (msg_text_check[ii+is] - 'A') + 10;
@@ -2093,7 +2102,9 @@ void sendMessage(char *msg_text, int len)
                 in++;
             }
 
-            ii=ii+12;
+            ii=ii+iulng;
+
+            iulng=0;
         }
         else
         {
