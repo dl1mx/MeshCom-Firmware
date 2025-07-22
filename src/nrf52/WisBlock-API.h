@@ -507,7 +507,7 @@ struct s_meshcomcompat_settings
 	float node_tempi_off = 0.0;
 	float node_tempo_off = 0.0;
 
-	float node_shunt = 0.002
+	float node_shunt = 0.002;
 	float node_imax = 20.0;
 	int node_isamp = 7;
 
