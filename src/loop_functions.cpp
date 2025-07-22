@@ -379,8 +379,10 @@ void addBLEOutBuffer(uint8_t *buffer, uint16_t len)
  */
 void addBLEComToOutBuffer(uint8_t *buffer, uint16_t len)
 {
-    if (len > UDP_TX_BUF_SIZE)
-        len = UDP_TX_BUF_SIZE-1; // just for safety
+    if (len > 245)
+    {
+        Serial.printf("[ERR]...BLE out-buffer to long <%i> <%-15.15s>\n", len, buffer);
+    }
 
     //first two bytes are always the message length
     BLEComToPhoneBuff[ComToPhoneWrite][0] = len;
@@ -389,7 +391,6 @@ void addBLEComToOutBuffer(uint8_t *buffer, uint16_t len)
     if(bBLEDEBUG)
     {
         Serial.printf("<%s> BLEComToPhone RingBuff added len=%i to element: %u\n", buffer, len, ComToPhoneWrite);
-        //printBuffer(BLEComToPhoneBuff[ComToPhoneWrite], len + 1);
     }
 
     ComToPhoneWrite++;
@@ -2051,12 +2052,12 @@ void sendMessage(char *msg_text, int len)
     unsigned int ib=0;
     char msg_text_check[200];
     char msg_text_checked[200];
-    int len_check=len-ispos;
+    int len_check=len;
 
     memset(msg_text_checked, 0x00, sizeof(msg_text_checked));
     memset(msg_text_check, 0x00, sizeof(msg_text_check));
 
-    memcpy(msg_text_check, msg_text+1, len_check);
+    memcpy(msg_text_check, msg_text+ispos, len_check);
 
     if(bDisplayCont)
     {
