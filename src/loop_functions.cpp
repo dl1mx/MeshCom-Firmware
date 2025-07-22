@@ -2061,13 +2061,20 @@ void sendMessage(char *msg_text, int len)
     unsigned int ia=0;
     char msg_text_check[200];
     char msg_text_checked[200];
+    int len_check=len-ispos;
 
     memset(msg_text_checked, 0x00, sizeof(msg_text_checked));
-
     memset(msg_text_check, 0x00, sizeof(msg_text_check));
-    memcpy(msg_text_check, msg_text+1, len-ispos);
 
-    for(int iu=ispos; iu<(len-ispos); iu++)
+    memcpy(msg_text_check, msg_text+1, len_check);
+
+    if(bDisplayCont)
+    {
+        Serial.print("SendcMesasage in:");
+        Serial.println(msg_text_check);
+    }
+
+    for(int iu=ispos; iu<=len_check; iu++)
     {
         if(memcmp(msg_text_check+ii, "%0A", 3) == 0)
         {
@@ -2103,6 +2110,12 @@ void sendMessage(char *msg_text, int len)
             in++;
             ii++;
         }
+    }
+
+    if(bDisplayCont)
+    {
+        Serial.print("SendcMesasage out:");
+        Serial.println(msg_text_checked);
     }
 
     /*
