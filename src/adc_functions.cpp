@@ -11,6 +11,7 @@
 
 // ANALOG values
 unsigned long analog_oversample_timer = 0;
+
 // ADC-filtering variables
 uint16_t ADCraw = 0;
 float ADCalpha = 0.1;
@@ -26,8 +27,6 @@ unsigned long analog_show_timer = 0;
 float ADCslope = 1.0;
 float ADCoffset = 0;
 uint16_t SampleCount = 0;
-
-// ADC-filtering variables stehen in loop_functions.h
 
 ///
 /**
