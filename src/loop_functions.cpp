@@ -2061,7 +2061,7 @@ void sendMessage(char *msg_text, int len)
 
     if(bDisplayCont)
     {
-        Serial.print("SendcMesasage in:");
+        Serial.print("SendMessage in:");
         Serial.println(msg_text_check);
     }
 
@@ -2118,7 +2118,7 @@ void sendMessage(char *msg_text, int len)
 
     if(bDisplayCont)
     {
-        Serial.print("SendcMesasage out:");
+        Serial.print("SendMessage out:");
         Serial.println(msg_text_checked);
     }
 
