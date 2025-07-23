@@ -683,6 +683,16 @@ void webSetup_getParam(setupStruct *setupData){
         return;
     } else
 
+    if(setupData->paramName.equals("aht20")) {        
+        setupData->returnValue = bAHT20ON?"on":"off";
+        return;
+    } else
+
+    if(setupData->paramName.equals("sht21")) {        
+        setupData->returnValue = bSHT21ON?"on":"off";
+        return;
+    } else
+
     if(setupData->paramName.equals("softser")) {        
         setupData->returnValue = bSOFTSERON?"on":"off";
         return;
