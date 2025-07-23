@@ -4216,7 +4216,7 @@ void commandAction(char *umsg_text, bool ble)
 
         JsonDocument sensdoc1;
 
-        sensdoc["TYP"] = "S1";
+        sensdoc1["TYP"] = "S1";
         sensdoc1["INA226"] = ina226_found;
         sensdoc1["SHUNT"] = meshcom_settings.node_shunt;
         sensdoc1["IMAX"] = meshcom_settings.node_imax;
