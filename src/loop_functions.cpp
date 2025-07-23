@@ -2069,6 +2069,8 @@ void sendMessage(char *msg_text, int len)
 
     for(int iu=ispos; iu<=len_check; iu++)
     {
+        if(memcmp(msg_text_check+ii, "%C2", 3) == 0)
+            iulng=6;
         if(memcmp(msg_text_check+ii, "%EF", 3) == 0)
             iulng=9;
         if(memcmp(msg_text_check+ii, "%E2", 3) == 0)
