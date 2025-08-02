@@ -28,6 +28,7 @@ extern bool bWXDEBUG;
 extern bool bIODEBUG;
 extern bool bLED_CLEAR;
 extern bool bLED_DELAY;
+extern bool bTDECKDEBUG;
 
 extern bool bPosDisplay;
 extern bool bDisplayOff;

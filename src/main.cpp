@@ -19,6 +19,10 @@
   #include <nrf52_techo/nrf52_main.h>
 #endif
 
+#if defined (BOARD_T_DECK_PRO)
+  #include <t-deck-pro/tdeck_pro.h>
+#endif
+
 void setup()
 {
   #if defined(BOARD_T5_EPAPER)
@@ -29,7 +33,7 @@ void setup()
     }
   #endif
 
-  #if !defined(BOARD_T_ECHO) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_T5_EPAPER)
+  #if !defined(BOARD_T_ECHO) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_T5_EPAPER) && !defined(BOARD_T_DECK_PRO)
     SPI.begin();
   #endif
 
@@ -41,7 +45,10 @@ void setup()
     nrf52setup();
   #endif
 
-  #ifdef ESP32
+  //#if defined (BOARD_T_DECK_PRO)
+  //  initTDeck_pro();
+  //#elif ESP32
+  #if defined ESP32
     esp32setup();
   #endif
 }
@@ -61,7 +68,10 @@ void loop()
     nrf52loop();
   #endif
 
-  #ifdef ESP32
+  //#if defined (BOARD_T_DECK_PRO)
+  //  loopTDeck_pro();
+  //#elif ESP32
+  #if defined ESP32
     esp32loop();
   #endif
 

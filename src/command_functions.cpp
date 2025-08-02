@@ -496,7 +496,11 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"spectrum") == 0)
     {
         
+        #if not defined(BOARD_T_DECK_PRO)
+        //extern hardware
         sx126x_spectral_scan();
+        #endif
+
         #ifdef ESP32
             //ESP.restart();
         #endif
@@ -737,6 +741,7 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
     }
+    #ifndef BOARD_T_DECK_PRO
     else
     if(commandCheck(msg_text+2, (char*)"button gpio ") == 0)
     {
@@ -766,6 +771,7 @@ void commandAction(char *umsg_text, bool ble)
 
         init_onebutton();
     }
+    #endif
     else
     #if defined (ANALOG_PIN)
     if(commandCheck(msg_text+2, (char*)"analog gpio ") == 0)
@@ -1596,8 +1602,8 @@ void commandAction(char *umsg_text, bool ble)
         tdeck_refresh_SET_view();
         #endif
     }
-    else
 #if defined(LPS33)
+    else
     if(commandCheck(msg_text+2, (char*)"lps33 on") == 0)
     {
         bLPS33=true;
@@ -1629,9 +1635,9 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
     }
-    else
 #endif
-//#ifndef BOARD_TLORA_OLV216
+#ifdef OneWire_GPIO
+    else
     if(commandCheck(msg_text+2, (char*)"onewire on") == 0)
     {
         bONEWIRE=true;
@@ -1700,8 +1706,9 @@ void commandAction(char *umsg_text, bool ble)
             init_onewire_dht();
         }
     }
-    else
+#endif
     #if defined (ENABLE_BMX280)
+    else
     if(commandCheck(msg_text+2, (char*)"setpress") == 0)
     {
         fBaseAltidude = (float)meshcom_settings.node_alt;
@@ -2742,14 +2749,12 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(((strlen(meshcom_settings.node_pwd) > 1 || strcmp(meshcom_settings.node_pwd, "none") == 0) && strlen(meshcom_settings.node_ssid) > 1))
+        if((strlen(meshcom_settings.node_pwd) > 1 && strlen(meshcom_settings.node_ssid) > 1) ||
+           (strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0))
         {
-            if(!bDEBUG)
-            {
-                Serial.println("Auto. Reboot after 15 sec.");
+            Serial.println("Auto. Reboot after 15 sec.");
 
-                rebootAuto = millis() + 15 * 1000; // 15 Sekunden
-            }
+            rebootAuto = millis() + 15 * 1000; // 15 Sekunden
         }
 
         return;
@@ -2772,7 +2777,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(((strlen(meshcom_settings.node_pwd) > 1 || strcmp(meshcom_settings.node_pwd, "none") == 0) && strlen(meshcom_settings.node_ssid) > 1))
+        if((strlen(meshcom_settings.node_pwd) > 1 && strlen(meshcom_settings.node_ssid) > 1) ||
+           (strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2837,7 +2843,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
+        if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
+           (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2861,7 +2868,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
+        if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
+           (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2884,7 +2892,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
+        if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
+           (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2907,7 +2916,7 @@ void commandAction(char *umsg_text, bool ble)
 
         bInfo=true;
 
-        rebootAuto = millis() + 10 * 1000; // 10 Sekunden
+        rebootAuto = millis() + 5 * 1000; // 5 Sekunden
 
         return;
     }
@@ -2925,7 +2934,7 @@ void commandAction(char *umsg_text, bool ble)
 
         bInfo=true;
 
-        rebootAuto = millis() + 10 * 1000; // 10 Sekunden
+        rebootAuto = millis() + 5 * 1000; // 5 Sekunden
 
         return;
     }
@@ -4022,8 +4031,11 @@ void commandAction(char *umsg_text, bool ble)
         if(!bRxFromPhone)
         {
             int ibt = meshcom_settings.node_button_pin;
+            
+            #ifndef BOARD_T_DECK_PRO
             if(ibt == 0)
                 ibt = BUTTON_PIN;
+            #endif
 
             Serial.printf("--MeshCom %-4.4s%-1.1s (build: %s / %s)\n...UPDATE: %s\n...Call: <%s> ...ID %08X ...NODE %i ...UTC-OFF %f [%s]\n...BATT %.2f V ...BATT %d %% ...MAXV %.3f V\n...TIME %li ms\n", 
                     SOURCE_VERSION, SOURCE_VERSION_SUB , __DATE__ , __TIME__ , meshcom_settings.node_update,
@@ -4177,8 +4189,11 @@ void commandAction(char *umsg_text, bool ble)
     if(bSensSetting)
     {
         int ibt = meshcom_settings.node_button_pin;
+
+        #ifndef BOARD_T_DECK_PRO
         if(ibt == 0)
             ibt = BUTTON_PIN;
+        #endif
 
         JsonDocument sensdoc;
 

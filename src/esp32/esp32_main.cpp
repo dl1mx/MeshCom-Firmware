@@ -95,6 +95,10 @@ bool bLED = true;
 #include <t-deck/lv_obj_functions.h>
 #endif
 
+#if defined(BOARD_T_DECK_PRO)
+#include <t-deck-pro/tdeck_pro.h>
+#endif
+
 #if defined(BOARD_T5_EPAPER)
 #include <t5-epaper/t5epaper_main.h>
 #include <t5-epaper/t5epaper_extern.h>
@@ -279,7 +283,9 @@ LLCC68 radio = new Module(LORA_CS, LORA_DIO0, LORA_RST, LORA_DIO1);
     // If you have RESET of the E22 connected to a GPIO on the ESP you must initialize the GPIO as output and perform a LOW - HIGH cycle, 
     // otherwise your E22 is in an undefined state. RESET can be connected, but is not a must. IF so, make RESET before INIT!
 
+    //#if not defined(BOARD_T_DECK_PRO)
     SX1262 radio = new Module(SX1262X_CS, SX1262X_IRQ, SX1262X_RST, SX1262X_GPIO);
+    //#endif
 
 #endif
 
@@ -469,12 +475,14 @@ void esp32setup()
         }
     #endif
 
-    #ifndef BOARD_T5_EPAPER
-        Wire.begin(I2C_SDA, I2C_SCL);
-    #endif
-    
-    #ifdef PMU_USE_WIRE1
-        Wire1.begin(I2C1_SDA, I2C1_SCL);
+    #if not defined(BOARD_T_DECK_PRO)
+        #ifndef BOARD_T5_EPAPER
+            Wire.begin(I2C_SDA, I2C_SCL);
+        #endif
+        
+        #ifdef PMU_USE_WIRE1
+            Wire1.begin(I2C1_SDA, I2C1_SCL);
+        #endif
     #endif
 
     delay(500);
@@ -544,7 +552,13 @@ void esp32setup()
 
     memset(meshcom_settings.node_update, 0x00, sizeof(meshcom_settings.node_update));
 
-    iButtonPin = BUTTON_PIN;
+    #ifdef BOARD_T_DECK_PRO
+        iButtonPin = BUTTON_PIN;
+        bButtonCheck=true;
+    #else
+        iButtonPin = 99;
+    #endif
+
     if(meshcom_settings.node_button_pin > 0)
         iButtonPin = meshcom_settings.node_button_pin;
 
@@ -555,6 +569,11 @@ void esp32setup()
     // Initialize T-Deck GUI
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
         initTDeck();
+    #endif
+
+    // Initialize T-Deck GUI
+    #if defined(BOARD_T_DECK_PRO)
+        initTDeck_pro();
     #endif
 
     #if defined(BOARD_T5_EPAPER)
@@ -580,6 +599,13 @@ void esp32setup()
         bEXTUDP=false;
     }
 
+    // keine WIFI Connection
+    if(strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0)
+    {
+        bGATEWAY=false;
+        bWEBSERVER=false;
+    }
+       
     if(bBMPON)
     {
         bBMEON=false;
@@ -608,7 +634,9 @@ void esp32setup()
     #endif
 
     // Initialize battery reading
+    #if not defined (BOARD_T_DECK_PRO)
 	init_batt();
+    #endif
 
     #ifdef VEXT_CTRL
         pinMode(VEXT_CTRL, OUTPUT);
@@ -697,14 +725,16 @@ void esp32setup()
         bSETGPS_POWER=true;
     #endif
 
-    #if defined (GPS_L76K)
-        setupPMU(bSETGPS_POWER);
-        beginGPS();
-    #elif defined (GPS_L76K_TDECK)
-        switchL76KGPS();
-    #elif defined (BOARD_T5_EPAPER)
-    #else
-        setupPMU(bSETGPS_POWER);
+    #ifndef BOARD_T_DECK_PRO
+        #if defined (GPS_L76K)
+            setupPMU(bSETGPS_POWER);
+            beginGPS();
+        #elif defined (GPS_L76K_TDECK)
+            switchL76KGPS();
+        #elif defined (BOARD_T5_EPAPER)
+        #else
+            setupPMU(bSETGPS_POWER);
+        #endif
     #endif
 
     #if defined(ENABLE_BMX280)
@@ -758,11 +788,13 @@ void esp32setup()
     #endif
 
     // Initialize temp sensor
+    #ifdef OneWire_GPIO
     if(bONEWIRE)
     {
         init_onewire_ds18();
         init_onewire_dht();
     }
+    #endif
 
     init_onebutton();
 
@@ -795,6 +827,8 @@ void esp32setup()
 
     #if defined (BOARD_T5_EPAPER)
     //
+    #elif defined (BOARD_T_DECK_PRO)
+    //
     #elif HAS_TFT
         initTFT();
     #else
@@ -805,7 +839,9 @@ void esp32setup()
     delay(500);
     #endif
 
-    #ifdef BOARD_T5_EPAPER
+    #if defined (BOARD_T5_EPAPER)
+    //
+    #elif defined (BOARD_T_DECK_PRO)
     //
     #elif HAS_TFT
         char cvers[22];
@@ -828,7 +864,7 @@ void esp32setup()
     #ifdef BOARD_E220
     Serial.print(F("[LoRa]...LLCC68 chip"));
     #endif
-    
+
     #ifdef SX1262X
     Serial.print(F("[LoRa]...SX1262 chip"));
     #endif
@@ -860,15 +896,19 @@ void esp32setup()
 
     #if defined(BOARD_T5_EPAPER)
     // extra source
+    // #elif defined(BOARD_T_DECK_PRO)
+    // extra source
     #elif defined(BOARD_E220)
         Serial.print(F(" Initializing ... "));
         int state = radio.begin(434.0F, 125.0F, 9, 7, SYNC_WORD_SX127x, 10, LORA_PREAMBLE_LENGTH, /*float tcxoVoltage = 0*/ 1.6F, /*bool useRegulatorLDO = false*/ false);
     #else
         Serial.print(F(" Initializing ... "));
-        int state = radio.begin();
+        int state = radio.begin(433.175F);
     #endif
     
     #if defined(BOARD_T5_EPAPER)
+    // extra source
+    // #elif defined(BOARD_T_DECK_PRO)
     // extra source
     #else
     if (state == RADIOLIB_ERR_NONE)
@@ -896,6 +936,8 @@ void esp32setup()
         bRadio = false; // no detailed setting
     #endif
 
+    //#if not defined(BOARD_T_DECK_PRO)
+    // extra source
     // > 4.34w we use EU8 instead of EU
     if(meshcom_settings.node_country == 0)
         meshcom_settings.node_country = 8;
@@ -905,10 +947,14 @@ void esp32setup()
     #endif
 
     lora_setcountry(meshcom_settings.node_country);
-
+    
+    //#endif
+    
     // you can also change the settings at runtime
     // and check if the configuration was changed successfully
     #if defined(BOARD_T5_EPAPER)
+    // extra source
+    // #elif defined(BOARD_T_DECK_PRO)
     // extra source
     #else
     if(bRadio)
@@ -1261,7 +1307,7 @@ void esp32setup()
     #endif
 
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-    tdeck_clear_text_ta();
+        tdeck_clear_text_ta();
     #endif
 }
 
@@ -1279,7 +1325,14 @@ void esp32_write_ble(uint8_t confBuff[300], uint8_t conf_len)
 
 void esp32loop()
 {
+    // loop T-Deck GUI
+    #if defined(BOARD_T_DECK_PRO)
+        loopTDeck_pro();
+    #endif
+
+    #if not defined(BOARD_T_DECK_PRO)
     loop_onebutton();
+    #endif
 
     #ifdef LED_PIN
         if(bLED_GREEN || bLED_RED || bLED_BLUE || bLED_ORANGE || bLED_WEISS || bLED_CLEAR || bLED_DELAY)
@@ -1382,6 +1435,8 @@ void esp32loop()
     // LoRa-Chip found
     #if defined(BOARD_T5_EPAPER)
         idf_loop();
+    // #elif defined(BOARD_T_DECK_PRO)
+    // extra source
     #else
 
     if(bRadio)
@@ -1781,7 +1836,9 @@ void esp32loop()
         }
     #endif
 
+    #if not defined(BOARD_T_DECK_PRO)
     loop_ADCFunctions();    // OE3WAS
+    #endif
 
     // BLE
     if (deviceConnected)
@@ -1936,10 +1993,12 @@ void esp32loop()
         }
         else
         {
-            #if defined (GPS_L76K)
-                igps = loopL76KGPS();
-            #else
-                igps = getGPS();
+            #ifndef BOARD_T_DECK_PRO
+                #if defined (GPS_L76K)
+                    igps = loopL76KGPS();
+                #else
+                    igps = getGPS();
+                #endif
             #endif
         }
 
@@ -2025,6 +2084,7 @@ void esp32loop()
 
     mainStartTimeLoop();
 
+    #if not defined(BOARD_T_DECK_PRO)
     if(DisplayOffWait > 0)
     {
         if (millis() > DisplayOffWait)
@@ -2037,6 +2097,7 @@ void esp32loop()
             }
         }
     }
+    #endif
 
     // rebootAuto
     if(rebootAuto > 0)
@@ -2095,15 +2156,15 @@ void esp32loop()
                     Serial.printf("[readBatteryVoltage]...PMU.volt %.1f PMU.proz %i %i\n", global_batt, global_proz, pmu_proz);
             #else
             
-            //#ifndef BOARD_TRACKER
                 global_batt = read_batt();
                 global_proz = mv_to_percent(global_batt);
                 
                 if(bDisplayCont)
                 {
+                    #if not defined (BOARD_T_DECK_PRO)
                     Serial.printf("[readBatteryVoltage]...volt %.2f proz %i max_batt %.3f\n", global_batt/1000., global_proz, meshcom_settings.node_maxv);
+                    #endif
                 }
-            //#endif
 
                 #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
                 tdeck_update_batt_label(global_batt/1000., global_proz);
@@ -2113,15 +2174,17 @@ void esp32loop()
 
             if(bDisplayCont)
             {
+                #if not defined (BOARD_T_DECK_PRO)
                 Serial.printf("%s [HEAP]...%d (free)\n", getTimeString().c_str(), ESP.getFreeHeap());
                 Serial.printf("%s [PSRM]...%d\n", getTimeString().c_str(), ESP.getFreePsram());
+                #endif
             }
 
             BattTimeWait = millis();
         }
     }
 
-//#ifndef BOARD_TLORA_OLV216
+    #ifdef OneWire_GPIO
     if(bONEWIRE)
     {
         if ((onewireTimeWait + 30000) < millis())  // 30 sec
@@ -2144,7 +2207,7 @@ void esp32loop()
             }
         }
     }
-//#endif
+    #endif
 
     // read BMP Sensor
     #if defined(ENABLE_BMX280) || defined(ENABLE_AHT20) || defined(ENABLE_SHT21)
@@ -2401,6 +2464,10 @@ void esp32loop()
 
 int checkRX(bool bRadio)
 {
+    int state = -1;
+
+    //#if not defined(BOARD_T_DECK_PRO)
+    // extra source
     // you can receive data as an Arduino String
     // NOTE: receive() is a blocking method!
     //       See example ReceiveInterrupt for details
@@ -2418,7 +2485,7 @@ int checkRX(bool bRadio)
     
     size_t ibytes = UDP_TX_BUF_SIZE;
 
-    int state = radio.readData(payload, ibytes);
+    state = radio.readData(payload, ibytes);
 
     if (state == RADIOLIB_ERR_LORA_HEADER_DAMAGED || state == RADIOLIB_ERR_NONE)
     {
@@ -2458,6 +2525,8 @@ int checkRX(bool bRadio)
         Serial.print(F("[LoRa]...Failed, code <2>"));
         Serial.println(state);
     }
+
+    //#endif
 
     is_receiving=false;
 

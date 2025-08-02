@@ -3,6 +3,7 @@
 
 #include "onewire_functions.h"
 
+#ifdef OneWire_GPIO
 //--------------------------------------------------------------------------
 
 #include <DHT.h>
@@ -353,3 +354,4 @@ void loop_onewire_ds18()
     meshcom_settings.node_temp2 = celsius;
 }
 //--------------------------------------------------------------------------
+#endif

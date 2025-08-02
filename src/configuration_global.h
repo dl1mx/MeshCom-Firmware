@@ -1,5 +1,5 @@
 #define SOURCE_VERSION "4.35"
-#define SOURCE_VERSION_SUB "c"
+#define SOURCE_VERSION_SUB "d"
 
 //Hardware Types
 #define TLORA_V2 1
@@ -25,6 +25,7 @@
 #define TBEAM_SUPREME_L76K 47
 #define ESP32_S3_EBYTE_E22 48
 #define TLORA_PAGER 49
+#define T_DECK_PRO 50
 
 #define DEFAULT_PREAMPLE_LENGTH 32
 

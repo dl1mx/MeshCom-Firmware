@@ -20,6 +20,10 @@
 #include <t-deck/lv_obj_functions.h>
 #endif 
 
+#if defined(BOARD_T_DECK_PRO)
+#include <t-deck-pro/tdeck_pro.h>
+#endif
+
 #if defined(BOARD_T5_EPAPER)
 #include <t5-epaper/t5epaper_extern.h>
 #include <t5-epaper/t5epaper_main.h>
@@ -60,6 +64,7 @@ bool bLORADEBUG = false;
 bool bBLEDEBUG = false;
 bool bWXDEBUG = false;
 bool bIODEBUG = false;
+bool bTDECKDEBUG = false;
 
 bool bPosDisplay = true;
 bool bDisplayOff = false;
@@ -189,7 +194,7 @@ int dzeile[6] = {42, 52, 62, 0, 0, 0};
 int dzeile[6] = {8, 21, 31, 41, 51, 61};
 #endif
 
-#if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK) && !defined (BOARD_T_DECK_PLUS)  && !defined (BOARD_T5_EPAPER)
+#if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK) && !defined (BOARD_T_DECK_PLUS) && !defined (BOARD_T5_EPAPER) && !defined (BOARD_T_DECK_PRO)
 
 #include <U8g2lib.h>
 
@@ -632,7 +637,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
 {
     #if !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS)
 
-    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T5_EPAPER)
+    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T5_EPAPER) && !defined (BOARD_T_DECK_PRO)
         if(u8g2 == NULL)
             return;
     #endif
@@ -650,7 +655,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
             e290_display.fastmodeOn();
             
             e290_display.setFont(&FreeMonoBold12pt7b);
-        #elif defined(BOARD_TRACKER) || defined (BOARD_T5_EPAPER)
+        #elif defined(BOARD_TRACKER) || defined (BOARD_T5_EPAPER) || defined (BOARD_T_DECK_PRO)
         #else
             u8g2->setFont(u8g2_font_6x10_mf);
         #endif
@@ -779,7 +784,10 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
 
         #elif defined (BOARD_T5_EPAPER)
         // extra source
+        #elif defined (BOARD_T_DECK_PRO)
+        // extra source
         #elif defined (BOARD_STICK_V3)
+        // extra source
 
         u8g2->firstPage();
         do
@@ -1045,7 +1053,8 @@ void sendDisplayTime()
             pagePointer=PAGE_MAX-1;
     }
 
-    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS) && !defined (BOARD_T5_EPAPER)
+    #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS) && !defined (BOARD_T5_EPAPER) && !defined (BOARD_T_DECK_PRO)
+
 
         if(u8g2 == NULL)
             return;
@@ -1428,7 +1437,37 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     sendDisplayMainline();
 
-    #ifdef BOARD_E290
+    #if defined (BOARD_T_DECK_PRO)
+
+    String strPath = "M* <" + aprsmsg.msg_source_call + ">";
+    // DM
+    if(CheckGroup(aprsmsg.msg_destination_path))
+    {
+        strPath = "GM" + aprsmsg.msg_destination_path + " <" + aprsmsg.msg_source_call + ">";
+    }
+    else
+        if(aprsmsg.msg_destination_path != "*")
+        {
+            strPath = "DM <" + aprsmsg.msg_source_call + ">";
+        }
+
+    if(strPath.length() < (20-4))
+        snprintf(msg_text, sizeof(msg_text), "%s <%i>", strPath.c_str(), rssi);
+    else
+        snprintf(msg_text, sizeof(msg_text), "%s", strPath.c_str());
+
+    msg_text[20]=0x00;
+    
+    String strAscii = msg_text;
+
+    strAscii = utf8ascii(aprsmsg.msg_payload);
+
+    TDeck_pro_lora_disp(msg_text, strAscii);
+
+    strcpy(pageLastTextLong1[pagePointer], msg_text);
+    strcpy(pageLastTextLong2[pagePointer], strAscii.c_str());
+
+    #elif BOARD_E290
 
     sendDisplay1306(false, true, 0, dzeile[0], (char*)"#F");    // not fastmode for CET display
 
