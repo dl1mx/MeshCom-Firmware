@@ -136,6 +136,7 @@ typedef struct {
  * *******************************************************************************/
 void ui_deckpro_entry(void);
 void ui_lora_disp(String recv_info);
+void ui_mheard_disp();
 
 #ifdef __cplusplus
 } /*extern "C"*/

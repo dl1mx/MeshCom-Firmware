@@ -1433,41 +1433,44 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
         bSetDisplay = false;
 
         return;
-    #endif
+
+    #elif defined (BOARD_T_DECK_PRO)
+
+        String strPath = "M* <" + aprsmsg.msg_source_call + ">";
+        // DM
+        if(CheckGroup(aprsmsg.msg_destination_path))
+        {
+            strPath = "GM" + aprsmsg.msg_destination_path + " <" + aprsmsg.msg_source_call + ">";
+        }
+        else
+            if(aprsmsg.msg_destination_path != "*")
+            {
+                strPath = "DM <" + aprsmsg.msg_source_call + ">";
+            }
+
+        if(strPath.length() < (20-4))
+            snprintf(msg_text, sizeof(msg_text), "%s <%i>", strPath.c_str(), rssi);
+        else
+            snprintf(msg_text, sizeof(msg_text), "%s", strPath.c_str());
+
+        msg_text[20]=0x00;
+        
+        String strAscii = msg_text;
+
+        strAscii = utf8ascii(aprsmsg.msg_payload);
+
+        TDeck_pro_lora_disp(msg_text, strAscii);
+
+        strcpy(pageLastTextLong1[pagePointer], msg_text);
+        strcpy(pageLastTextLong2[pagePointer], strAscii.c_str());
+
+        bSetDisplay = false;
+
+        return;
+
+    #elif defined (BOARD_E290)
 
     sendDisplayMainline();
-
-    #if defined (BOARD_T_DECK_PRO)
-
-    String strPath = "M* <" + aprsmsg.msg_source_call + ">";
-    // DM
-    if(CheckGroup(aprsmsg.msg_destination_path))
-    {
-        strPath = "GM" + aprsmsg.msg_destination_path + " <" + aprsmsg.msg_source_call + ">";
-    }
-    else
-        if(aprsmsg.msg_destination_path != "*")
-        {
-            strPath = "DM <" + aprsmsg.msg_source_call + ">";
-        }
-
-    if(strPath.length() < (20-4))
-        snprintf(msg_text, sizeof(msg_text), "%s <%i>", strPath.c_str(), rssi);
-    else
-        snprintf(msg_text, sizeof(msg_text), "%s", strPath.c_str());
-
-    msg_text[20]=0x00;
-    
-    String strAscii = msg_text;
-
-    strAscii = utf8ascii(aprsmsg.msg_payload);
-
-    TDeck_pro_lora_disp(msg_text, strAscii);
-
-    strcpy(pageLastTextLong1[pagePointer], msg_text);
-    strcpy(pageLastTextLong2[pagePointer], strAscii.c_str());
-
-    #elif BOARD_E290
 
     sendDisplay1306(false, true, 0, dzeile[0], (char*)"#F");    // not fastmode for CET display
 
@@ -1511,6 +1514,8 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     // extra source
     #elif defined(BOARD_TRACKER)
 
+    sendDisplayMainline();
+
     sendDisplay1306(false, true, 0, dzeile[0], (char*)"#F");    // not fastmode for CET display
 
     String strPath = "M* <" + aprsmsg.msg_source_call + ">";
@@ -1546,6 +1551,8 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     
     #else
     
+    sendDisplayMainline();
+
     int izeile=0;
     unsigned int itxt=0;
 

@@ -15,6 +15,7 @@
 #include <TinyGPS++.h>
 #include "lvgl.h"
 #include "ui_deckpro.h"
+#include "ui_deckpro_port.h"
 #include <Fonts/FreeMonoBold9pt7b.h>
 #include "tdeck_pro.h"
 #include "peripheral.h"
@@ -427,8 +428,8 @@ void initTDeck_pro()
     digitalWrite(BOARD_6609_EN, HIGH);
     digitalWrite(BOARD_LORA_EN, HIGH);
     digitalWrite(BOARD_GPS_EN, HIGH);
-    digitalWrite(BOARD_1V8_EN, HIGH);
-    digitalWrite(BOARD_A7682E_PWRKEY, HIGH);
+    digitalWrite(BOARD_1V8_EN, LOW);    // KBC GYRO OFF
+    digitalWrite(BOARD_A7682E_PWRKEY, LOW); // KBC A7682E OFF
 
     // i2c devices
     byte error, address;
@@ -492,6 +493,10 @@ void initTDeck_pro()
     }
     */
 
+    ui_setting_set_gps_status(false);
+    ui_setting_set_a7682_status(false);
+    ui_setting_set_gyro_status(false);
+
     lvgl_init();
 
     ui_deckpro_entry();
@@ -523,7 +528,7 @@ void disp_full_refr(void)
 
 void TDeck_pro_lora_disp(String strHead, String strText)
 {
-    //Serial.printf("TDeck_pro_lora_disp <%s>\n", str.c_str());
+    //Serial.printf("TDeck_pro_lora_disp <%s><%s>\n", strHead.c_str(), strText.c_str());
 
     if(strOldLine.length() > 0)
     {
@@ -544,4 +549,14 @@ void TDeck_pro_lora_disp(String strHead, String strText)
     delay(100);
     digitalWrite(BOARD_MOTOR_PIN, LOW);
 
+}
+
+void TDeck_pro_mheard_disp()
+{
+    ui_mheard_disp();
+}
+
+void TDeck_pro_set_gps(bool bGPS)
+{
+    ui_setting_set_gps_status(false);
 }

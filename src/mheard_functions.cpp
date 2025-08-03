@@ -9,6 +9,10 @@
 #include <t-deck/lv_obj_functions_extern.h>
 #endif
 
+#if defined(BOARD_T_DECK_PRO)
+#include <t-deck-pro/tdeck_pro.h>
+#endif
+
 unsigned char mheardBuffer[MAX_MHEARD][60]; //Ringbuffer for MHeard Lines
 unsigned char mheardCalls[MAX_MHEARD][10]; //Ringbuffer for MHeard Key = Call
 double mheardLat[MAX_MHEARD];
@@ -218,6 +222,10 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
 
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     showMHeardTDECK();
+    #endif
+
+    #if defined(BOARD_T_DECK_PRO)
+    TDeck_pro_mheard_disp();
     #endif
 }
 

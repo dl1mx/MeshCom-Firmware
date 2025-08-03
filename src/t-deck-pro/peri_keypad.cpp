@@ -212,8 +212,6 @@ void keypad_loop(void)
             if(ikeypad_layer == 3 && c == 'D') // ALT + D
             {
                 bTDECKDEBUG = ! bTDECKDEBUG;
-                //if(!meshcom_settings.node_backlightlock)
-                //    tft_off();
 
                 bNORM = false;
             }
@@ -221,6 +219,12 @@ void keypad_loop(void)
             if(ikeypad_layer == 3 && c == 'L') // ALT + L
             {
                 meshcom_settings.node_backlightlock = !meshcom_settings.node_backlightlock;
+                
+                if(meshcom_settings.node_backlightlock)
+                    digitalWrite(BOARD_KEYBOARD_LED, HIGH);
+                else
+                    digitalWrite(BOARD_KEYBOARD_LED, LOW);
+
                 //if(!meshcom_settings.node_backlightlock)
                 //    tft_off();
 
