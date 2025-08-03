@@ -429,7 +429,7 @@ static void scr1_btn_event_cb(lv_event_t * e)
     if(e->code == LV_EVENT_CLICKED)
     {
         // ui_full_refresh();
-//        scr_mgr_pop(false);
+        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false); // exit send screen 
     }
 }
@@ -653,7 +653,7 @@ static void scr2_btn_event_cb(lv_event_t * e)
     if(e->code == LV_EVENT_CLICKED)
     {
 //        scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -943,7 +943,7 @@ static void scr3_btn_event_cb(lv_event_t * e)
     if(e->code == LV_EVENT_CLICKED)
     {
         //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -1010,7 +1010,7 @@ static scr_lifecycle_t screen3 = {
 #endif
 //************************************[ screen 4 ]****************************************** Wifi Scan
 // --------------------- screen 4 --------------------- WIFI
-#if 1
+#if WIFI_1
 lv_obj_t * scr4_list;
 static lv_obj_t *scr4_lab_buf[20];
 
@@ -1066,7 +1066,7 @@ static void scr4_btn_event_cb(lv_event_t * e)
     {
         // ui_full_refresh();
         //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -1108,7 +1108,7 @@ static scr_lifecycle_t screen4 = {
 };
 #endif
 // --------------------- screen 4.2 --------------------- Wifi Config
-#if 1
+#if WIFI_2
 static void scr4_1_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED){
@@ -1150,8 +1150,11 @@ static ui_wifi_scan_info_t wifi_info_list[UI_WIFI_SCAN_ITEM_MAX];
 
 static void scr4_2_btn_event_cb(lv_event_t * e)
 {
-    if(e->code == LV_EVENT_CLICKED){
-        scr_mgr_pop(false);
+    if(e->code == LV_EVENT_CLICKED)
+    {
+        //scr_mgr_pop(false);
+        scr_mgr_switch(SCREEN0_ID, false);
+
     }
 }
 
@@ -1349,7 +1352,7 @@ static void scr5_btn_event_cb(lv_event_t * e)
     if(e->code == LV_EVENT_CLICKED)
     {
         //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -1368,7 +1371,7 @@ static void entry5(void)
 
     ui_mheard_disp();
 
-    ui_disp_full_refr();
+    //ui_disp_full_refr();
 }
 static void exit5(void)
 {
@@ -1387,7 +1390,7 @@ static scr_lifecycle_t screen5 = {
 #endif
 //************************************[ screen 6 ]****************************************** Battery
 // --------------------- screen 6 --------------------- Battery
-#if 1
+#if BATT_0
 lv_obj_t * scr6_list;
 static lv_obj_t *scr6_lab_buf[20];
 
@@ -1443,7 +1446,7 @@ static void scr6_btn_event_cb(lv_event_t * e)
     {
         // ui_full_refresh();
         //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -1485,7 +1488,7 @@ static scr_lifecycle_t screen6 = {
 };
 #endif
 // --------------------- screen 6.1 --------------------- BQ25896
-#if 1
+#if BATT_1
 #define line_max 23
 
 static lv_timer_t *batt_6_1_timer = NULL;
@@ -1619,6 +1622,13 @@ static lv_obj_t * scr6_2_create_label(lv_obj_t *parent)
     return label;
 }
 
+static void battery_set_line(lv_obj_t *label, const char *str1, const char *str2)
+{
+    int w2 = strlen(str2);
+    int w1 = line_max - w2;
+    lv_label_set_text_fmt(label, "%-*s%-*s", w1, str1, w2, str2);
+}
+
 static void scr6_2_battert_updata(void)
 {
     char buf[line_max];
@@ -1666,7 +1676,8 @@ static void scr6_2_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        scr_mgr_pop(false);
+        //scr_mgr_pop(false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -1690,7 +1701,7 @@ static void create6_2(lv_obj_t *parent)
         label_list[i] = scr6_2_create_label(scr6_2_cont);
     }
     // back
-    scr_back_btn_create(parent, ("BQ27220"), scr6_btn_event_cb);
+    scr_back_btn_create(parent, ("BQ27220"), scr6_2_btn_event_cb);
 }
 
 static void entry6_2(void) 
@@ -1743,8 +1754,8 @@ static void scr7_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        scr_mgr_switch(SCREEN0_ID, false); // exit send screen 
         //scr_mgr_pop(false);
+        scr_mgr_switch(SCREEN0_ID, false); // exit send screen 
     }
 }
 
@@ -1974,7 +1985,7 @@ static scr_lifecycle_t screen7 = {
 #endif
 //************************************[ screen 8 ]****************************************** A7682E
 // --------------------- screen 8 --------------------- A7682E
-#if 1
+#if A7682E_0
 static lv_obj_t *a7682_list;
 static lv_obj_t *a7682_page;
 static int a7682_num = 0;
@@ -2075,7 +2086,7 @@ static void scr8_btn_event_cb(lv_event_t * e)
     if(e->code == LV_EVENT_CLICKED)
     {
         //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -2179,7 +2190,7 @@ static scr_lifecycle_t screen8 = {
 };
 #endif
 // --------------------- screen 8.1 --------------------- Call test
-#if 1
+#if A7682E_1
 static void event_handler(lv_event_t * e)
 {
     lv_event_code_t code = lv_event_get_code(e);
@@ -2264,7 +2275,7 @@ static scr_lifecycle_t screen8_1 = {
 };
 #endif
 // --------------------- screen 8.2 --------------------- AT test
-#if 1
+#if A7682E_2
 static void scr8_2_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
@@ -2312,7 +2323,7 @@ static void scr9_btn_event_cb(lv_event_t * e)
     if(e->code == LV_EVENT_CLICKED)
     {
         //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -2335,7 +2346,7 @@ static void create9(lv_obj_t *parent)
         lv_obj_center(label);
 
         // back 
-        scr_back_btn_create(parent, "Shoutdown", scr8_btn_event_cb);
+        scr_back_btn_create(parent, "Shoutdown", scr9_btn_event_cb);
     } 
     else 
     {
@@ -2451,7 +2462,7 @@ static void scr10_btn_event_cb(lv_event_t * e)
     if(e->code == LV_EVENT_CLICKED)
     {
         //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN7_ID, false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
@@ -2706,22 +2717,22 @@ void ui_deckpro_entry(void)
     scr_mgr_init();
 
     scr_mgr_register(SCREEN0_ID,    &screen0);      // menu
-    scr_mgr_register(SCREEN1_ID,    &screen1);      // Lora
+    scr_mgr_register(SCREEN1_ID,    &screen1);      // Lora RX
     scr_mgr_register(SCREEN1_1_ID,  &screen1_1);    // - Auto send
     scr_mgr_register(SCREEN2_ID,    &screen2);      // Setting
     scr_mgr_register(SCREEN2_1_ID,  &screen2_1);    //  - About System
     scr_mgr_register(SCREEN3_ID,    &screen3);      // 
-    scr_mgr_register(SCREEN4_ID,    &screen4);      // WIFI
-    scr_mgr_register(SCREEN4_1_ID,  &screen4_1);    //  - WIFI Config
+    //scr_mgr_register(SCREEN4_ID,    &screen4);      // WIFI
+    //scr_mgr_register(SCREEN4_1_ID,  &screen4_1);    //  - WIFI Config
     scr_mgr_register(SCREEN4_2_ID,  &screen4_2);    //  - WIFI Scan
     scr_mgr_register(SCREEN5_ID,    &screen5);      // MHeard
-    scr_mgr_register(SCREEN6_ID,    &screen6);      // Battery
-    scr_mgr_register(SCREEN6_1_ID,  &screen6_1);    //  - BQ25896
+    //scr_mgr_register(SCREEN6_ID,    &screen6);      // Battery
+    //scr_mgr_register(SCREEN6_1_ID,  &screen6_1);    //  - BQ25896
     scr_mgr_register(SCREEN6_2_ID,  &screen6_2);    //  - BQ27220
     scr_mgr_register(SCREEN7_ID,    &screen7);      // 
-    scr_mgr_register(SCREEN8_ID,    &screen8);      // A7682E
-    scr_mgr_register(SCREEN8_1_ID,  &screen8_1);    //  - Call test
-    scr_mgr_register(SCREEN8_2_ID,  &screen8_2);    //  - AT test
+    //scr_mgr_register(SCREEN8_ID,    &screen8);      // A7682E
+    //scr_mgr_register(SCREEN8_1_ID,  &screen8_1);    //  - Call test
+    //scr_mgr_register(SCREEN8_2_ID,  &screen8_2);    //  - AT test
     scr_mgr_register(SCREEN9_ID,    &screen9);      // 
     scr_mgr_register(SCREEN10_ID,   &screen10);     // 
 

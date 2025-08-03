@@ -55,6 +55,7 @@ union flush_buf_pixel
 /*********************************************************************************
  *                              GLOBAL PROTOTYPES
  * *******************************************************************************/
+
 void disp_full_refr(void); // Next global refresh
 
 void initTDeck_pro();
