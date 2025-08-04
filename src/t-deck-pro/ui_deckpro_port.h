@@ -79,6 +79,7 @@ void ui_gps_get_data(uint16_t *year, uint8_t *month, uint8_t *day);
 void ui_gps_get_time(uint8_t *hour, uint8_t *minute, uint8_t *second);
 void ui_gps_get_satellites(uint32_t *vsat);
 void ui_gps_get_speed(double *speed);
+void ui_gps_get_fix(uint8_t *fix);
 
 // [ screen 4 ] --- Wifi Scan
 void ui_wifi_get_scan_info(ui_wifi_scan_info_t *list, int list_len);

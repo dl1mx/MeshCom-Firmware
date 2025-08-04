@@ -24,6 +24,7 @@
 #include "loop_functions_extern.h"
 #include "lora_setchip.h"
 #include <configuration.h>
+#include <clock.h>
 
 TinyGsm modem(SerialAT);
 TaskHandle_t a7682_handle;
@@ -527,7 +528,6 @@ void initTDeck_pro()
     }
     */
 
-    ui_setting_set_gps_status(false);
     ui_setting_set_a7682_status(false);
     ui_setting_set_gyro_status(false);
 
@@ -592,5 +592,87 @@ void TDeck_pro_mheard_disp()
 
 void TDeck_pro_set_gps(bool bGPS)
 {
-    ui_setting_set_gps_status(false);
+    if(bGPS)
+        ui_gps_task_resume();
+    else
+        ui_gps_task_suspend();
+}
+
+unsigned int TDeck_pro_get_gps()
+{
+    double lat      = 0; // Latitude
+    double lon      = 0; // Longitude
+    double speed    = 0; // Speed over ground
+    float alt      = 0; // Altitude
+    float accuracy = 0; // Accuracy
+    uint32_t   vsat     = 0; // Visible Satellites
+    uint16_t   year     = 0; // 
+    uint8_t   month    = 0; // 
+    uint8_t   day      = 0; // 
+    uint8_t   hour     = 0; // 
+    uint8_t   min      = 0; // 
+    uint8_t   sec      = 0; // 
+    uint8_t   fix      = 0; // 
+
+    ui_gps_get_coord(&lat, &lon);
+    ui_gps_get_data(&year, &month, &day);
+    ui_gps_get_time(&hour, &min, &sec);
+    ui_gps_get_satellites(&vsat);
+    ui_gps_get_speed(&speed);
+    ui_gps_get_fix(&fix);
+
+    if(year > 2023)
+    {
+        MyClock.setCurrentTime(meshcom_settings.node_utcoff, year, month, day, (uint16_t)hour, (uint16_t)min, (uint16_t)sec);
+        snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
+    }
+        
+    meshcom_settings.node_date_year = MyClock.Year();
+    meshcom_settings.node_date_month = MyClock.Month();
+    meshcom_settings.node_date_day = MyClock.Day();
+
+    meshcom_settings.node_date_hour = MyClock.Hour();
+    meshcom_settings.node_date_minute = MyClock.Minute();
+    meshcom_settings.node_date_second = MyClock.Second();
+
+    double dlat, dlon;
+
+    dlat = cround4abs(lat);
+    dlon = cround4abs(lon);
+
+    if(lat < 0)
+    {
+        meshcom_settings.node_lat = lat * (-1);
+        meshcom_settings.node_lat_c = 'S';
+    }
+    else
+    {
+        meshcom_settings.node_lat = lat;
+        meshcom_settings.node_lat_c = 'N';
+    }
+    
+    if(lon < 0)
+    {
+        meshcom_settings.node_lon = lon * (-1);
+        meshcom_settings.node_lon_c = 'W';
+    }
+    else
+    {
+        meshcom_settings.node_lon = lon;
+        meshcom_settings.node_lon_c = 'E';
+    }
+
+    meshcom_settings.node_alt = alt;
+
+    posinfo_satcount = vsat;
+    posinfo_hdop = accuracy;
+    if(fix == 1)
+        posinfo_fix = true;
+    else
+        posinfo_fix = false;
+
+    posinfo_age = 0;
+
+    return setSMartBeaconing(dlat, dlon);
+
 }

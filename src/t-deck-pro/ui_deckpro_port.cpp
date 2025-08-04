@@ -198,6 +198,10 @@ void ui_gps_get_speed(double *speed)
 {
     gps_get_speed(speed);
 }
+void ui_gps_get_fix(uint8_t *fix)
+{
+    gps_get_fix(fix);
+}
 //************************************[ screen 4 ]****************************************** Wifi Scan
 int is_chinese_utf8(const char *str) {
     unsigned char c = (unsigned char)str[0];

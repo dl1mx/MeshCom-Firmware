@@ -1978,13 +1978,12 @@ void esp32loop()
             
         if(!bGPSON)
         {
+            #if defined (BOARD_T_DECK_PRO)
+            TDeck_pro_set_gps(false);
+            #endif
 
             if(meshcom_settings.node_postime > 0)
             {
-                #if defined (BOARD_T_DECK_PRO)
-                TDeck_pro_set_gps(false);
-                #endif
-
                 igps = (unsigned int)meshcom_settings.node_postime;
             }
             else
@@ -2002,7 +2001,9 @@ void esp32loop()
             TDeck_pro_set_gps(true);
             #endif
 
-            #ifndef BOARD_T_DECK_PRO
+            #ifdef BOARD_T_DECK_PRO
+            igps = TDeck_pro_get_gps();
+            #else
                 #if defined (GPS_L76K)
                     igps = loopL76KGPS();
                 #else

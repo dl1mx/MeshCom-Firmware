@@ -90,6 +90,7 @@ extern bool dht_found;
 
 extern bool bSHORTPATH;
 extern bool bGPSDEBUG;
+extern bool bGPSDEBUG_DETAIL;
 extern bool bSOFTSERDEBUG;
 
 extern bool bBLElong;

@@ -11,8 +11,6 @@
     extern int transmissionState;
 #endif
 
-//#if not defined(BOARD_T_DECK_PRO)
-
 #ifdef SX1262X
     #include <RadioLib.h>
     extern SX1262 radio;
@@ -584,8 +582,6 @@ bool lora_setchip_new(float rf_freq, float rf_bw, int rf_sf, int rf_cr, int rf_s
 
 #if defined(BOARD_T5_EPAPER)
 //extra source
-// #elif defined(BOARD_T_DECK_PRO)
-// extra source
 
 #elif defined (ESP32)
 

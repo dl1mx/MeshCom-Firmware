@@ -116,6 +116,7 @@ bool bEXTUDP = false;
 
 bool bSHORTPATH = false;
 bool bGPSDEBUG = false;
+bool bGPSDEBUG_DETAIL = false;
 bool bSOFTSERDEBUG = false;
 
 bool bBOOSTEDGAIN = false;

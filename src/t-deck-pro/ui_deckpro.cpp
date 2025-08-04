@@ -981,6 +981,7 @@ static void create3(lv_obj_t *parent)
 
     lv_obj_t *back3_label = scr_back_btn_create(parent, ("GPS"), scr3_btn_event_cb);
 }
+
 static void entry3(void) 
 {
     scr3_GPS_updata();

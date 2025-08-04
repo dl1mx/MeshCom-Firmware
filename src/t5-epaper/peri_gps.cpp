@@ -3,6 +3,8 @@
 #include "peripheral.h"
 #include <TinyGPS++.h>
 
+#include "loop_functions_extern.h"
+
 /* clang-format off */
 
 TinyGPSPlus gps;
@@ -124,79 +126,108 @@ void gps_get_speed(double *speed)
 /* clang-format on */
 void displayInfo()
 {
-    Serial.print(F("Location: "));
+    if(bGPSDEBUG_DETAIL)
+        Serial.print(F("Location: "));
+
     if (gps.location.isValid())
     {
         gps_lat = gps.location.lat();
         gps_lng = gps.location.lng();
-        Serial.print(gps_lat, 6);
-        Serial.print(F(","));
-        Serial.print(gps_lng, 6);
+        if(bGPSDEBUG_DETAIL)
+        {
+            Serial.print(gps_lat, 6);
+            Serial.print(F(","));
+            Serial.print(gps_lng, 6);
+        }
     }
     else
     {
-        Serial.print(F("INVALID"));
+        if(bGPSDEBUG_DETAIL)
+            Serial.print(F("INVALID"));
     }
 
-    Serial.print(F("  Date/Time: "));
+    if(bGPSDEBUG_DETAIL)
+        Serial.print(F("  Date/Time: "));
+
     if (gps.date.isValid())
     {
         gps_year = gps.date.year();
         gps_month = gps.date.month();
         gps_day = gps.date.day();
-        Serial.print(gps_month);
-        Serial.print(F("/"));
-        Serial.print(gps_day);
-        Serial.print(F("/"));
-        Serial.print(gps_year);
+        if(bGPSDEBUG_DETAIL)
+        {
+            Serial.print(gps_month);
+            Serial.print(F("/"));
+            Serial.print(gps_day);
+            Serial.print(F("/"));
+            Serial.print(gps_year);
+        }
     }
     else
     {
-        Serial.print(F("INVALID"));
+        if(bGPSDEBUG_DETAIL)
+            Serial.print(F("INVALID"));
     }
 
-    Serial.print(F(" "));
+    if(bGPSDEBUG_DETAIL)
+        Serial.print(F(" "));
+
     if (gps.time.isValid())
     {
         gps_hour = gps.time.hour();
         gps_minute = gps.time.minute();
         gps_second = gps.time.second();
 
-        if (gps_hour < 10)
-            Serial.print(F("0"));
-        Serial.print(gps_hour);
-        Serial.print(F(":"));
-        if (gps_minute < 10)
-            Serial.print(F("0"));
-        Serial.print(gps_minute);
-        Serial.print(F(":"));
-        if (gps_second < 10)
-            Serial.print(F("0"));
-        Serial.print(gps_second);
-        Serial.print(F("."));
+        if(bGPSDEBUG_DETAIL)
+        {
+            if (gps_hour < 10)
+                Serial.print(F("0"));
+            Serial.print(gps_hour);
+            Serial.print(F(":"));
+            if (gps_minute < 10)
+                Serial.print(F("0"));
+            Serial.print(gps_minute);
+            Serial.print(F(":"));
+            if (gps_second < 10)
+                Serial.print(F("0"));
+            Serial.print(gps_second);
+            Serial.print(F("."));
+        }
     }
     else
     {
-        Serial.print(F("INVALID"));
+        if(bGPSDEBUG_DETAIL)
+            Serial.print(F("INVALID"));
     }
 
-    Serial.print(F("  Satellites: "));
+    if(bGPSDEBUG_DETAIL)
+        Serial.print(F("  Satellites: "));
+
     if(gps.satellites.isValid())
     {
         gps_vsat = gps.satellites.value();
-        Serial.print(gps_vsat);
-        Serial.print(F(" "));
+        if(bGPSDEBUG_DETAIL)
+        {
+            Serial.print(gps_vsat);
+            Serial.print(F(" "));
+        }
     }
 
-    Serial.print(F("  Speed: "));
+    if(bGPSDEBUG_DETAIL)
+        Serial.print(F("  Speed: "));
+
     if(gps.speed.isValid())
     {
         gps_speed = gps.speed.kmph();
-        Serial.print(gps_speed);
-        Serial.print(F(" "));
+        if(bGPSDEBUG_DETAIL)
+        {
+            Serial.print(gps_speed);
+            Serial.print(F(" "));
+        }
     }
 
-    Serial.println();
+    if(bGPSDEBUG_DETAIL)
+        Serial.println();
 }
 /* clang-format off */
 

@@ -16,7 +16,7 @@ void displayInfo();
 static TaskHandle_t gps_handle;
 static double gps_lat=0, gps_lng=0, gps_altitude=0, gps_speed=0;
 static uint16_t gps_year=0;
-static uint8_t gps_month=0, gps_day=0;
+static uint8_t gps_month=0, gps_day=0, gps_fix=0;
 static uint8_t gps_hour=0, gps_minute=0, gps_second=0;
 static uint32_t gps_vsat=0;
 
@@ -52,9 +52,9 @@ void gps_task(void *param)
 {
     while(1)
     {
-        while (Serial.available()) {
-            SerialGPS.write(Serial.read());
-        }
+        //while (Serial.available()) {
+        //    SerialGPS.write(Serial.read());
+        //}
 
         while (SerialGPS.available()) {
             int c = SerialGPS.read();
@@ -118,9 +118,16 @@ void gps_get_speed(double *speed)
     *speed = gps_speed;
 }
 
+void gps_get_fix(uint8_t *fix)
+{
+    *fix = gps_fix;
+}
+
 /* clang-format on */
 void displayInfo()
 {
+    gps_fix = 0;
+
     if(bGPSDEBUG)
         Serial.print(F("Location: "));
 
@@ -128,6 +135,8 @@ void displayInfo()
     {
         gps_lat = gps.location.lat();
         gps_lng = gps.location.lng();
+
+        gps_fix = 1;
 
         if(bGPSDEBUG)
         {
@@ -175,7 +184,7 @@ void displayInfo()
         gps_minute = gps.time.minute();
         gps_second = gps.time.second();
 
-        if(bTDECKDEBUG)
+        if(bGPSDEBUG)
         {
             if (gps_hour < 10)
                 Serial.print(F("0"));
