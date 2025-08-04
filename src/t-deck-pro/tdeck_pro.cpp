@@ -116,11 +116,44 @@ static void flush_timer_cb(lv_timer_t *t)
     }
 }
 
+void flush_timer_cb_one()
+{
+    static int idx = 0;
+    lv_disp_t *disp = lv_disp_get_default();
+    if(disp->rendering_in_progress == false)
+    {
+        lv_coord_t w = LV_HOR_RES;
+        lv_coord_t h = LV_VER_RES;
+
+        if(disp_refr_mode == DISP_REFR_MODE_PART) {
+            display.setPartialWindow(0, 0, w, h);
+        } else if(disp_refr_mode == DISP_REFR_MODE_FULL){
+            display.setFullWindow();
+        }
+
+        display.firstPage();
+        do {
+            display.drawInvertedBitmap(0, 0, decodebuffer, w, h - 3, GxEPD_BLACK);
+        }
+        while (display.nextPage());
+        display.hibernate();
+        
+        if(bTDECKDEBUG)
+            Serial.printf("one flush_timer_cb:%d, %s\n", idx++, (disp_refr_mode == 0 ?"full":"part"));
+
+        disp_refr_mode = DISP_REFR_MODE_PART;
+        lv_timer_pause(flush_timer);
+    }
+}
+
 static void disp_render_start_cb(struct _lv_disp_drv_t * disp_drv)
 {
-    if(flush_timer == NULL) {
+    if(flush_timer == NULL)
+    {
         flush_timer = lv_timer_create(flush_timer_cb, 3000, NULL);
-    } else {
+    }
+    else
+    {
         lv_timer_resume(flush_timer);
     }
 }
@@ -533,11 +566,11 @@ void TDeck_pro_lora_disp(String strHead, String strText)
 
     if(strOldLine.length() > 0)
     {
-        strOldLine = strHead + "\n" + strText + "\n\n" + strOldLine;
+        strOldLine = "----- " + getDateString().substring(5, 11) + " " + getTimeString() + " -----\n" + strHead + "\n" + strText + "\n" + strOldLine;
     }
     else
     {
-        strOldLine = strHead + "\n" + strText;
+        strOldLine = "----- " + getDateString().substring(5, 11) + " " + getTimeString() + " -----\n" + strHead + "\n" + strText;
     }
 
     if(strOldLine.length() > 400)

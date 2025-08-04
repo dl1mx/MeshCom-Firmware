@@ -1436,11 +1436,12 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     #elif defined (BOARD_T_DECK_PRO)
 
-        String strPath = "M* <" + aprsmsg.msg_source_call + ">";
+        String strPath = "M * <" + aprsmsg.msg_source_call + ">";
+        
         // DM
         if(CheckGroup(aprsmsg.msg_destination_path))
         {
-            strPath = "GM" + aprsmsg.msg_destination_path + " <" + aprsmsg.msg_source_call + ">";
+            strPath = "GM " + aprsmsg.msg_destination_path + " <" + aprsmsg.msg_source_call + ">";
         }
         else
             if(aprsmsg.msg_destination_path != "*")
@@ -1448,18 +1449,9 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
                 strPath = "DM <" + aprsmsg.msg_source_call + ">";
             }
 
-        if(strPath.length() < (20-4))
-            snprintf(msg_text, sizeof(msg_text), "%s <%i>", strPath.c_str(), rssi);
-        else
-            snprintf(msg_text, sizeof(msg_text), "%s", strPath.c_str());
+        String strAscii = utf8ascii(aprsmsg.msg_payload);
 
-        msg_text[20]=0x00;
-        
-        String strAscii = msg_text;
-
-        strAscii = utf8ascii(aprsmsg.msg_payload);
-
-        TDeck_pro_lora_disp(msg_text, strAscii);
+        TDeck_pro_lora_disp(strPath, strAscii);
 
         strcpy(pageLastTextLong1[pagePointer], msg_text);
         strcpy(pageLastTextLong2[pagePointer], strAscii.c_str());
@@ -2296,6 +2288,11 @@ void sendMessage(char *msg_text, int len)
     tdeck_add_MSG(aprsmsg, false);
     #endif
     
+    #if defined(BOARD_T_DECK_PRO)
+    String strPath="<"+aprsmsg.msg_source_path+"> "+aprsmsg.msg_destination_path;
+    TDeck_pro_lora_disp(strPath, aprsmsg.msg_payload);
+    #endif
+
     // store last message to compare later on
     insertOwnTx(aprsmsg.msg_id);
 

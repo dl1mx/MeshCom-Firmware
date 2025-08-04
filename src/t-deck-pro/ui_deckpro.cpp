@@ -216,7 +216,7 @@ static void create0(lv_obj_t *parent)
     
     menu_taskbar_time = lv_label_create(menu_taskbar);
     lv_obj_set_style_border_width(menu_taskbar_time, 0, 0);
-    lv_label_set_text_fmt(menu_taskbar_time, "%02d:%02d", 10, 19);
+    lv_label_set_text_fmt(menu_taskbar_time, "%02d:%02d", 00, 00);
     lv_obj_set_style_text_font(menu_taskbar_time, &Font_Mono_Bold_14, LV_PART_MAIN);
     lv_obj_align(menu_taskbar_time, LV_ALIGN_LEFT_MID, 10, 0);
 
@@ -285,6 +285,7 @@ static void create0(lv_obj_t *parent)
     lv_obj_align(menu_screen2, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(menu_screen2, LV_OBJ_FLAG_HIDDEN);
 
+    /*
     if(ui_test_a7682e() == false)
     {
         for(int i = 0; i < GET_BUFF_LEN(menu_btn_list); i++)
@@ -297,6 +298,7 @@ static void create0(lv_obj_t *parent)
             }
         }
     }
+    */
 
     for(int i = 0; i < MENU_BTN_NUM; i++) {
         if(i < 9) {
@@ -1806,13 +1808,16 @@ static void cb_7_handler(int state, char keypay_v)
                 lv_textarea_add_text(input_keypad, txt);
         }
    }
+
+   flush_timer_cb_one();
 }
 
 static void lora_mode_send_event(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        Serial.printf("NOW SEND:%s/%s\n", lv_textarea_get_text(dm_keypad), lv_textarea_get_text(input_keypad));
+        if(bDisplayCont)
+            Serial.printf("NOW SEND:%s/%s\n", lv_textarea_get_text(dm_keypad), lv_textarea_get_text(input_keypad));
 
         char sendtxt[200];
         if(strlen(lv_textarea_get_text(dm_keypad)) > 0 && strlen(lv_textarea_get_text(dm_keypad)) < 9)
@@ -1825,21 +1830,6 @@ static void lora_mode_send_event(lv_event_t * e)
         Serial.printf("%s %i", sendtxt, len);
 
         sendMessage(sendtxt, len);
-
-        String strHead = meshcom_settings.node_call;
-        strHead.concat(">");
-        if(strlen(lv_textarea_get_text(dm_keypad)) > 0)
-            strHead.concat(lv_textarea_get_text(dm_keypad));
-        else
-            strHead.concat("*");
-
-        String strText = lv_textarea_get_text(input_keypad);
-
-        TDeck_pro_lora_disp(strHead, strText);
-
-        Serial.printf("%s %s\n", strHead.c_str(), strText.c_str());
-
-        //scr_mgr_pop(false); // exit send screen 
 
         scr_mgr_switch(SCREEN1_1_ID, false); // exit send screen 
     }

@@ -55,6 +55,7 @@ union flush_buf_pixel
 /*********************************************************************************
  *                              GLOBAL PROTOTYPES
  * *******************************************************************************/
+void flush_timer_cb_one();
 
 void disp_full_refr(void); // Next global refresh
 

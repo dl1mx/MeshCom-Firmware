@@ -53,7 +53,9 @@ bool keypad_update = false;
 // 1...large characters
 // 2...sym characters
 // 3...alt characters
-int ikeypad_layer=0;
+int ikeypad_layer = 0;
+int ikeypad_layer_save = 0;
+
 
 bool keypad_init(int address)
 {
@@ -102,6 +104,7 @@ void keypad_set_flag(void)
 void keypad_set_layer(int ilayer)
 {
     ikeypad_layer = ilayer;
+    ikeypad_layer_save = ilayer;
 }
 
 void keypad_loop(void)
@@ -149,7 +152,7 @@ void keypad_loop(void)
         }
 
         if(bTDECKDEBUG)
-            Serial.printf("state=%d k=%d, v=%d, layer:%i press:%d, %d, %c\n", state, k, v, ikeypad_layer, row, col, c);
+            Serial.printf("state=%d k=%d, v=%d, layer:%i/%i press:%d, %d, %c\n", state, k, v, ikeypad_layer, ikeypad_layer_save, row, col, c);
 
         keypad_curr_val = 0x00;
 
@@ -168,6 +171,8 @@ void keypad_loop(void)
                     ikeypad_layer = 1;
                     c=0xF1;
                 }
+
+                ikeypad_layer_save = ikeypad_layer;
             }
             else
             // SYM
@@ -183,6 +188,8 @@ void keypad_loop(void)
                     ikeypad_layer = 2;
                     c=0xF2;
                 }
+
+                ikeypad_layer_save = ikeypad_layer;
             }
             else
             // ALT
@@ -191,9 +198,6 @@ void keypad_loop(void)
                 ikeypad_layer = 3;
                 c=0xF3;
             }
-
-            if(bTDECKDEBUG)
-                Serial.printf("meshcom_settings.node_keyboardlock:%i c:%c\n", meshcom_settings.node_keyboardlock, c);
 
             if(keypad_listener && !meshcom_settings.node_keyboardlock && (c==0XF0 || c==0XF1 || c==0XF2))
                 keypad_listener(state, c);
@@ -215,7 +219,7 @@ void keypad_loop(void)
 
                 bNORM = false;
             }
-
+            else
             if(ikeypad_layer == 3 && c == 'L') // ALT + L
             {
                 meshcom_settings.node_backlightlock = !meshcom_settings.node_backlightlock;
@@ -230,21 +234,14 @@ void keypad_loop(void)
 
                 bNORM = false;
             }
-
+            else
             if(ikeypad_layer == 3 && c == 'K') // ALT + K
             {
                 meshcom_settings.node_keyboardlock = !meshcom_settings.node_keyboardlock;
 
-                /*
-                if(meshcom_settings.node_keyboardlock)
-                    tft_off();
-                else
-                    tft_on();
-                */
-
                 bNORM = false;
             }
-
+            else
             if(ikeypad_layer == 3 && c == 'O') // ALT + O
             {
                 if (meshcom_settings.node_map > 0)
@@ -254,7 +251,7 @@ void keypad_loop(void)
 
                 bNORM = false;
             }
-
+            else
             if(ikeypad_layer == 3 && c == 'I') // ALT + I
             {
                 if (meshcom_settings.node_map < MAX_MAP-1)
@@ -264,21 +261,23 @@ void keypad_loop(void)
 
                 bNORM = false;
             }
-
+            else
             if(ikeypad_layer == 3 && c == 'B' && (!meshcom_settings.node_keyboardlock)) // ALT + B
             {
                 //cycleBrightness();
                 bNORM = false;
             }
-
+            else
             if(ikeypad_layer == 3 && c == 'M' && (!meshcom_settings.node_keyboardlock)) // ALT + B
             {
                 meshcom_settings.node_mute = !meshcom_settings.node_mute;
                 bNORM = false;
-            }
 
-            if(bTDECKDEBUG)
-                Serial.printf("bNORM:%i meshcom_settings.node_keyboardlock:%i\n", bNORM, meshcom_settings.node_keyboardlock);
+            }
+            
+            if(ikeypad_layer == 3)
+                ikeypad_layer = ikeypad_layer_save;
+
 
             if(keypad_listener && bNORM && !meshcom_settings.node_keyboardlock)
                 keypad_listener(state, c);
