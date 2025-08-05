@@ -177,9 +177,9 @@ void ui_gps_task_resume(void)
 {
     gps_task_resume();
 }
-void ui_gps_get_coord(double *lat, double *lng)
+void ui_gps_get_coord(double *lat, double *lng, double *alt)
 {
-    gps_get_coord(lat, lng);
+    gps_get_coord(lat, lng, alt);
 }
 void ui_gps_get_data(uint16_t *year, uint8_t *month, uint8_t *day)
 {
@@ -190,9 +190,9 @@ void ui_gps_get_time(uint8_t *hour, uint8_t *minute, uint8_t *second)
     gps_get_time(hour, minute, second);
 }
 
-void ui_gps_get_satellites(uint32_t *vsat)
+void ui_gps_get_satellites(uint32_t *vsat, int *hdop)
 {
-    gps_get_satellites(vsat);
+    gps_get_satellites(vsat, hdop);
 }
 void ui_gps_get_speed(double *speed)
 {

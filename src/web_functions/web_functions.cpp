@@ -68,14 +68,12 @@ void startWebserver()
     {
         Serial.print(getTimeString());
         Serial.println("[Web]...Error setting up MDNS responder!");
-        Serial.println("[Web]...Error setting up MDNS responder!");
         return;
     }
 
     if (bDEBUG)
     {
         Serial.print(getTimeString());
-        Serial.println("[Web]...mDNS responder started");
         Serial.println("[Web]...mDNS responder started");
     }
 
@@ -232,8 +230,11 @@ String work_webpage(bool bget_password, int webid)
     String web_currentLine = ""; // make a String to hold incoming data from the client
 
     if (bDEBUG)
+    {
+        Serial.printf("%s;[HEAP]Cnew;%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
         Serial.println("New Client."); // print a message out in the serial port
-
+    }
+       
     while (web_client.connected() && (web_currentTime - web_previousTime) <= WEB_TIMEOUT_TIME)
     { // loop while the client's connected
         yield();
@@ -408,8 +409,10 @@ String work_webpage(bool bget_password, int webid)
     if (bDEBUG)
     {
         Serial.println("Client disconnected.");
+        Serial.printf("%s;[HEAP]Cdis;%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
         Serial.println("");
     }
+
     return password_message;
 }
 

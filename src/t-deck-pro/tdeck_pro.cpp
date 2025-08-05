@@ -117,36 +117,6 @@ static void flush_timer_cb(lv_timer_t *t)
     }
 }
 
-void flush_timer_cb_one()
-{
-    static int idx = 0;
-    lv_disp_t *disp = lv_disp_get_default();
-    if(disp->rendering_in_progress == false)
-    {
-        lv_coord_t w = LV_HOR_RES;
-        lv_coord_t h = LV_VER_RES;
-
-        if(disp_refr_mode == DISP_REFR_MODE_PART) {
-            display.setPartialWindow(0, 0, w, h);
-        } else if(disp_refr_mode == DISP_REFR_MODE_FULL){
-            display.setFullWindow();
-        }
-
-        display.firstPage();
-        do {
-            display.drawInvertedBitmap(0, 0, decodebuffer, w, h - 3, GxEPD_BLACK);
-        }
-        while (display.nextPage());
-        display.hibernate();
-        
-        if(bTDECKDEBUG)
-            Serial.printf("one flush_timer_cb:%d, %s\n", idx++, (disp_refr_mode == 0 ?"full":"part"));
-
-        disp_refr_mode = DISP_REFR_MODE_PART;
-        lv_timer_pause(flush_timer);
-    }
-}
-
 static void disp_render_start_cb(struct _lv_disp_drv_t * disp_drv)
 {
     if(flush_timer == NULL)
@@ -590,6 +560,11 @@ void TDeck_pro_mheard_disp()
     ui_mheard_disp();
 }
 
+void TDeck_pro_track_disp()
+{
+    ui_track_disp();
+}
+
 void TDeck_pro_set_gps(bool bGPS)
 {
     if(bGPS)
@@ -603,8 +578,8 @@ unsigned int TDeck_pro_get_gps()
     double lat      = 0; // Latitude
     double lon      = 0; // Longitude
     double speed    = 0; // Speed over ground
-    float alt      = 0; // Altitude
-    float accuracy = 0; // Accuracy
+    double alt      = 0; // Altitude
+    int hdop        = 0; // hdop
     uint32_t   vsat     = 0; // Visible Satellites
     uint16_t   year     = 0; // 
     uint8_t   month    = 0; // 
@@ -614,10 +589,10 @@ unsigned int TDeck_pro_get_gps()
     uint8_t   sec      = 0; // 
     uint8_t   fix      = 0; // 
 
-    ui_gps_get_coord(&lat, &lon);
+    ui_gps_get_coord(&lat, &lon, &alt);
     ui_gps_get_data(&year, &month, &day);
     ui_gps_get_time(&hour, &min, &sec);
-    ui_gps_get_satellites(&vsat);
+    ui_gps_get_satellites(&vsat, &hdop);
     ui_gps_get_speed(&speed);
     ui_gps_get_fix(&fix);
 
@@ -635,44 +610,64 @@ unsigned int TDeck_pro_get_gps()
     meshcom_settings.node_date_minute = MyClock.Minute();
     meshcom_settings.node_date_second = MyClock.Second();
 
-    double dlat, dlon;
-
-    dlat = cround4abs(lat);
-    dlon = cround4abs(lon);
-
-    if(lat < 0)
+    if(fix == 0)
     {
-        meshcom_settings.node_lat = lat * (-1);
-        meshcom_settings.node_lat_c = 'S';
-    }
-    else
-    {
-        meshcom_settings.node_lat = lat;
-        meshcom_settings.node_lat_c = 'N';
-    }
-    
-    if(lon < 0)
-    {
-        meshcom_settings.node_lon = lon * (-1);
-        meshcom_settings.node_lon_c = 'W';
-    }
-    else
-    {
-        meshcom_settings.node_lon = lon;
-        meshcom_settings.node_lon_c = 'E';
-    }
-
-    meshcom_settings.node_alt = alt;
-
-    posinfo_satcount = vsat;
-    posinfo_hdop = accuracy;
-    if(fix == 1)
-        posinfo_fix = true;
-    else
         posinfo_fix = false;
 
-    posinfo_age = 0;
+        posinfo_satcount = 0;
+        posinfo_hdop = 0;
+        posinfo_direction = 0;
+        posinfo_distance = 0;
+        posinfo_age = 0;
 
-    return setSMartBeaconing(dlat, dlon);
+        if(bGPSDEBUG)
+            Serial.println(F("INVALID"));
 
+        return POSINFO_INTERVAL;
+    }
+    else
+    {
+        posinfo_fix = false;
+        double dlat, dlon;
+
+        dlat = cround4abs(lat);
+        dlon = cround4abs(lon);
+
+        if(lat < 0)
+        {
+            meshcom_settings.node_lat = lat * (-1);
+            meshcom_settings.node_lat_c = 'S';
+        }
+        else
+        {
+            meshcom_settings.node_lat = lat;
+            meshcom_settings.node_lat_c = 'N';
+        }
+        
+        if(lon < 0)
+        {
+            meshcom_settings.node_lon = lon * (-1);
+            meshcom_settings.node_lon_c = 'W';
+        }
+        else
+        {
+            meshcom_settings.node_lon = lon;
+            meshcom_settings.node_lon_c = 'E';
+        }
+
+        meshcom_settings.node_alt = (int)(alt + 0.5);
+
+        posinfo_satcount = vsat;
+        posinfo_hdop = hdop;
+        
+
+        posinfo_age = 0;
+    
+        if(bGPSDEBUG)
+        {
+            Serial.println(F("VALID"));
+        }
+
+        return setSMartBeaconing(dlat, dlon);
+    }
 }

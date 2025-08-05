@@ -19,6 +19,7 @@ static uint16_t gps_year=0;
 static uint8_t gps_month=0, gps_day=0, gps_fix=0;
 static uint8_t gps_hour=0, gps_minute=0, gps_second=0;
 static uint32_t gps_vsat=0;
+static int gps_hdop=0;
 
 uint8_t buffer[256];
 
@@ -88,10 +89,11 @@ void gps_task_resume(void)
     vTaskResume(gps_handle);
 }
 
-void gps_get_coord(double *lat, double *lng)
+void gps_get_coord(double *lat, double *lng, double *alt)
 {
     *lat = gps_lat;
     *lng = gps_lng;
+    *alt = gps_altitude;
 }
 
 void gps_get_data(uint16_t *year, uint8_t *month, uint8_t *day)
@@ -108,9 +110,10 @@ void gps_get_time(uint8_t *hour, uint8_t *minute, uint8_t *second)
     *second = gps_second;
 }
 
-void gps_get_satellites(uint32_t *vsat)
+void gps_get_satellites(uint32_t *vsat, int *hdop)
 {
     *vsat = gps_vsat;   // Visible Satellites
+    *hdop = gps_hdop;
 }
 
 void gps_get_speed(double *speed)
@@ -135,6 +138,9 @@ void displayInfo()
     {
         gps_lat = gps.location.lat();
         gps_lng = gps.location.lng();
+        gps_altitude = (int)gps.altitude.meters();
+        if(gps_altitude < 0)
+            gps_altitude = 0;
 
         gps_fix = 1;
 
@@ -213,6 +219,7 @@ void displayInfo()
         if(bGPSDEBUG)
         {
             gps_vsat = gps.satellites.value();
+            gps_hdop = gps.hdop.value();
             Serial.print(gps_vsat);
             Serial.print(F(" "));
         }

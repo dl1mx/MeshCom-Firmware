@@ -26,8 +26,9 @@
 
 #define BUTTON_PIN 0
 
-#define TX_POWER_MAX 21  // max. 5dBm
-#define TX_POWER_MIN 5
+#define TX_POWER_MAX 22  // max 22 dBm
+#define TX_POWER_MIN 2
+
 #define LORA_PREAMBLE_LENGTH DEFAULT_PREAMPLE_LENGTH  // Same for Tx and Rx
 
 #define TDECK_TFT_TIMEOUT 30  // time until display turns dark in seconds

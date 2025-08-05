@@ -493,8 +493,8 @@ void esp32setup()
     Serial.println("CLIENT SETUP");
     Serial.println("============");
 
-    Serial.printf("[HEAP]...%d (free)\n", ESP.getFreeHeap());
-    Serial.printf("[PSRM]...%d\n", ESP.getFreePsram());
+    Serial.printf("%s;[HEAP];%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
+    Serial.printf("%s;[PSRM];%d\n", getTimeString().c_str(), ESP.getFreePsram());
     
     check_efuse();
 
@@ -1988,12 +1988,12 @@ void esp32loop()
             }
             else
             {
-                posinfo_fix = false;
-                posinfo_satcount = 0;
-                posinfo_hdop = 0;
-        
                 igps =  POSINFO_INTERVAL;
             }
+
+            posinfo_fix = false;
+            posinfo_satcount = 0;
+            posinfo_hdop = 0;
         }
         else
         {
@@ -2028,6 +2028,11 @@ void esp32loop()
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
         tdeck_refresh_TRK_view();
         #endif
+
+        #if defined(BOARD_T_DECK_PRO)
+        TDeck_pro_track_disp();
+        #endif
+
         #endif
 
         gps_refresh_timer = millis();
@@ -2184,10 +2189,8 @@ void esp32loop()
 
             if(bDisplayCont)
             {
-                #if not defined (BOARD_T_DECK_PRO)
-                Serial.printf("%s [HEAP]...%d (free)\n", getTimeString().c_str(), ESP.getFreeHeap());
-                Serial.printf("%s [PSRM]...%d\n", getTimeString().c_str(), ESP.getFreePsram());
-                #endif
+                Serial.printf("%s;[HEAP];%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
+                Serial.printf("%s;[PSRM];%d\n", getTimeString().c_str(), ESP.getFreePsram());
             }
 
             BattTimeWait = millis();

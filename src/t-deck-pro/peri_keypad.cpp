@@ -213,70 +213,86 @@ void keypad_loop(void)
             bool bNORM = true;
 
             // spezial Keys
-            if(ikeypad_layer == 3 && c == 'D') // ALT + D
-            {
-                bTDECKDEBUG = ! bTDECKDEBUG;
-
-                bNORM = false;
-            }
-            else
-            if(ikeypad_layer == 3 && c == 'L') // ALT + L
-            {
-                meshcom_settings.node_backlightlock = !meshcom_settings.node_backlightlock;
-                
-                if(meshcom_settings.node_backlightlock)
-                    digitalWrite(BOARD_KEYBOARD_LED, HIGH);
-                else
-                    digitalWrite(BOARD_KEYBOARD_LED, LOW);
-
-                //if(!meshcom_settings.node_backlightlock)
-                //    tft_off();
-
-                bNORM = false;
-            }
-            else
-            if(ikeypad_layer == 3 && c == 'K') // ALT + K
-            {
-                meshcom_settings.node_keyboardlock = !meshcom_settings.node_keyboardlock;
-
-                bNORM = false;
-            }
-            else
-            if(ikeypad_layer == 3 && c == 'O') // ALT + O
-            {
-                if (meshcom_settings.node_map > 0)
-                    meshcom_settings.node_map--;
-                
-                //set_map(meshcom_settings.node_map);
-
-                bNORM = false;
-            }
-            else
-            if(ikeypad_layer == 3 && c == 'I') // ALT + I
-            {
-                if (meshcom_settings.node_map < MAX_MAP-1)
-                    meshcom_settings.node_map++;
-
-                //set_map(meshcom_settings.node_map);
-
-                bNORM = false;
-            }
-            else
-            if(ikeypad_layer == 3 && c == 'B' && (!meshcom_settings.node_keyboardlock)) // ALT + B
-            {
-                //cycleBrightness();
-                bNORM = false;
-            }
-            else
-            if(ikeypad_layer == 3 && c == 'M' && (!meshcom_settings.node_keyboardlock)) // ALT + B
-            {
-                meshcom_settings.node_mute = !meshcom_settings.node_mute;
-                bNORM = false;
-
-            }
-            
             if(ikeypad_layer == 3)
+            {
+                if(c == 'S' || c == 's') // ALT + S
+                {
+                    c = 0xF9;
+
+                    bNORM = true;
+                }
+                else
+                if(c == 'R' || c == 'r') // ALT + R
+                {
+                    c = 0xFA;
+
+                    bNORM = true;
+                }
+                else
+                if(c == 'D' || c == 'd') // ALT + D
+                {
+                    bTDECKDEBUG = ! bTDECKDEBUG;
+
+                    bNORM = false;
+                }
+                else
+                if(c == 'L' || c == 'l') // ALT + L
+                {
+                    meshcom_settings.node_backlightlock = !meshcom_settings.node_backlightlock;
+                    
+                    if(meshcom_settings.node_backlightlock)
+                        digitalWrite(BOARD_KEYBOARD_LED, HIGH);
+                    else
+                        digitalWrite(BOARD_KEYBOARD_LED, LOW);
+
+                    //if(!meshcom_settings.node_backlightlock)
+                    //    tft_off();
+
+                    bNORM = false;
+                }
+                else
+                if(c == 'K' || c == 'k') // ALT + K
+                {
+                    meshcom_settings.node_keyboardlock = !meshcom_settings.node_keyboardlock;
+
+                    bNORM = false;
+                }
+                else
+                if(c == 'O' || c == 'o') // ALT + O
+                {
+                    if (meshcom_settings.node_map > 0)
+                        meshcom_settings.node_map--;
+                    
+                    //set_map(meshcom_settings.node_map);
+
+                    bNORM = false;
+                }
+                else
+                if(c == 'I' || c == 'i') // ALT + I
+                {
+                    if (meshcom_settings.node_map < MAX_MAP-1)
+                        meshcom_settings.node_map++;
+
+                    //set_map(meshcom_settings.node_map);
+
+                    bNORM = false;
+                }
+                else
+                if((c == 'B'  || c == 'b') && (!meshcom_settings.node_keyboardlock)) // ALT + B
+                {
+                    //cycleBrightness();
+                    bNORM = false;
+                }
+                else
+                if((c == 'M'  || c == 'm') && (!meshcom_settings.node_keyboardlock)) // ALT + B
+                {
+                    meshcom_settings.node_mute = !meshcom_settings.node_mute;
+                    bNORM = false;
+
+                }
+                
                 ikeypad_layer = ikeypad_layer_save;
+            }
 
 
             if(keypad_listener && bNORM && !meshcom_settings.node_keyboardlock)

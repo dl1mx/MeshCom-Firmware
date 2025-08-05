@@ -74,10 +74,10 @@ void ui_setting_get_sd_capacity(uint64_t *total, uint64_t *used);
 // [ screen 3 ] --- GPS
 void ui_gps_task_suspend(void);
 void ui_gps_task_resume(void);
-void ui_gps_get_coord(double *lat, double *lng);
+void ui_gps_get_coord(double *lat, double *lng, double *alt);
 void ui_gps_get_data(uint16_t *year, uint8_t *month, uint8_t *day);
 void ui_gps_get_time(uint8_t *hour, uint8_t *minute, uint8_t *second);
-void ui_gps_get_satellites(uint32_t *vsat);
+void ui_gps_get_satellites(uint32_t *vsat, int *hdop);
 void ui_gps_get_speed(double *speed);
 void ui_gps_get_fix(uint8_t *fix);
 

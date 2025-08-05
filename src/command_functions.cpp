@@ -39,9 +39,11 @@
 
 unsigned long rebootAuto = 0;
 
-#if defined (ENABLE_GPS)
-extern int state; // only for gps reset
-extern bool bMitHardReset;
+#ifndef BOARD_T_DECK_PRO
+    #if defined (ENABLE_GPS)
+    extern int state; // only for gps reset
+    extern bool bMitHardReset;
+    #endif
 #endif
 
 // OTA Libs for ESP32 Partition Switching
@@ -496,7 +498,7 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"spectrum") == 0)
     {
         
-        #if not defined(BOARD_T_DECK_PRO)
+        #ifndef BOARD_T_DECK_PRO
         //extern hardware
         sx126x_spectral_scan();
         #endif
@@ -1209,6 +1211,7 @@ void commandAction(char *umsg_text, bool ble)
         #endif
     }
     else
+    #ifndef BOARD_T_DECK_PRO
     if(commandCheck(msg_text+2, (char*)"gps reset") == 0)
     {
         bGPSON=true;
@@ -1230,6 +1233,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    #endif
     #endif
     if(commandCheck(msg_text+2, (char*)"bleshort") == 0)
     {
