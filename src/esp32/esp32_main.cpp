@@ -1967,8 +1967,10 @@ void esp32loop()
     unsigned long gps_refresh_intervall = GPS_REFRESH_INTERVAL;
 
     // TRACK ON
+    #ifndef BOARD_T_DECK_PRO
     if(bDisplayTrack)
         gps_refresh_intervall = 5;
+    #endif
 
     if ((gps_refresh_timer + (gps_refresh_intervall * 1000)) < millis())
     {

@@ -142,8 +142,6 @@ void displayInfo()
         if(gps_altitude < 0)
             gps_altitude = 0;
 
-        gps_fix = 1;
-
         if(bGPSDEBUG)
         {
             Serial.print(gps_lat, 6);
@@ -214,12 +212,15 @@ void displayInfo()
 
     if(bGPSDEBUG)
         Serial.print(F("  Satellites: "));
+
     if(gps.satellites.isValid())
     {
+        gps_vsat = gps.satellites.value();
+        gps_hdop = gps.hdop.value();
+        gps_fix = 1;
+
         if(bGPSDEBUG)
         {
-            gps_vsat = gps.satellites.value();
-            gps_hdop = gps.hdop.value();
             Serial.print(gps_vsat);
             Serial.print(F(" "));
         }
@@ -227,6 +228,7 @@ void displayInfo()
 
     if(bGPSDEBUG)
         Serial.print(F("  Speed: "));
+
     if(gps.speed.isValid())
     {
         gps_speed = gps.speed.kmph();

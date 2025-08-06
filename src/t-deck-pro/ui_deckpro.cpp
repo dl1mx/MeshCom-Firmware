@@ -470,7 +470,7 @@ static void scr1_1_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        scr_mgr_pop(false);
+        scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 

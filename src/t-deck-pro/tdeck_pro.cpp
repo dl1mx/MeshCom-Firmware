@@ -627,7 +627,7 @@ unsigned int TDeck_pro_get_gps()
     }
     else
     {
-        posinfo_fix = false;
+        posinfo_fix = true;
         double dlat, dlon;
 
         dlat = cround4abs(lat);
@@ -664,9 +664,7 @@ unsigned int TDeck_pro_get_gps()
         posinfo_age = 0;
     
         if(bGPSDEBUG)
-        {
             Serial.println(F("VALID"));
-        }
 
         return setSMartBeaconing(dlat, dlon);
     }
