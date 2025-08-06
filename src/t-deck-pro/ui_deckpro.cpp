@@ -117,16 +117,15 @@ static int page_curr = 0;
 
 static struct menu_btn menu_btn_list[] = 
 {
-    {SCREEN1_1_ID,  &img_lora,    "RX",     23,     13},  // Page one
-    {SCREEN7_ID,    &img_touch,   "TX",     95,     13},
+    {SCREEN1_1_ID,  &img_lora,    "RX",        23,    13},  // Page one
+    {SCREEN7_ID,    &img_touch,   "TX",        95,    13},
     {SCREEN3_ID,    &img_GPS,     "GPS",      167,    13},
-    {SCREEN4_2_ID,  &img_wifi,    "Wifi",     23,     101},
-    {SCREEN5_ID,    &img_test,    "MHead",    95,     101},
-    {SCREEN6_2_ID,  &img_batt,    "Battery",  167,    101},
-    {SCREEN2_ID,    &img_setting, "Setting",  23,     189},
-    {SCREEN8_ID,    &img_A7682E,  "TRACK",    95,     189},
-    {SCREEN9_ID,    &img_lora,    "Shutdown", 167,    189},
-    //{SCREEN10_ID, &img_PCM5102, "PCM5102",  23,     13},  // Page two
+    {SCREEN4_2_ID,  &img_wifi,    "Wifi",      23,   101},
+    {SCREEN5_ID,    &img_test,    "MHeard",    95,   101},
+    {SCREEN6_2_ID,  &img_batt,    "Battery",  167,   101},
+    {SCREEN2_ID,    &img_test,    "System",    23,   189},
+    {SCREEN8_ID,    &img_A7682E,  "TRACK",     95,   189},
+    {SCREEN9_ID,    &img_setting, "Setup",    167,   189},
 };
 
 static void menu_btn_event_cb(lv_event_t *e)
@@ -416,8 +415,6 @@ static void scr1_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        // ui_full_refresh();
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false); // exit send screen 
     }
 }
@@ -478,8 +475,6 @@ static void lora_mode_sw_event(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
-
         scr_mgr_switch(SCREEN7_ID, false);
     }
 }
@@ -836,7 +831,7 @@ static void create2(lv_obj_t *parent)
     lv_obj_set_style_text_color(setting_page, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_set_style_text_opa(setting_page, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
 
-    scr_back_btn_create(parent, ("Setting"), scr2_btn_event_cb);
+    scr_back_btn_create(parent, ("System"), scr2_btn_event_cb);
 }
 static void entry2(void) {
     ui_disp_full_refr();
@@ -947,7 +942,6 @@ static void scr3_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
     }
 }
@@ -1070,8 +1064,6 @@ static void scr4_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        // ui_full_refresh();
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
     }
 }
@@ -1158,7 +1150,6 @@ static void scr4_2_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
 
     }
@@ -1357,7 +1348,6 @@ static void scr5_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
     }
 }
@@ -1450,8 +1440,6 @@ static void scr6_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        // ui_full_refresh();
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
     }
 }
@@ -1682,7 +1670,6 @@ static void scr6_2_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
     }
 }
@@ -1760,7 +1747,6 @@ static void scr7_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false); // exit send screen 
     }
 }
@@ -1800,10 +1786,10 @@ static void lora_mode_send_event(lv_event_t * e)
 
 static void cb_7_handler(int state, char keypay_v)
 {
+    ui_input_set_keypay_flag();
+
     if(state == 1)
     {
-        ui_input_set_keypay_flag();
-        
         //Serial.printf("key:%02X %c \n", keypay_v, keypay_v);
 
         // NON
@@ -2172,7 +2158,6 @@ static void scr8_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
     }
 }
@@ -2195,6 +2180,9 @@ static void create8(lv_obj_t *parent)
     lv_obj_t * btsendpos = lv_btn_create(parent);
     lv_obj_align(btsendpos, LV_ALIGN_TOP_LEFT, 4, lv_pct(90));
     lv_obj_set_size(btsendpos, 100, 20);
+    lv_obj_set_style_radius(btsendpos, 5, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btsendpos, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(btsendpos, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_event_cb(btsendpos, btn_event_handler_sendpos, LV_EVENT_ALL, NULL);
 
     lv_obj_t * btnlabelsendpos = lv_label_create(btsendpos);
@@ -2204,6 +2192,9 @@ static void create8(lv_obj_t *parent)
     lv_obj_t * bttrack = lv_btn_create(parent);
     lv_obj_align(bttrack, LV_ALIGN_TOP_LEFT, LV_HOR_RES-105, lv_pct(90));
     lv_obj_set_size(bttrack, 100, 20);
+    lv_obj_set_style_radius(bttrack, 5, LV_PART_MAIN);
+    lv_obj_set_style_border_width(bttrack, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(bttrack, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
     lv_obj_add_event_cb(bttrack, btn_event_handler_track, LV_EVENT_ALL, NULL);
 
     btnlabeltrack = lv_label_create(bttrack);
@@ -2245,53 +2236,493 @@ static scr_lifecycle_t screen8 = {
 
 //************************************[ screen 9 ]****************************************** Shutdown
 #if 1
-static lv_timer_t *shutdown_timer = NULL;
+
+static lv_obj_t * obj_keyboard;
+
+static lv_obj_t * call_ta;
+
+static lv_obj_t * group_1;
+static lv_obj_t * group_2;
+static lv_obj_t * group_3;
+static lv_obj_t * group_4;
+static lv_obj_t * group_5;
+static lv_obj_t * group_6;
+
+static lv_obj_t * mesh_sw;
+static lv_obj_t * web_sw;
+static lv_obj_t * noallmsg_sw;
+static lv_obj_t * gpson_sw;
+static lv_obj_t * track_sw;
+static lv_obj_t * mute_sw;
+static lv_obj_t * wifiap_sw;
 
 static void scr9_btn_event_cb(lv_event_t * e)
 {
     if(e->code == LV_EVENT_CLICKED)
     {
-        //scr_mgr_pop(false);
         scr_mgr_switch(SCREEN0_ID, false);
     }
 }
 
-static void shutdown_timer_event(lv_timer_t* t)
+/**
+ * handler for setup switches
+ */
+void btn_event_handler_switch(lv_event_t * e)
 {
-    ui_shutdown_on();
-    lv_timer_del(t);
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if(code == LV_EVENT_VALUE_CHANGED)
+    {
+        // WEBSERVER
+        if (lv_event_get_target(e) == web_sw)
+        {
+            if (lv_obj_has_state(web_sw, LV_STATE_CHECKED))
+            {
+                commandAction((char*)"--webserver on", false);
+                // bWEBSERVER=true;
+            }
+            else
+            {
+                commandAction((char*)"--webserver off", false);
+                // bWEBSERVER=false;
+            }
+
+            return;
+        }
+
+        // MESH
+        if (lv_event_get_target(e) == mesh_sw)
+        {
+            if (lv_obj_has_state(mesh_sw, LV_STATE_CHECKED))
+            {
+                commandAction((char*)"--mesh on", false);
+            }
+            else
+            {
+                commandAction((char*)"--mesh off", false);
+            }
+
+            return;
+        }
+
+        // NOALLMSG
+        if (lv_event_get_target(e) == noallmsg_sw)
+        {
+            if (lv_obj_has_state(noallmsg_sw, LV_STATE_CHECKED))
+            {
+                commandAction((char*)"--nomsgall on", false);
+            }
+            else
+            {
+                commandAction((char*)"--nomsgall off", false);
+            }
+
+            return;
+        }
+
+        // GPSON
+        if (lv_event_get_target(e) == gpson_sw)
+        {
+            if (lv_obj_has_state(gpson_sw, LV_STATE_CHECKED))
+            {
+                commandAction((char*)"--gps on", false);
+            }
+            else
+            {
+                commandAction((char*)"--gps off", false);
+            }
+
+            return;
+        }
+
+        // TRACKON
+        if (lv_event_get_target(e) == track_sw)
+        {
+            if (lv_obj_has_state(track_sw, LV_STATE_CHECKED))
+            {
+                commandAction((char*)"--gps on", false);
+                commandAction((char*)"--track on", false);
+            }
+            else
+            {
+                commandAction((char*)"--track off", false);
+            }
+
+            return;
+        }
+
+        // MUTE
+        if (lv_event_get_target(e) == mute_sw)
+        {
+            meshcom_settings.node_mute = lv_obj_has_state(mute_sw, LV_STATE_CHECKED);
+            save_settings();
+
+            return;
+        }
+
+        // WIFIAP
+        if (lv_event_get_target(e) == wifiap_sw)
+        {
+            if (lv_obj_has_state(wifiap_sw, LV_STATE_CHECKED))
+            {
+                commandAction((char*)"--wifiap on", false);
+            }
+            else
+            {
+                commandAction((char*)"--wifiap off", false);
+            }
+
+            return;
+        }
+    }
+}
+
+void setup_save()
+{
+    Serial.println("SAVE SETUP");
+}
+
+
+static void cb_9_handler(int state, char keypay_v)
+{
+    ui_input_set_keypay_flag();
+
+    if(state == 1)
+    {
+        //Serial.printf("key:%02X %c \n", keypay_v, keypay_v);
+    }
+    else
+    if(state == 0)
+    {
+        if(keypay_v == 0x7F)
+        {
+            lv_textarea_del_char(obj_keyboard);
+        }
+        else
+        if(keypay_v == 0xF9) // SEND
+        {
+            setup_save();
+        }
+        else
+        if(keypay_v == 0xFA) // RECEIVE
+        {
+            scr_mgr_switch(SCREEN1_1_ID, false); // exit send screen goto receive
+        }
+        else
+        {
+            char txt[2];
+            sprintf(txt, "%c", keypay_v);
+
+            lv_textarea_add_text(obj_keyboard, txt);
+        }
+   }
+}
+
+static void check_active_cap(lv_event_t * e)
+{
+    if(e->code == LV_EVENT_PRESSING)
+    {
+        obj_keyboard = (lv_obj_t *)e->target;
+
+        lv_obj_add_state(obj_keyboard, LV_STATE_FOCUSED); /*To be sure the cursor is visible*/
+        ui_input_set_keypay_layer(1);    // set CAP chars
+    }
+}
+
+static void check_active_sym(lv_event_t * e)
+{
+    if(e->code == LV_EVENT_PRESSING)
+    {
+        obj_keyboard = (lv_obj_t *)e->target;
+
+        lv_obj_add_state(obj_keyboard, LV_STATE_FOCUSED); /*To be sure the cursor is visible*/
+        ui_input_set_keypay_layer(2);    // set SYM chars
+    }
 }
 
 static void create9(lv_obj_t *parent)
 {
-    if(ui_battery_25896_is_vbus_in()) 
-    {
-        lv_obj_t * label = lv_label_create(parent);
-        lv_obj_set_width(label, lv_pct(95));
-        lv_obj_set_style_text_font(label, FONT_BOLD_SIZE_15, LV_PART_MAIN);
-        lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
-        lv_label_set_text(label, "The shutdown function can only be used when the "
-                            "battery is connected alone, and cannot be shut down when connected to USB.");
-        lv_obj_center(label);
+    int ihor1 = 4;
+    int ihor2 = 85;
+    int ihor3 = 150;
+    int ivert= 40;
+    int ih = 28;
+    int iv_step=33;
 
-        // back 
-        scr_back_btn_create(parent, "Shoutdown", scr9_btn_event_cb);
-    } 
-    else 
-    {
-        lv_obj_t * img = lv_img_create(parent);
-        lv_img_set_src(img, &img_start);
-        lv_obj_center(img);
+    /////////////////////////////////////////////////////////////////////////////
+    // CALLSIGN
+    lv_obj_t * btcall = lv_btn_create(parent);
+    lv_obj_set_size(btcall, 50, ih);
+    lv_obj_align(btcall, LV_ALIGN_TOP_LEFT, ihor1, ivert);
 
-        lv_timer_create(shutdown_timer_event, 2000, (void *)parent);
-    }
+    lv_obj_set_style_radius(btcall, 5, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btcall, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(btcall, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t * labelcall = lv_label_create(btcall);
+    lv_label_set_text(labelcall, "CALL");
+    lv_obj_set_style_text_font(labelcall, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    call_ta = lv_textarea_create(parent);
+    lv_obj_set_size(call_ta, 150, ih);
+    lv_obj_align(call_ta, LV_ALIGN_TOP_LEFT, ihor2, ivert);
+
+    lv_obj_set_style_text_font(call_ta, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(call_ta, true);
+    lv_textarea_set_text_selection(call_ta, true);
+    lv_textarea_set_cursor_pos(call_ta, 0);
+    lv_textarea_set_text(call_ta, meshcom_settings.node_call);
+    lv_textarea_set_max_length(call_ta, 9);
+
+    lv_textarea_set_accepted_chars(call_ta, "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
+
+    lv_obj_add_event_cb(call_ta, check_active_cap, LV_EVENT_ALL, call_ta);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // GROUP A
+    ivert += iv_step;
+
+    lv_obj_t * group = lv_btn_create(parent);
+    lv_obj_set_size(group, 30, ih);
+    lv_obj_align(group, LV_ALIGN_TOP_LEFT, ihor1, ivert);
+
+    lv_obj_set_style_radius(group, 5, LV_PART_MAIN);
+    lv_obj_set_style_border_width(group, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_shadow_width(group, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+
+    lv_obj_t * labelgrouo = lv_label_create(group);
+    lv_label_set_text(labelgrouo, "GRP");
+    lv_obj_set_style_text_font(labelgrouo, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    /////////////////////////////////////
+    group_1 = lv_textarea_create(parent);
+    lv_obj_set_size(group_1, 57, ih);
+    lv_obj_align(group_1, LV_ALIGN_TOP_LEFT, ihor1+48, ivert);
+
+    lv_obj_set_style_text_font(group_1, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(group_1, true);
+    lv_textarea_set_text_selection(group_1, true);
+    lv_textarea_set_cursor_pos(group_1, 0);
+    String strg = "";
+    strg.concat(meshcom_settings.node_gcb[0]);
+    lv_textarea_set_text(group_1, strg.c_str());
+    lv_textarea_set_max_length(group_1, 5);
+
+    lv_textarea_set_accepted_chars(group_1, "0123456789");
+
+    lv_obj_add_event_cb(group_1, check_active_sym, LV_EVENT_ALL, group_1);
+
+    /////////////////////////////////////
+    group_2 = lv_textarea_create(parent);
+    lv_obj_set_size(group_2, 57, ih);
+    lv_obj_align(group_2, LV_ALIGN_TOP_LEFT, ihor1+48+62, ivert);
+
+    lv_obj_set_style_text_font(group_2, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(group_2, true);
+    lv_textarea_set_text_selection(group_2, true);
+    lv_textarea_set_cursor_pos(group_2, 0);
+    strg = "";
+    strg.concat(meshcom_settings.node_gcb[1]);
+    lv_textarea_set_text(group_2, strg.c_str());
+    lv_textarea_set_max_length(group_2, 5);
+
+    lv_textarea_set_accepted_chars(group_2, "0123456789");
+
+    lv_obj_add_event_cb(group_2, check_active_sym, LV_EVENT_ALL, group_2);
+
+    /////////////////////////////////////
+    group_3 = lv_textarea_create(parent);
+    lv_obj_set_size(group_3, 57, ih);
+    lv_obj_align(group_3, LV_ALIGN_TOP_LEFT, ihor1+48+62+62, ivert);
+
+    lv_obj_set_style_text_font(group_3, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(group_3, true);
+    lv_textarea_set_text_selection(group_3, true);
+    lv_textarea_set_cursor_pos(group_3, 0);
+    strg = "";
+    strg.concat(meshcom_settings.node_gcb[2]);
+    lv_textarea_set_text(group_3, strg.c_str());
+    lv_textarea_set_max_length(group_3, 5);
+
+    lv_textarea_set_accepted_chars(group_3, "0123456789");
+
+    lv_obj_add_event_cb(group_3, check_active_sym, LV_EVENT_ALL, group_3);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // GROUP B
+    ivert += iv_step;
+
+    /////////////////////////////////////
+    group_4 = lv_textarea_create(parent);
+    lv_obj_set_size(group_4, 57, ih);
+    lv_obj_align(group_4, LV_ALIGN_TOP_LEFT, ihor1+48, ivert);
+
+    lv_obj_set_style_text_font(group_4, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(group_4, true);
+    lv_textarea_set_text_selection(group_4, true);
+    lv_textarea_set_cursor_pos(group_4, 0);
+    strg = "";
+    strg.concat(meshcom_settings.node_gcb[0]);
+    lv_textarea_set_text(group_4, strg.c_str());
+    lv_textarea_set_max_length(group_4, 5);
+
+    lv_textarea_set_accepted_chars(group_4, "0123456789");
+
+    lv_obj_add_event_cb(group_4, check_active_sym, LV_EVENT_ALL, group_4);
+
+    /////////////////////////////////////
+    group_5 = lv_textarea_create(parent);
+    lv_obj_set_size(group_5, 57, ih);
+    lv_obj_align(group_5, LV_ALIGN_TOP_LEFT, ihor1+48+62, ivert);
+
+    lv_obj_set_style_text_font(group_5, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(group_5, true);
+    lv_textarea_set_text_selection(group_5, true);
+    lv_textarea_set_cursor_pos(group_5, 0);
+    strg = "";
+    strg.concat(meshcom_settings.node_gcb[1]);
+    lv_textarea_set_text(group_5, strg.c_str());
+    lv_textarea_set_max_length(group_5, 5);
+
+    lv_textarea_set_accepted_chars(group_5, "0123456789");
+
+    lv_obj_add_event_cb(group_5, check_active_sym, LV_EVENT_ALL, group_5);
+
+    /////////////////////////////////////
+    group_6 = lv_textarea_create(parent);
+    lv_obj_set_size(group_6, 57, ih);
+    lv_obj_align(group_6, LV_ALIGN_TOP_LEFT, ihor1+48+62+62, ivert);
+
+    lv_obj_set_style_text_font(group_6, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(group_6, true);
+    lv_textarea_set_text_selection(group_6, true);
+    lv_textarea_set_cursor_pos(group_6, 0);
+    strg = "";
+    strg.concat(meshcom_settings.node_gcb[2]);
+    lv_textarea_set_text(group_6, strg.c_str());
+    lv_textarea_set_max_length(group_6, 5);
+
+    lv_textarea_set_accepted_chars(group_6, "0123456789");
+
+    lv_obj_add_event_cb(group_6, check_active_sym, LV_EVENT_ALL, group_6);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // MESH
+    ivert += iv_step + 10;
+
+    mesh_sw = lv_checkbox_create(parent);
+    lv_checkbox_set_text(mesh_sw, "MESH");
+    lv_obj_align(mesh_sw, LV_ALIGN_TOP_LEFT, ihor1, ivert);
+    if(bMESH)
+        lv_obj_add_state(mesh_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(mesh_sw, LV_STATE_CHECKED);
+
+
+    lv_obj_add_event_cb(mesh_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // GPS
+    gpson_sw = lv_checkbox_create(parent);
+    lv_checkbox_set_text(gpson_sw, "GPS");
+    lv_obj_align(gpson_sw, LV_ALIGN_TOP_LEFT, ihor2, ivert);
+    if(bGPSON)
+        lv_obj_add_state(gpson_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(gpson_sw, LV_STATE_CHECKED);
+
+    lv_obj_add_event_cb(gpson_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // TRACK
+    track_sw = lv_checkbox_create(parent);
+    lv_checkbox_set_text(track_sw, "TRACK");
+    lv_obj_align(track_sw, LV_ALIGN_TOP_LEFT, ihor3, ivert);
+    if(bDisplayTrack)
+        lv_obj_add_state(track_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(track_sw, LV_STATE_CHECKED);
+
+    lv_obj_add_event_cb(track_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // WEBSERVER
+    ivert += iv_step;
+
+    web_sw = lv_checkbox_create(parent);
+    lv_checkbox_set_text(web_sw, "WEBSERVER");
+    lv_obj_align(web_sw, LV_ALIGN_TOP_LEFT, ihor1, ivert);
+    if(bMESH)
+        lv_obj_add_state(web_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(web_sw, LV_STATE_CHECKED);
+
+
+    lv_obj_add_event_cb(web_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // WIFIAP
+    wifiap_sw = lv_checkbox_create(parent);
+    lv_checkbox_set_text(wifiap_sw, "WIFIAP");
+    lv_obj_align(wifiap_sw, LV_ALIGN_TOP_LEFT, ihor3, ivert);
+    if(bMESH)
+        lv_obj_add_state(wifiap_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(wifiap_sw, LV_STATE_CHECKED);
+
+
+    lv_obj_add_event_cb(wifiap_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // TONE MUTE
+    ivert += iv_step;
+
+    mute_sw = lv_checkbox_create(parent);
+    lv_checkbox_set_text(mute_sw, "MUTE TONE");
+    lv_obj_align(mute_sw, LV_ALIGN_TOP_LEFT, ihor1, ivert);
+    if(meshcom_settings.node_mute)
+        lv_obj_add_state(mute_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(mute_sw, LV_STATE_CHECKED);
+
+
+    lv_obj_add_event_cb(mute_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // NOALLMSG
+    noallmsg_sw = lv_checkbox_create(parent);
+    lv_checkbox_set_text(noallmsg_sw, "NO*MSG");
+    lv_obj_align(noallmsg_sw, LV_ALIGN_TOP_LEFT, ihor3, ivert);
+    if(bNoMSGtoALL)
+        lv_obj_add_state(noallmsg_sw, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(noallmsg_sw, LV_STATE_CHECKED);
+
+
+    lv_obj_add_event_cb(noallmsg_sw, btn_event_handler_switch, LV_EVENT_ALL, NULL);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // BACK
+    lv_obj_t *back9_label = scr_back_btn_create(parent, ("Setup"), scr9_btn_event_cb);
 }
 static void entry9(void) 
 {
     ui_disp_full_refr();
+
+    keypad_register_cb(cb_9_handler);
 }
-static void exit9(void) {
+static void exit9(void)
+{
     ui_disp_full_refr();
+
+    keypad_register_cb(NULL);
 }
 static void destroy9(void) { }
 
@@ -2300,200 +2731,6 @@ static scr_lifecycle_t screen9 = {
     .entry = entry9,
     .exit  = exit9,
     .destroy = destroy9,
-};
-#endif
-//************************************[ screen 10 ]***************************************** pcm5102
-#if 1
-static lv_obj_t *pcm5102_list;
-static lv_obj_t *pcm5102_page;
-static int pcm5102_num = 0;
-static int pcm5102_page_num = 0;
-static int pcm5102_curr_page = 0;
-
-static ui_pcm5102_handle pcm5102_handle_list[] = 
-{
-    {"PCM5102 Audio", NULL, NULL, ui_pcm5102_cb},
-};
-
-static void pcm5102_item_create(int curr_apge);
-
-static void pcm5102_scr_event(lv_event_t *e)
-{
-    lv_obj_t *tgt = (lv_obj_t *)e->target;
-    ui_pcm5102_handle *h = (ui_pcm5102_handle *)e->user_data;
-
-    if(e->code == LV_EVENT_CLICKED) {
-        if(h->cb)
-            h->cb(h->name);
-    }
-}
-
-static void pcm5102_item_create(int curr_apge)
-{
-    printf("pcm5102_curr_page = %d\n", pcm5102_curr_page);
-    int start = (curr_apge * SETTING_PAGE_MAX_ITEM);
-    int end = start + SETTING_PAGE_MAX_ITEM;
-    if(end > pcm5102_num) end = pcm5102_num;
-
-    printf("start=%d, end=%d\n", start, end);
-
-    for(int i = start; i < end; i++) {
-        ui_pcm5102_handle *h = &pcm5102_handle_list[i];
-        h->obj = lv_list_add_btn(pcm5102_list, NULL, h->name);
-        lv_obj_set_height(h->obj, 28);
-        // h->st = lv_label_create(h->obj);
-        // lv_obj_set_style_text_font(h->st, FONT_BOLD_SIZE_15, LV_PART_MAIN);
-        // lv_obj_align(h->st, LV_ALIGN_RIGHT_MID, 0, 0);
-        // lv_label_set_text_fmt(h->st, "%s", (h->get_cb() ? "ON" : "OFF"));
-        // style
-        lv_obj_set_style_text_font(h->obj, FONT_BOLD_SIZE_14, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(h->obj, DECKPRO_COLOR_BG, LV_PART_MAIN);
-        lv_obj_set_style_text_color(h->obj, DECKPRO_COLOR_FG, LV_PART_MAIN);
-        lv_obj_set_style_border_width(h->obj, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_set_style_border_width(h->obj, 1, LV_PART_MAIN | LV_STATE_PRESSED);
-        lv_obj_set_style_outline_width(h->obj, 3, LV_PART_MAIN | LV_STATE_PRESSED);
-        lv_obj_set_style_radius(h->obj, 5, LV_PART_MAIN | LV_STATE_DEFAULT);
-        lv_obj_add_event_cb(h->obj, pcm5102_scr_event, LV_EVENT_CLICKED, (void *)h);
-    }
-}
-
-static void pcm5102_page_switch_cb(lv_event_t *e)
-{
-    char opt = (int)e->user_data;
-    
-    if(pcm5102_num < SETTING_PAGE_MAX_ITEM) return;
-
-    int child_cnt = lv_obj_get_child_cnt(pcm5102_list);
-    
-    for(int i = 0; i < child_cnt; i++)
-    {
-        lv_obj_t *child = lv_obj_get_child(pcm5102_list, 0);
-        if(child)
-            lv_obj_del(child);
-    }
-
-    if(opt == 'p')
-    {
-        pcm5102_curr_page = (pcm5102_curr_page < pcm5102_page_num) ? pcm5102_curr_page + 1 : 0;
-    }
-    else if(opt == 'n')
-    {
-        pcm5102_curr_page = (pcm5102_curr_page > 0) ? pcm5102_curr_page - 1 : pcm5102_page_num;
-    }
-
-    pcm5102_item_create(pcm5102_curr_page);
-    lv_label_set_text_fmt(pcm5102_page, "%d / %d", pcm5102_curr_page, pcm5102_page_num);
-}
-
-
-static void scr10_btn_event_cb(lv_event_t * e)
-{
-    if(e->code == LV_EVENT_CLICKED)
-    {
-        //scr_mgr_pop(false);
-        scr_mgr_switch(SCREEN0_ID, false);
-    }
-}
-
-static void create10(lv_obj_t *parent) 
-{
-    pcm5102_list = lv_list_create(parent);
-    lv_obj_set_size(pcm5102_list, LV_HOR_RES, lv_pct(88));
-    lv_obj_align(pcm5102_list, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_color(pcm5102_list, DECKPRO_COLOR_BG, LV_PART_MAIN);
-    lv_obj_set_style_pad_top(pcm5102_list, 2, LV_PART_MAIN);
-    lv_obj_set_style_pad_row(pcm5102_list, 3, LV_PART_MAIN);
-    lv_obj_set_style_radius(pcm5102_list, 0, LV_PART_MAIN);
-    // lv_obj_set_style_outline_pad(pcm5102_list, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_width(pcm5102_list, 0, LV_PART_MAIN);
-    lv_obj_set_style_border_color(pcm5102_list, DECKPRO_COLOR_FG, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(pcm5102_list, 0, LV_PART_MAIN);
-
-    pcm5102_num = sizeof(pcm5102_handle_list) / sizeof(pcm5102_handle_list[0]);
-    pcm5102_page_num = pcm5102_num / SETTING_PAGE_MAX_ITEM;
-    pcm5102_item_create(pcm5102_curr_page);
-
-    lv_obj_t * ui_Button2 = lv_btn_create(parent);
-    lv_obj_set_width(ui_Button2, 71);
-    lv_obj_set_height(ui_Button2, 40);
-    lv_obj_set_x(ui_Button2, -70);
-    lv_obj_set_y(ui_Button2, 130);
-    lv_obj_set_align(ui_Button2, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_Button2, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
-    lv_obj_clear_flag(ui_Button2, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_obj_set_style_bg_color(ui_Button2, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_Button2, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_Button2, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(ui_Button2, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_spread(ui_Button2, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_Button2, 0, LV_PART_MAIN | LV_STATE_CHECKED | LV_STATE_PRESSED);
-    lv_obj_set_style_shadow_width(ui_Button2, 0, LV_PART_MAIN | LV_STATE_CHECKED | LV_STATE_PRESSED);
-    lv_obj_set_style_shadow_spread(ui_Button2, 0, LV_PART_MAIN | LV_STATE_CHECKED | LV_STATE_PRESSED);
-    lv_obj_set_style_radius(ui_Button2, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_t * ui_Label1 = lv_label_create(ui_Button2);
-    lv_obj_set_width(ui_Label1, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_Label1, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_align(ui_Label1, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label1, "Back");
-    lv_obj_set_style_text_color(ui_Label1, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label1, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_t * ui_Button14 = lv_btn_create(parent);
-    lv_obj_set_width(ui_Button14, 71);
-    lv_obj_set_height(ui_Button14, 40);
-    lv_obj_set_x(ui_Button14, 70);
-    lv_obj_set_y(ui_Button14, 130);
-    lv_obj_set_align(ui_Button14, LV_ALIGN_CENTER);
-    lv_obj_add_flag(ui_Button14, LV_OBJ_FLAG_SCROLL_ON_FOCUS);     /// Flags
-    lv_obj_clear_flag(ui_Button14, LV_OBJ_FLAG_SCROLLABLE);      /// Flags
-    lv_obj_set_style_bg_color(ui_Button14, lv_color_hex(0xFFFFFF), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_bg_opa(ui_Button14, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_Button14, 2, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(ui_Button14, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_spread(ui_Button14, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_border_width(ui_Button14, 0, LV_PART_MAIN | LV_STATE_CHECKED | LV_STATE_PRESSED);
-    lv_obj_set_style_shadow_width(ui_Button14, 0, LV_PART_MAIN | LV_STATE_CHECKED | LV_STATE_PRESSED);
-    lv_obj_set_style_shadow_spread(ui_Button14, 0, LV_PART_MAIN | LV_STATE_CHECKED | LV_STATE_PRESSED);
-    lv_obj_set_style_radius(ui_Button14, 10, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_t * ui_Label15 = lv_label_create(ui_Button14);
-    lv_obj_set_width(ui_Label15, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(ui_Label15, LV_SIZE_CONTENT);    /// 1
-    lv_obj_set_align(ui_Label15, LV_ALIGN_CENTER);
-    lv_label_set_text(ui_Label15, "Next");
-    lv_obj_set_style_text_color(ui_Label15, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(ui_Label15, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_add_event_cb(ui_Button2, pcm5102_page_switch_cb, LV_EVENT_CLICKED, (void*)'n');
-    lv_obj_add_event_cb(ui_Button14, pcm5102_page_switch_cb, LV_EVENT_CLICKED, (void*)'p');
-
-    pcm5102_page = lv_label_create(parent);
-    lv_obj_set_width(pcm5102_page, LV_SIZE_CONTENT);   /// 1
-    lv_obj_set_height(pcm5102_page, LV_SIZE_CONTENT);    /// 1
-    lv_obj_align(pcm5102_page, LV_ALIGN_BOTTOM_MID, 0, -23);
-    lv_label_set_text_fmt(pcm5102_page, "%d / %d", pcm5102_curr_page, pcm5102_page_num);
-    lv_obj_set_style_text_color(pcm5102_page, lv_color_hex(0x000000), LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_text_opa(pcm5102_page, 255, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_t *back10_label = scr_back_btn_create(parent, ("PCM5102"), scr10_btn_event_cb);
-}
-static void entry10(void) 
-{
-    ui_disp_full_refr();
-}
-static void exit10(void) 
-{
-    ui_pcm5102_stop();
-    ui_disp_full_refr();
-}
-static void destroy10(void) { }
-
-static scr_lifecycle_t screen10 = {
-    .create = create10,
-    .entry = entry10,
-    .exit  = exit10,
-    .destroy = destroy10,
 };
 #endif
 //************************************[ UI ENTRY ]******************************************
@@ -2556,7 +2793,8 @@ static void menu_keypay_get_event(lv_timer_t *t)
         lv_label_set_text_fmt(menu_keypad, "%c", keypay_v);
     }
 
-    if(press){
+    if(press)
+    {
         sec++;
         if(sec > 20) {
             sec = 0;
@@ -2663,7 +2901,6 @@ void ui_deckpro_entry(void)
     //scr_mgr_register(SCREEN8_1_ID,  &screen8_1);    //  - Call test
     //scr_mgr_register(SCREEN8_2_ID,  &screen8_2);    //  - AT test
     scr_mgr_register(SCREEN9_ID,    &screen9);      // 
-    scr_mgr_register(SCREEN10_ID,   &screen10);     // 
 
     scr_mgr_switch(SCREEN0_ID, false); // set root screen
     scr_mgr_set_anim(LV_SCR_LOAD_ANIM_OVER_LEFT, LV_SCR_LOAD_ANIM_OVER_LEFT, LV_SCR_LOAD_ANIM_OVER_LEFT);
