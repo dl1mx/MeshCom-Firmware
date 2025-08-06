@@ -231,7 +231,9 @@ String work_webpage(bool bget_password, int webid)
 
     if (bDEBUG)
     {
+        #ifdef ESP
         Serial.printf("%s;[HEAP]Cnew;%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
+        #endif
         Serial.println("New Client."); // print a message out in the serial port
     }
        
@@ -409,8 +411,10 @@ String work_webpage(bool bget_password, int webid)
     if (bDEBUG)
     {
         Serial.println("Client disconnected.");
+        #ifdef ESP
         Serial.printf("%s;[HEAP]Cdis;%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
         Serial.println("");
+        #endif
     }
 
     return password_message;
