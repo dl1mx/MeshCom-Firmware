@@ -55,6 +55,8 @@ extern bool bAnalogFilter;
 extern float fBattFaktor;
 
 extern bool bDisplayTrack;
+extern bool bOneButton;
+
 extern bool bGPSON;
 extern bool bBMPON;
 extern bool bBMP3ON;

@@ -29,7 +29,10 @@ void singleClick()
         Serial.printf("BUTTON singel press last:%i pointer:%i lines:%i\n", pageLastPointer, pagePointer, pageLastLineAnz[pagePointer]);
 
     if(pagePointer == 5)
+    {
+      sendDisplayHead(true);
       return;
+    }
       
     if(pageLastLineAnz[pagePointer] == 0)
       pagePointer = pageLastPointer-1;
@@ -108,6 +111,8 @@ void tripleClick()
       commandAction((char*)"--track on", false);
   else
       commandAction((char*)"--track off", false);
+
+  bOneButton = true;
 
   sendDisplayHead(false);
 }
