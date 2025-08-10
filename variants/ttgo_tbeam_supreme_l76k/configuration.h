@@ -25,8 +25,8 @@ definitions for T-Beam-Supreme-L76K
 #define ENABLE_RTC
 #define ENABLE_SOFTSER
 
-#define ANALOG_PIN 36
-#define ANALOG_REFRESH_INTERVAL 30 // sec messure intervall
+//#define ANALOG_PIN 36
+//#define ANALOG_REFRESH_INTERVAL 30 // sec messure intervall
 
 #define SX1262_V3
 
