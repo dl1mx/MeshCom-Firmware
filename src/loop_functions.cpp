@@ -75,6 +75,7 @@ bool bDisplayCont = false;
 bool bDisplayRetx = false;
 unsigned long DisplayOffWait = 0;
 bool bDisplayTrack = false;
+bool bOneButton = false;
 bool bGPSON = false;
 bool bBMPON = false;
 bool bBMP3ON = false;
@@ -978,8 +979,10 @@ void sendDisplayTrack()
     char print_text[500];
 
     // nur alle 15 sekunden
-    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45)
+    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45 || bOneButton)
     {
+        bOneButton = false;
+
         sendDisplayMainline();
 
         snprintf(print_text, sizeof(print_text), "LAT : %.4lf %c  %s", meshcom_settings.node_lat, meshcom_settings.node_lat_c, (posinfo_fix?"fix":""));
@@ -1085,7 +1088,6 @@ void sendDisplayTime()
         return;
     #endif
 
-    char print_text[500];
     char cbatt[10];
 
     if(bDisplayVolt)
@@ -1104,8 +1106,12 @@ void sendDisplayTime()
  #endif
 
     // nur alle 15 sekunden
-    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45)
+    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45 || bOneButton)
     {
+        char print_text[500];
+        
+        bOneButton = false;
+
         snprintf(print_text, sizeof(print_text), "%-4.4s%-1.1s %02i:%02i:%02i %-5.5s", SOURCE_VERSION, SOURCE_VERSION_SUB, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
 
         memcpy(pageText[0], print_text, 20);
