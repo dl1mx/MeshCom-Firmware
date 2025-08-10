@@ -1838,7 +1838,7 @@ void esp32loop()
         }
     #endif
 
-    #if not defined(BOARD_T_DECK_PRO)
+    #if defined (ANALOG_PIN)
     loop_ADCFunctions();    // OE3WAS
     #endif
 
@@ -2555,9 +2555,6 @@ void checkSerialCommand(void)
     //  Check Serial connected
     if(!Serial)
     {
-        if(bDEBUG)
-            Serial.println(F("[SERIAL]...not connected"));
-            
         return;
     }
 

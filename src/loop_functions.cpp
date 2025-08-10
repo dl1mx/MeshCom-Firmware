@@ -977,22 +977,26 @@ void sendDisplayTrack()
 
     char print_text[500];
 
-    sendDisplayMainline();
+    // nur alle 15 sekunden
+    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45)
+    {
+        sendDisplayMainline();
 
-    snprintf(print_text, sizeof(print_text), "LAT : %.4lf %c  %s", meshcom_settings.node_lat, meshcom_settings.node_lat_c, (posinfo_fix?"fix":""));
-    sendDisplay1306(false, false, 3, dzeile[1], print_text);
+        snprintf(print_text, sizeof(print_text), "LAT : %.4lf %c  %s", meshcom_settings.node_lat, meshcom_settings.node_lat_c, (posinfo_fix?"fix":""));
+        sendDisplay1306(false, false, 3, dzeile[1], print_text);
 
-    snprintf(print_text, sizeof(print_text), "LON : %.4lf %c %4i", meshcom_settings.node_lon, meshcom_settings.node_lon_c, (int)posinfo_satcount);
-    sendDisplay1306(false, false, 3, dzeile[2], print_text);
+        snprintf(print_text, sizeof(print_text), "LON : %.4lf %c %4i", meshcom_settings.node_lon, meshcom_settings.node_lon_c, (int)posinfo_satcount);
+        sendDisplay1306(false, false, 3, dzeile[2], print_text);
 
-    snprintf(print_text, sizeof(print_text), "RATE: %5i sec %4i", (int)posinfo_interval, posinfo_hdop);
-    sendDisplay1306(false, false, 3, dzeile[3], print_text);
+        snprintf(print_text, sizeof(print_text), "RATE: %5i sec %4i", (int)posinfo_interval, posinfo_hdop);
+        sendDisplay1306(false, false, 3, dzeile[3], print_text);
 
-    snprintf(print_text, sizeof(print_text), "DIST: %5i m", posinfo_distance);
-    sendDisplay1306(false, false, 3, dzeile[4], print_text);
+        snprintf(print_text, sizeof(print_text), "DIST: %5i m", posinfo_distance);
+        sendDisplay1306(false, false, 3, dzeile[4], print_text);
 
-    snprintf(print_text, sizeof(print_text), "DIR :old%3i° new%3i°", (int)posinfo_last_direction, (int)posinfo_direction);
-    sendDisplay1306(false, true, 3, dzeile[5], print_text);
+        snprintf(print_text, sizeof(print_text), "DIR :old%3i° new%3i°", (int)posinfo_last_direction, (int)posinfo_direction);
+        sendDisplay1306(false, true, 3, dzeile[5], print_text);
+    }
 
 
     bSetDisplay=false;
@@ -1055,13 +1059,11 @@ void sendDisplayTime()
     }
 
     #if !defined (BOARD_E290) && !defined (BOARD_TRACKER) && !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS) && !defined (BOARD_T5_EPAPER) && !defined (BOARD_T_DECK_PRO)
-
-
         if(u8g2 == NULL)
             return;
     #endif
 
-    #if defined (BOARD_E290) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS) ||defined (BOARD_T5_EPAPER)
+    #if defined (BOARD_E290) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS) || defined (BOARD_T5_EPAPER)
         return;
     #endif
 
@@ -1101,19 +1103,23 @@ void sendDisplayTime()
         snprintf(cbatt, sizeof(cbatt), "  USB");
  #endif
 
-    snprintf(print_text, sizeof(print_text), "%-4.4s%-1.1s %02i:%02i:%02i %-5.5s", SOURCE_VERSION, SOURCE_VERSION_SUB, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
+    // nur alle 15 sekunden
+    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45)
+    {
+        snprintf(print_text, sizeof(print_text), "%-4.4s%-1.1s %02i:%02i:%02i %-5.5s", SOURCE_VERSION, SOURCE_VERSION_SUB, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
 
-    memcpy(pageText[0], print_text, 20);
-    pageLine[0][0] = 3;
-    pageLine[0][1] = dzeile[0];
+        memcpy(pageText[0], print_text, 20);
+        pageLine[0][0] = 3;
+        pageLine[0][1] = dzeile[0];
 
-    #if defined (BOARD_T5_EPAPER)
-    // etxra source
-    #elif defined (HAS_TFT)
-        displayTFT(print_text);
-    #else
-        sendDisplay1306(false, true, 3, dzeile[0], print_text);
-    #endif
+        #if defined (BOARD_T5_EPAPER)
+        // extra source
+        #elif defined (HAS_TFT)
+            displayTFT(print_text);
+        #else
+            sendDisplay1306(false, true, 3, dzeile[0], print_text);
+        #endif
+    }
 
     bSetDisplay = false;
 }
