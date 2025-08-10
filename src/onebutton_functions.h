@@ -4,8 +4,13 @@
 #include <Arduino.h>
 
 void init_onebutton(void);
-void loop_onebutton(void);
 
-//#endif
+#include <OneButton.h>
+extern OneButton btn;
+
+void singleClick();
+void doubleClick();
+void tripleClick();
+void PressLong();
 
 #endif

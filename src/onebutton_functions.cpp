@@ -112,8 +112,6 @@ void tripleClick()
   sendDisplayHead(false);
 }
 
-/*
-
 void PressLong()
 {
   if(bDisplayCont)
@@ -137,31 +135,6 @@ void PressLong()
       }
 
   #endif
-)
-*/
-
-volatile int iButtonState=0;
-
-// save the millis when a press has started.
-volatile unsigned long pressStartTime=0;
-
-// This function is called from the interrupt when the signal on the PIN_INPUT has changed.
-// do not use Serial in here.
-#if defined(ESP8266) || defined(ESP32)
-  ICACHE_RAM_ATTR
-#endif
-void checkTicks(void)
-{
-  // include all buttons here to be checked
-  bool bButtonState = (digitalRead(iButtonPin) == LOW);
-  
-  //Serial.print("button int ");
-  //Serial.println(bButtonState);
-
-  pressStartTime = millis();
-
-  if(bButtonState)
-    iButtonState++;
 }
 
 // setup code here, to run once:
@@ -169,38 +142,21 @@ void init_onebutton()
 {
   if(bButtonCheck)
   {
-    Serial.println("[OBUT]...One Button with interrupts started");
+    Serial.printf("[OBUT]...One Button GPIO(%i) started\n", iButtonPin);
 
+/* Initialize a new OneButton instance for a button connected to digital
+*  pin and GND, which is active low [2] and uses the internal pull-up resistor.
+*/
     #if defined (BOARD_E290)
-      pinMode(iButtonPin, INPUT);
+      btn.setup( /*GPIO=*/ iButtonPin, /*active LOW=*/ true, /*pull-up=*/ false);
     #else
-      pinMode(iButtonPin, INPUT_PULLUP);
+      btn.setup( /*GPIO=*/ iButtonPin, /*active LOW=*/ true, /*pull-up=*/ true);
     #endif
-
-    attachInterrupt(digitalPinToInterrupt(iButtonPin), checkTicks, CHANGE);
+    btn.attachClick(singleClick);         // Single Click event attachment
+    btn.attachDoubleClick(doubleClick);   // Double Click event attachment
+    btn.attachMultiClick(tripleClick);    // Multi Click event attachement
+    btn.attachLongPressStart(PressLong);  // LongPress Click event attachement
   }
 } // setup
-
-// main code here, to run repeatedly:
-void loop_onebutton()
-{
-  // keep watching the push button, even when no interrupt happens:
-  if(bButtonCheck)
-  {
-    if((pressStartTime + 300) < millis())
-    {
-      switch (iButtonState)
-      {
-          case 1: singleClick(); break;
-          case 2: doubleClick(); break;
-          case 3: tripleClick(); break;
-          default: break;
-      }
-
-      iButtonState=0;
-    }
-  }
-} // loop
-
 
 // End

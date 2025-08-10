@@ -24,6 +24,9 @@
 
 #include "onebutton_functions.h"
 
+#include <OneButton.h>
+OneButton btn;
+
 // Ethernet Object
 NrfETH neth;
 
@@ -1078,7 +1081,7 @@ extern bool btimeClient;
     }
     #endif
 
-    loop_onebutton();
+    btn.tick();
 
     // check if message from phone to send
     if(hasMsgFromPhone)

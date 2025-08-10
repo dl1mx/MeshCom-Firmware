@@ -105,6 +105,9 @@ bool bLED = true;
 //#include <t-deck/lv_obj_functions.h>
 #endif
 
+#include <OneButton.h>
+OneButton btn;
+
 /**
  * RadioLib Infos und Examples:
  * SX127x:
@@ -552,9 +555,8 @@ void esp32setup()
 
     memset(meshcom_settings.node_update, 0x00, sizeof(meshcom_settings.node_update));
 
-    #ifdef BOARD_T_DECK_PRO
+    #ifdef BUTTON_PIN
         iButtonPin = BUTTON_PIN;
-        bButtonCheck=true;
     #else
         iButtonPin = 99;
     #endif
@@ -1331,7 +1333,7 @@ void esp32loop()
     #endif
 
     #if not defined(BOARD_T_DECK_PRO)
-    loop_onebutton();
+    btn.tick();
     #endif
 
     #ifdef LED_PIN
