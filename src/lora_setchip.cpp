@@ -17,6 +17,8 @@
     extern int transmissionState;
 #endif
 
+//#endif
+
 #ifdef SX126X
     #include <RadioLib.h>
     extern SX1268 radio;
@@ -580,6 +582,7 @@ bool lora_setchip_new(float rf_freq, float rf_bw, int rf_sf, int rf_cr, int rf_s
 
 #if defined(BOARD_T5_EPAPER)
 //extra source
+
 #elif defined (ESP32)
 
     if(bLORADEBUG)

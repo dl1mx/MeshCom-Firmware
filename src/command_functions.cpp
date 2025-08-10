@@ -39,9 +39,11 @@
 
 unsigned long rebootAuto = 0;
 
-#if defined (ENABLE_GPS)
-extern int state; // only for gps reset
-extern bool bMitHardReset;
+#ifndef BOARD_T_DECK_PRO
+    #if defined (ENABLE_GPS)
+    extern int state; // only for gps reset
+    extern bool bMitHardReset;
+    #endif
 #endif
 
 // OTA Libs for ESP32 Partition Switching
@@ -496,7 +498,11 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"spectrum") == 0)
     {
         
+        #ifndef BOARD_T_DECK_PRO
+        //extern hardware
         sx126x_spectral_scan();
+        #endif
+
         #ifdef ESP32
             //ESP.restart();
         #endif
@@ -543,17 +549,17 @@ void commandAction(char *umsg_text, bool ble)
         }
 //        else
         {
-            Serial.printf("MeshCom %-4.4s%-1.1s commands\n--setcall  set callsign (OE0XXX-1)\n--setname  set first name\n--setctry 0-99 set RX/RX-LoRa-Parameter\n--reboot   Node reboot\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
+            Serial.printf("MeshCom %-4.4s%-1.1s commands\n--setcall  set callsign (OE0XXX-1)\n--setname  set first name/none\n--setctry 0-99 set RX/RX-LoRa-Parameter\n--reboot   Node reboot\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
             delay(100);
 
-            Serial.printf("--setssid  WLAN SSID\n--setpwd   WLAN PASSWORD\n--setownip 255.255.255.255\n--setowngw 255.255.255.255\n--setownms mask:255.255.255.255\n--wifiap on/off WLAN AP\n--extudp  on/off\n--extudpip 255.255.255.255\n");
+            Serial.printf("--setssid  WLAN SSID/none\n--setpwd   WLAN PASSWORD/none\n--setownip 255.255.255.255\n--setowngw 255.255.255.255\n--setownms mask:255.255.255.255\n--wifiap on/off WLAN AP\n--extudp  on/off\n--extudpip 255.255.255.255/none\n");
             delay(100);
 
             Serial.printf("--btcode 999999 BT-Code\n--button gpio 99 User-Button PIN\n--analog gpio 99 Analog PIN\n--analog factor 9.9 Analog factor\n--analogcheck on/off\n");
             delay(100);
             Serial.printf("--pos      show lat/lon/alt/time info\n--weather  show temp/hum/press\n--sendpos  send pos info now\n--setlat   set latitude 44.12345\n--setlon   set logitude 016.12345\n--setalt   set altidude 9999m\n");
             delay(100);
-            Serial.printf("--symid  set prim/sec Sym-Table\n--symcd  set table column\n--atxt   set APRS Textinfo\n--showI2C\n");
+            Serial.printf("--symid  set prim/sec Sym-Table\n--symcd  set table column\n--atxt   set APRS Textinfo/none\n--showI2C\n");
             delay(100);
             Serial.printf("--debug    on/off\n--bledebug on/off\n--loradebug on/off\n--gpsdebug  on/off\n--softserdebug  on/off\n--wxdebug   on/off\n--display   on/off\n--setinfo   on/off\n--volt    show battery voltage\n--proz    show battery proz.\n");
             delay(100);
@@ -573,7 +579,7 @@ void commandAction(char *umsg_text, bool ble)
                 delay(100);
             #endif
 
-            Serial.printf("--info      show info\n--mheard    show MHeard\n--gateway   on/off/pos/nopos\n--webserver on/off\n--webpwd    xxxx\n--mesh      on/off\n");
+            Serial.printf("--info      show info\n--mheard    show MHeard\n--gateway   on/off/pos/nopos\n--webserver on/off\n--webpwd    xxxx/none\n--mesh      on/off\n");
             delay(100);
             Serial.printf("--softser   on/off/send/app/baud/fixpegel/fixpegel2/fixtemp\n");
             delay(100);
@@ -737,6 +743,7 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
     }
+    #ifndef BOARD_T_DECK_PRO
     else
     if(commandCheck(msg_text+2, (char*)"button gpio ") == 0)
     {
@@ -766,6 +773,7 @@ void commandAction(char *umsg_text, bool ble)
 
         init_onebutton();
     }
+    #endif
     else
     #if defined (ANALOG_PIN)
     if(commandCheck(msg_text+2, (char*)"analog gpio ") == 0)
@@ -1203,6 +1211,7 @@ void commandAction(char *umsg_text, bool ble)
         #endif
     }
     else
+    #ifndef BOARD_T_DECK_PRO
     if(commandCheck(msg_text+2, (char*)"gps reset") == 0)
     {
         bGPSON=true;
@@ -1224,6 +1233,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    #endif
     #endif
     if(commandCheck(msg_text+2, (char*)"bleshort") == 0)
     {
@@ -1596,8 +1606,8 @@ void commandAction(char *umsg_text, bool ble)
         tdeck_refresh_SET_view();
         #endif
     }
-    else
 #if defined(LPS33)
+    else
     if(commandCheck(msg_text+2, (char*)"lps33 on") == 0)
     {
         bLPS33=true;
@@ -1629,9 +1639,9 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
     }
-    else
 #endif
-//#ifndef BOARD_TLORA_OLV216
+#ifdef OneWire_GPIO
+    else
     if(commandCheck(msg_text+2, (char*)"onewire on") == 0)
     {
         bONEWIRE=true;
@@ -1700,8 +1710,9 @@ void commandAction(char *umsg_text, bool ble)
             init_onewire_dht();
         }
     }
-    else
+#endif
     #if defined (ENABLE_BMX280)
+    else
     if(commandCheck(msg_text+2, (char*)"setpress") == 0)
     {
         fBaseAltidude = (float)meshcom_settings.node_alt;
@@ -1838,8 +1849,6 @@ void commandAction(char *umsg_text, bool ble)
     {
         bWEBSERVER=false;
         meshcom_settings.node_sset2 &= ~0x0040;   // mask 0x0040
-
-        Serial.printf("off sset2:<%04X>\n", meshcom_settings.node_sset2);
 
         if(ble)
         {
@@ -2742,14 +2751,12 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(((strlen(meshcom_settings.node_pwd) > 1 || strcmp(meshcom_settings.node_pwd, "none") == 0) && strlen(meshcom_settings.node_ssid) > 1))
+        if((strlen(meshcom_settings.node_pwd) > 1 && strlen(meshcom_settings.node_ssid) > 1) ||
+           (strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0))
         {
-            if(!bDEBUG)
-            {
-                Serial.println("Auto. Reboot after 15 sec.");
+            Serial.println("Auto. Reboot after 15 sec.");
 
-                rebootAuto = millis() + 15 * 1000; // 15 Sekunden
-            }
+            rebootAuto = millis() + 15 * 1000; // 15 Sekunden
         }
 
         return;
@@ -2772,7 +2779,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(((strlen(meshcom_settings.node_pwd) > 1 || strcmp(meshcom_settings.node_pwd, "none") == 0) && strlen(meshcom_settings.node_ssid) > 1))
+        if((strlen(meshcom_settings.node_pwd) > 1 && strlen(meshcom_settings.node_ssid) > 1) ||
+           (strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2837,7 +2845,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
+        if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
+           (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2861,7 +2870,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
+        if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
+           (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2884,7 +2894,8 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
-        if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
+        if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
+           (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
             Serial.println("Auto. Reboot after 15 sec.");
 
@@ -2907,7 +2918,7 @@ void commandAction(char *umsg_text, bool ble)
 
         bInfo=true;
 
-        rebootAuto = millis() + 10 * 1000; // 10 Sekunden
+        rebootAuto = millis() + 5 * 1000; // 5 Sekunden
 
         return;
     }
@@ -2925,7 +2936,7 @@ void commandAction(char *umsg_text, bool ble)
 
         bInfo=true;
 
-        rebootAuto = millis() + 10 * 1000; // 10 Sekunden
+        rebootAuto = millis() + 5 * 1000; // 5 Sekunden
 
         return;
     }
@@ -4022,8 +4033,11 @@ void commandAction(char *umsg_text, bool ble)
         if(!bRxFromPhone)
         {
             int ibt = meshcom_settings.node_button_pin;
+            
+            #ifndef BOARD_T_DECK_PRO
             if(ibt == 0)
                 ibt = BUTTON_PIN;
+            #endif
 
             Serial.printf("--MeshCom %-4.4s%-1.1s (build: %s / %s)\n...UPDATE: %s\n...Call: <%s> ...ID %08X ...NODE %i ...UTC-OFF %f [%s]\n...BATT %.2f V ...BATT %d %% ...MAXV %.3f V\n...TIME %li ms\n", 
                     SOURCE_VERSION, SOURCE_VERSION_SUB , __DATE__ , __TIME__ , meshcom_settings.node_update,
@@ -4177,8 +4191,11 @@ void commandAction(char *umsg_text, bool ble)
     if(bSensSetting)
     {
         int ibt = meshcom_settings.node_button_pin;
+
+        #ifndef BOARD_T_DECK_PRO
         if(ibt == 0)
             ibt = BUTTON_PIN;
+        #endif
 
         JsonDocument sensdoc;
 
@@ -4265,6 +4282,7 @@ void commandAction(char *umsg_text, bool ble)
         swdoc["OWNMS"] = meshcom_settings.node_ownms;
         swdoc["EUDP"] = bEXTUDP;
         swdoc["EUDPIP"] = meshcom_settings.node_extern;
+        swdoc["TXPOW"] = meshcom_settings.node_wifi_power;
 
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));

@@ -926,6 +926,8 @@ bool is_new_packet(uint8_t compBuffer[4])
  */
 bool doTX()
 {
+    //#if not defined(BOARD_T_DECK_PRO)
+
     // next TX new TX-DELAY
     if(cmd_counter > 0)
     {
@@ -1096,6 +1098,8 @@ bool doTX()
             DEBUG_MSG("RADIO", "TX DISABLED");
         }
     }
+
+    //#endif
 
     return false;
 }

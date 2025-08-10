@@ -28,6 +28,7 @@ extern bool bWXDEBUG;
 extern bool bIODEBUG;
 extern bool bLED_CLEAR;
 extern bool bLED_DELAY;
+extern bool bTDECKDEBUG;
 
 extern bool bPosDisplay;
 extern bool bDisplayOff;
@@ -89,6 +90,7 @@ extern bool dht_found;
 
 extern bool bSHORTPATH;
 extern bool bGPSDEBUG;
+extern bool bGPSDEBUG_DETAIL;
 extern bool bSOFTSERDEBUG;
 
 extern bool bBLElong;

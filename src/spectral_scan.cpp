@@ -24,7 +24,9 @@
 #include "lora_setchip.h"
 #include "esp32/esp32_flash.h"
 
-#if defined(SX1262X) || defined(SX126X) || defined(SX1268_V3) || defined(SX1262_V3) || defined(SX1262_E290)
+#if defined(BOARD_T_DECK_PRO)
+//extern hardware
+#elif defined(SX1262X) || defined(SX126X) || defined(SX1268_V3) || defined(SX1262_V3) || defined(SX1262_E290)
 
 #include <RadioLib.h>
 

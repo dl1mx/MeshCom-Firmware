@@ -25,19 +25,25 @@ bool l76kProbe()
     bool result = false;
     uint32_t startTimeout ;
     SerialGPS.write("$PCAS03,0,0,0,0,0,0,0,0,0,0,,,0,0*02\r\n");
-    delay(5);
+    delay(500);
     // Get version information
-    startTimeout = millis() + 3000;
+    startTimeout = millis() + 4000;
     Serial.print("[GPSL]...Try to init L76K . Wait stop .");
     // SerialGPS.flush();
     while (SerialGPS.available())
     {
         int c = SerialGPS.read();
-        //Serial.write(c);
-        //Serial.print(".");
-        //Serial.flush();
+        
+        if(bGPSDEBUG && bDisplayCont)
+        {
+            Serial.write(c);
+            Serial.flush();
+        }
+
         SerialGPS.flush();
-        if (millis() > startTimeout) {
+        
+        if (millis() > startTimeout)
+        {
             Serial.println("[GPSL]...Wait L76K stop NMEA timeout!");
             return false;
         }
@@ -59,7 +65,7 @@ bool l76kProbe()
     }
     SerialGPS.setTimeout(10);
     ver = SerialGPS.readStringUntil('\n');
-    if (ver.startsWith("$GPTXT,01,01,02"))
+    if (ver.startsWith("$GPTXT,01,01,02") || ver.startsWith("$GNTXT,01,01,01,PCAS"))
     {
         Serial.println("[GPSL]...L76K GNSS init succeeded, using L76K GNSS Module");
         result = true;
@@ -81,6 +87,9 @@ bool beginGPS()
 {
     bool result = false;
 
+    if(bGPSDEBUG)
+        Serial.println("[L76K]...check 9600baud");
+
     SerialGPS.begin(9600, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
     for ( int i = 0; i < 3; ++i)
     {
@@ -91,8 +100,23 @@ bool beginGPS()
         }
     }
 
-    // 9600 not working, trying 38400
+    if(bGPSDEBUG)
+        Serial.println("[L76K]...check 38400baud");
+
     SerialGPS.begin(38400, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+    for ( int i = 0; i < 3; ++i)
+    {
+        result = l76kProbe();
+        if (result)
+        {
+            return result;
+        }
+    }
+
+    if(bGPSDEBUG)
+        Serial.println("[L76K]...check 115200baud");
+
+    SerialGPS.begin(115200, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
     for ( int i = 0; i < 3; ++i)
     {
         result = l76kProbe();
@@ -127,7 +151,9 @@ unsigned int loopL76KGPS()
         
         if(bGPSDEBUG && bDisplayCont)
         {
-            Serial.print(c);
+            if(bGPSDEBUG)
+                Serial.print(c);
+
             bGPSAVAIL=true;
         }
 

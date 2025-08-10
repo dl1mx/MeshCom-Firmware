@@ -19,6 +19,7 @@
 #elif defined BOARD_TRACKER
 #elif defined(BOARD_T_DECK)
 #elif defined(BOARD_T_DECK_PLUS)
+#elif defined(BOARD_T_DECK_PRO)
 #elif defined BOARD_E290
 #include "heltec-eink-modules.h"
 
@@ -38,7 +39,7 @@ extern EInkDisplay_VisionMasterE290 e290_display;
 
 void initDisplay()
 {
-#if ! defined(BOARD_E290) && ! defined(BOARD_T_DECK) && ! defined(BOARD_T_DECK_PLUS) && ! defined(BOARD_TRACKER) && !defined (BOARD_T5_EPAPER)
+#if ! defined(BOARD_E290) && ! defined(BOARD_T_DECK) && ! defined(BOARD_T_DECK_PLUS) && ! defined(BOARD_TRACKER) && !defined (BOARD_T5_EPAPER) && !defined (BOARD_T_DECK_PRO)
     Serial.println(F("[INIT]...Auto detecting display:"));
         
     int idtype = esp32_isSSD1306(0x3C);
@@ -106,7 +107,7 @@ void startDisplay(char line1[20], char line2[20], char line3[20])
 
     e290_display.update();
 
-    #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_TRACKER) || defined (BOARD_T5_EPAPER)
+    #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_TRACKER) || defined (BOARD_T5_EPAPER) || defined(BOARD_T_DECK_PRO)
     // do nothing
     #else
 

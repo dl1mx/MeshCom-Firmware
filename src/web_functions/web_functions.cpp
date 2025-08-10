@@ -68,14 +68,12 @@ void startWebserver()
     {
         Serial.print(getTimeString());
         Serial.println("[Web]...Error setting up MDNS responder!");
-        Serial.println("[Web]...Error setting up MDNS responder!");
         return;
     }
 
     if (bDEBUG)
     {
         Serial.print(getTimeString());
-        Serial.println("[Web]...mDNS responder started");
         Serial.println("[Web]...mDNS responder started");
     }
 
@@ -232,8 +230,13 @@ String work_webpage(bool bget_password, int webid)
     String web_currentLine = ""; // make a String to hold incoming data from the client
 
     if (bDEBUG)
+    {
+        #ifdef ESP
+        Serial.printf("%s;[HEAP]Cnew;%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
+        #endif
         Serial.println("New Client."); // print a message out in the serial port
-
+    }
+       
     while (web_client.connected() && (web_currentTime - web_previousTime) <= WEB_TIMEOUT_TIME)
     { // loop while the client's connected
         yield();
@@ -408,8 +411,12 @@ String work_webpage(bool bget_password, int webid)
     if (bDEBUG)
     {
         Serial.println("Client disconnected.");
+        #ifdef ESP
+        Serial.printf("%s;[HEAP]Cdis;%d;(free)\n", getTimeString().c_str(), ESP.getFreeHeap());
         Serial.println("");
+        #endif
     }
+
     return password_message;
 }
 
@@ -1222,11 +1229,15 @@ void sub_page_spectrum()
 
 
 
+    #if defined(BOARD_T_DECK_PRO)
+        web_client.println("<p>unable to initialize spectrum scan</p>");
+    #else
     if (sx126x_spectral_init_scan(spec_curr_freq) != RADIOLIB_ERR_NONE)
     {
         web_client.println("<p>unable to initialize spectrum scan</p>");
     }
     else
+    #endif
     {
         web_client.printf("<svg viewbox=\"0, 0, %d, %d\" id=\"spectrum_display\">", end_x + 40, end_y + 60);
 
@@ -1248,6 +1259,7 @@ void sub_page_spectrum()
             }
         }
 
+        #if not defined(BOARD_T_DECK_PRO)
         while (spec_curr_freq < meshcom_settings.node_specend)
         {                                                                                                 // loop through the frequency range
             uint16_t *res = sx126x_spectral_scan_freq(spec_curr_freq, meshcom_settings.node_specsamples); // get spectrum analysis for this given frequency
@@ -1273,10 +1285,13 @@ void sub_page_spectrum()
             current_fStep++;
             spec_curr_freq += meshcom_settings.node_specstep;
         }
+        #endif
 
         web_client.println("</svg>");
 
+        #if not defined(BOARD_T_DECK_PRO)
         sx126x_spectral_finish_scan(); // finish scan, return to normale lora operation
+        #endif
     }
 
     web_client.printf("<p>The Node scans the frequency range (%.3fMHz - %.3fMHz) in small steps using a given scan bandwith (%.3fMHz).</p>\n", meshcom_settings.node_specstart, meshcom_settings.node_specend, meshcom_settings.node_specstep);
