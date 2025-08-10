@@ -1110,9 +1110,7 @@ extern bool btimeClient;
 
     if(gKeyNum == 1)
     {
-        Serial.println("Left button pressed");
-
-        //Serial.println("gKeyNum == 1");
+        Serial.println("gKeyNum == 1");
 
         //getTEMP();
 
@@ -1123,7 +1121,8 @@ extern bool btimeClient;
 
     if(gKeyNum == 2)
     {
-        //Serial.println("gKeyNum == 2");
+        if(bGPSDEBUG)
+            Serial.println("gKeyNum == 2");
 
         #ifdef ENABLE_GPS
 
@@ -1838,6 +1837,7 @@ unsigned int getGPS(void)
         meshcom_settings.node_alt = ((meshcom_settings.node_alt * 10) + (int)tinyGPSPlus.altitude.meters()) / 11;
 
         MyClock.setCurrentTime(meshcom_settings.node_utcoff, tinyGPSPlus.date.year(), tinyGPSPlus.date.month(), tinyGPSPlus.date.day(), tinyGPSPlus.time.hour(), tinyGPSPlus.time.minute(), tinyGPSPlus.time.second());
+        snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
 
         posinfo_satcount = tinyGPSPlus.satellites.value();
         posinfo_hdop = tinyGPSPlus.hdop.value();
