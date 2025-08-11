@@ -2029,12 +2029,9 @@ void esp32loop()
         }
 
 
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_TRK_view();
-        #endif
-
-        #if defined(BOARD_T_DECK_PRO)
-        TDeck_pro_track_disp();
+        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
+            if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45)
+                tdeck_refresh_track_view();
         #endif
 
         #endif

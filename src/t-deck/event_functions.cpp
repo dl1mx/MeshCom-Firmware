@@ -755,7 +755,7 @@ void tabview_event_cb(lv_event_t * e)
             case 3: // MAP
                 break;
             case 4: // GPS
-                tdeck_refresh_TRK_view();
+                tdeck_refresh_track_view();
                 break;
             case 5: // MHD
                 break;
