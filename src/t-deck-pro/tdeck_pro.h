@@ -65,6 +65,6 @@ void loopTDeck_pro();
 // MeshCom calls
 void TDeck_pro_lora_disp(String strhead, String strtext);
 void TDeck_pro_mheard_disp();
-void TDeck_pro_track_disp();
+void tdeck_refresh_track_view();
 void TDeck_pro_set_gps(bool bGPS);
 unsigned int TDeck_pro_get_gps();

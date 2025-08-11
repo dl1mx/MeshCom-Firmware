@@ -1560,7 +1560,7 @@ void tdeck_refresh_SET_view()
 /**
  * refresh GPS view
  */
-void tdeck_refresh_TRK_view()
+void tdeck_refresh_track_view()
 {
     if (lv_tabview_get_tab_act(tv) != 4) // GPS screen not active
         return;

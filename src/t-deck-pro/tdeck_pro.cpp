@@ -560,7 +560,7 @@ void TDeck_pro_mheard_disp()
     ui_mheard_disp();
 }
 
-void TDeck_pro_track_disp()
+void tdeck_refresh_track_view()
 {
     ui_track_disp();
 }
