@@ -24,8 +24,12 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.11'
+        
     - name: Install PlatformIO Core
       run: pip install --upgrade platformio
+
+    - name: Install esptool extension
+      run: pip install --upgrade intelhex
 
     - name: Install RAK Deps
       run: pio platform install nordicnrf52
