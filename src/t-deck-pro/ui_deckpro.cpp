@@ -2055,12 +2055,29 @@ static void cb_8_handler(int state, char keypay_v)
 /**
  * displays TRACK
  */
-void ui_track_disp()
+void ui_track_disp(bool bSend)
 {
     if(track_ta == NULL || !btrack)
         return;
 
-    int pos_seconds = (int)(((posinfo_timer + (posinfo_interval * 1000)) - millis()) / 1000);
+    //Serial.printf("posinfo_interval:%i millis():%i posinfo_timer:%i\n", posinfo_interval, millis(), posinfo_timer);
+
+    char ctrack[300];
+
+    if(bSend)
+    {
+        if(bDisplayTrack)
+            snprintf(ctrack, sizeof(ctrack), "\n\n\n\n       TRACK\n   POSITION SENT\n");
+        else
+            snprintf(ctrack, sizeof(ctrack), "\n\n\n\n        GPS\n   POSITION SENT\n");
+
+        lv_textarea_set_text(track_ta, ctrack);
+
+        return;
+    }
+
+
+    int pos_seconds = posinfo_interval - ((millis() - (int)posinfo_timer)) / 1000;
 
     char cDatum[20];
     sprintf(cDatum, "%04i-%02i-%02i",
@@ -2073,15 +2090,13 @@ void ui_track_disp()
         meshcom_settings.node_date_minute,
         meshcom_settings.node_date_second);
 
-    char ctrack[300];
-
     if(bGPSON)
     {
         if(posinfo_fix)
         {
             if(bDisplayTrack)
             {
-                snprintf(ctrack, sizeof(ctrack), "TRACK:on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nDIST :%i m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4li %isec",
+                snprintf(ctrack, sizeof(ctrack), "TRACK:on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nDIST :%.0lf m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4lisec\nNEXT :%isec",
                 (posinfo_fix ? "fix" : "nofix"), 
                 posinfo_hdop, 
                 cDatum, 
@@ -2098,7 +2113,7 @@ void ui_track_disp()
             }
             else
             {
-                snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i\nSAT  :%u\nDIR  :%.0lf\nRATE :%4li %isec",
+                snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i\nSAT  :%u\nDIR  :%.0lf\nRATE :%4lisec\nNEXT :%isec",
                 (posinfo_fix ? "fix" : "nofix"), 
                 posinfo_hdop, 
                 cDatum, 
@@ -2152,6 +2167,8 @@ void ui_track_disp()
 
         lv_textarea_set_text(track_ta, ctrack);
     }
+
+    //ui_disp_full_refr();
 }
 
 static void scr8_btn_event_cb(lv_event_t * e)
@@ -2178,11 +2195,10 @@ static void create8(lv_obj_t *parent)
     lv_textarea_set_max_length(track_ta, 1000);
 
     lv_obj_t * btsendpos = lv_btn_create(parent);
-    lv_obj_align(btsendpos, LV_ALIGN_TOP_LEFT, 4, lv_pct(90));
-    lv_obj_set_size(btsendpos, 100, 20);
+    lv_obj_set_size(btsendpos, 100, 25);
     lv_obj_set_style_radius(btsendpos, 5, LV_PART_MAIN);
-    lv_obj_set_style_border_width(btsendpos, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(btsendpos, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(btsendpos, 2, LV_PART_MAIN);
+    lv_obj_align(btsendpos, LV_ALIGN_TOP_LEFT, 4, lv_pct(90));
     lv_obj_add_event_cb(btsendpos, btn_event_handler_sendpos, LV_EVENT_ALL, NULL);
 
     lv_obj_t * btnlabelsendpos = lv_label_create(btsendpos);
@@ -2190,11 +2206,10 @@ static void create8(lv_obj_t *parent)
     lv_obj_center(btnlabelsendpos);
 
     lv_obj_t * bttrack = lv_btn_create(parent);
-    lv_obj_align(bttrack, LV_ALIGN_TOP_LEFT, LV_HOR_RES-105, lv_pct(90));
-    lv_obj_set_size(bttrack, 100, 20);
+    lv_obj_set_size(bttrack, 100, 25);
     lv_obj_set_style_radius(bttrack, 5, LV_PART_MAIN);
-    lv_obj_set_style_border_width(bttrack, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(bttrack, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_border_width(bttrack, 2, LV_PART_MAIN);
+    lv_obj_align(bttrack, LV_ALIGN_TOP_LEFT, LV_HOR_RES-105, lv_pct(90));
     lv_obj_add_event_cb(bttrack, btn_event_handler_track, LV_EVENT_ALL, NULL);
 
     btnlabeltrack = lv_label_create(bttrack);
@@ -2212,9 +2227,7 @@ static void entry8(void)
 
     keypad_register_cb(cb_1_handler);
 
-    ui_track_disp();
-
-    //ui_disp_full_refr();
+    ui_track_disp(false);
 }
 static void exit8(void)
 {
@@ -2778,6 +2791,7 @@ static void indev_get_gesture_dir(lv_timer_t *t)
     }
 }
 
+/*
 static void menu_keypay_get_event(lv_timer_t *t)
 {
     static int sec = 0;
@@ -2803,6 +2817,7 @@ static void menu_keypay_get_event(lv_timer_t *t)
         }
     }
 }
+*/
 
 static void menu_taskbar_update_timer_cb(lv_timer_t *t)
 {

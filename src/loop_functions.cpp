@@ -280,16 +280,18 @@ bool bPhoneTimeValid = false;
 bool bNTPDateTimeValid = false;
 
 // GPS SmartBeaconing variables
+double gps_refresh_intervall = GPS_REFRESH_INTERVAL;   // sec
+double gps_sum_intervall = 0;   // sec
 unsigned long posinfo_interval = POSINFO_INTERVAL; // check interval
-int posinfo_distance = 0;
+double posinfo_distance = 0.0;
 double posinfo_direction = 0.0;
-int posinfo_distance_ring[10] = {0};
-int posinfo_ring_write = 0;
 double posinfo_lat = 0.0;
 double posinfo_lon = 0.0;
 double posinfo_last_lat = 0.0;
 double posinfo_last_lon = 0.0;
 double posinfo_last_direction = 0.0;
+unsigned int posinfo_last_rate = POSINFO_INTERVAL;  // seconds
+
 uint32_t posinfo_satcount = 0;
 int posinfo_hdop = 0;
 bool posinfo_fix = false;
@@ -298,7 +300,7 @@ uint32_t posinfo_age=0;
 bool pos_shot = false;
 bool wx_shot = false;
 int no_gps_reset_counter = 0;
-unsigned int gps_refresh_intervall = 10;    // Sekunden
+int gps_refresh_track = 0;
 
 // Loop timers
 unsigned long posinfo_timer = 0;    // we check periodically to send GPS
@@ -985,16 +987,17 @@ void sendDisplayTrack()
 
         sendDisplayMainline();
 
-        snprintf(print_text, sizeof(print_text), "LAT : %.4lf %c  %s", meshcom_settings.node_lat, meshcom_settings.node_lat_c, (posinfo_fix?"fix":""));
+        snprintf(print_text, sizeof(print_text), "LAT : %.4lf %c %s", meshcom_settings.node_lat, meshcom_settings.node_lat_c, (posinfo_fix?"fix":""));
         sendDisplay1306(false, false, 3, dzeile[1], print_text);
 
         snprintf(print_text, sizeof(print_text), "LON : %.4lf %c %4i", meshcom_settings.node_lon, meshcom_settings.node_lon_c, (int)posinfo_satcount);
         sendDisplay1306(false, false, 3, dzeile[2], print_text);
 
-        snprintf(print_text, sizeof(print_text), "RATE: %5i sec %4i", (int)posinfo_interval, posinfo_hdop);
+        int pos_seconds = posinfo_interval - ((millis() - (int)posinfo_timer)) / 1000;
+        snprintf(print_text, sizeof(print_text), "RATE: %4i NEXT %4i", (int)posinfo_interval, pos_seconds);
         sendDisplay1306(false, false, 3, dzeile[3], print_text);
 
-        snprintf(print_text, sizeof(print_text), "DIST: %5i m", posinfo_distance);
+        snprintf(print_text, sizeof(print_text), "DIST: %4.0lf hdop%4i", posinfo_distance, posinfo_hdop);
         sendDisplay1306(false, false, 3, dzeile[4], print_text);
 
         snprintf(print_text, sizeof(print_text), "DIR :old%3i° new%3i°", (int)posinfo_last_direction, (int)posinfo_direction);
@@ -2375,7 +2378,7 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
 
     if(lat == 0.0 or lon == 0.0)
     {
-        DEBUG_MSG("APRS", "Error PositionToAPRS");
+        Serial.println("[APRS] Error PositionToAPRS");
         return "";
     }
 
@@ -2581,7 +2584,29 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
     //
     /////////////////////////////////////////////////////////////////
 
-    snprintf(msg_start, sizeof(msg_start), "%07.2lf%c%c%08.2lf%c%c%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s", slat, lat_c, meshcom_settings.node_symid, slon, lon_c, meshcom_settings.node_symcd, catxt, cname, cbatt, calt, cpress, chum, ctemp, ctemp2, cqfe, cqnh, cgasres, cco2, cgrc, csfpegel, csfpegel2, csftemp, csfbatt, cversion, cinaU, cinaI, ctele);
+    String strconcat = catxt;
+    strconcat.concat(cname);
+    strconcat.concat(cbatt);
+    strconcat.concat(calt);
+    strconcat.concat(cpress);
+    strconcat.concat(chum);
+    strconcat.concat(ctemp);
+    strconcat.concat(ctemp2);
+    strconcat.concat(cqfe);
+    strconcat.concat(cqnh);
+    strconcat.concat(cgasres);
+    strconcat.concat(cco2);
+    strconcat.concat(cgrc);
+    strconcat.concat(csfpegel);
+    strconcat.concat(csfpegel2);
+    strconcat.concat(csftemp);
+    strconcat.concat(csfbatt);
+    strconcat.concat(cversion);
+    strconcat.concat(cinaU);
+    strconcat.concat(cinaI);
+    strconcat.concat(ctele);
+
+    snprintf(msg_start, sizeof(msg_start), "%07.2lf%c%c%08.2lf%c%c%s", slat, lat_c, meshcom_settings.node_symid, slon, lon_c, meshcom_settings.node_symcd, strconcat.c_str());
 
     return String(msg_start);
 }
@@ -2653,6 +2678,9 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
         //int ilng = encodeLoRaAPRS(msg_buffer, meshcom_settings.node_call, lat, lat_c, lon, lon_c, alt);
         int ilng = encodeLoRaAPRScompressed(msg_buffer, meshcom_settings.node_call, lat, lat_c, lon, lon_c, alt);
 
+        if(ilng == 0)
+            return;
+
         if(bDisplayInfo)
         {
             Serial.printf("%s [LO-APRS]...%s\n", getTimeString().c_str(), msg_buffer+3);
@@ -2664,6 +2692,18 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
         memcpy(ringBuffer[iWrite]+2, msg_buffer, ilng);
 
         addRingPointer(iWrite, iRead, MAX_RING);
+
+        posinfo_last_lat=posinfo_lat;
+        posinfo_last_lon=posinfo_lon;
+        posinfo_last_direction=posinfo_direction;
+        posinfo_distance=0.0;
+        gps_sum_intervall=0.0;
+
+        posinfo_timer = millis();
+
+        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
+            tdeck_send_track_view();
+        #endif
 
         /*
         iWrite++;
@@ -2762,6 +2802,18 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
         memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
 
         addRingPointer(iWrite, iRead, MAX_RING);
+
+        posinfo_last_lat=posinfo_lat;
+        posinfo_last_lon=posinfo_lon;
+        posinfo_last_direction=posinfo_direction;
+        posinfo_distance=0.0;
+        gps_sum_intervall=0.0;
+
+        posinfo_timer = millis();
+
+        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
+            tdeck_send_track_view();
+        #endif
 
         /*
         iWrite++;
@@ -3277,85 +3329,111 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
 {
     extern TinyGPSPlus tinyGPSPLus;
 
-    unsigned int gps_send_rate = POSINFO_INTERVAL;  // seconds
-
-    if(posinfo_lat == 0.0)
-        posinfo_lat = dlat;
-    if(posinfo_lon == 0.0)
-        posinfo_lon = dlon;
-
-
-    posinfo_distance_ring[posinfo_ring_write] = tinyGPSPLus.distanceBetween(posinfo_lat, posinfo_lon, dlat, dlon);    // meters
-    posinfo_direction = tinyGPSPLus.courseTo(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // Grad
-
-    posinfo_ring_write++;
-    if(posinfo_ring_write > 9)
-    {
-        posinfo_ring_write=0;
-    }
-
-    posinfo_distance=0;
-    for(int ir=0;ir<10;ir++)
-    {
-        posinfo_distance += (int)posinfo_distance_ring[ir];
-    }
+    unsigned int gps_send_rate = posinfo_last_rate;  // seconds
 
     posinfo_lat = dlat;
     posinfo_lon = dlon;
 
+    if(posinfo_last_lat == 0.0 && posinfo_last_lon == 0.0)
+    {
+        posinfo_last_lat = dlat;
+        posinfo_last_lon = dlon;
+    }
+
+    double distance = tinyGPSPLus.distanceBetween(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // meters
+    posinfo_direction = tinyGPSPLus.courseTo(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // Grad
+
+    // TEST
+    /*
+    distance = 6.5;
+    posinfo_direction = 90.0;
+    */
+
+    posinfo_distance += distance;
+    gps_sum_intervall += gps_refresh_intervall;
+
+    double distance_per_sec = posinfo_distance / gps_sum_intervall; // m/s
+
+    if(bGPSDEBUG)
+        Serial.printf("%s [POSINFO]... dir:%.1lf° dist:%.1lf time:%.1lf speed:%.1lf intervall:%.1lf\n", getTimeString().c_str(), posinfo_direction, posinfo_distance, gps_sum_intervall, distance_per_sec, gps_refresh_intervall);
+
+    // gps_refresh_intervall default 10
     // get gps distance every 100 seconds
     // gps_send_rate 30 minutes default
     // bDisplayTrack = true Smartbeaconing used
-    if(posinfo_distance < 100 || !bDisplayTrack)  // seit letzter gemeldeter position
+    if(posinfo_distance < 200 && gps_sum_intervall > 80)  // seit letzter gemeldeter position
     {
+        if(bGPSDEBUG)
+            Serial.printf("%s [POSINFO]... dist:%.1lf time:%.1lf\n", getTimeString().c_str(), posinfo_distance, gps_sum_intervall);
+
         if(meshcom_settings.node_postime > 0)
             gps_send_rate = meshcom_settings.node_postime;
         else
             gps_send_rate = POSINFO_INTERVAL;
+
+        posinfo_distance = 0;
+        gps_sum_intervall = 0;
+        posinfo_last_lat = dlat;
+        posinfo_last_lon = dlon;
+
+        posinfo_last_rate = gps_send_rate;
+
+        return gps_send_rate;
     }
-    else
-    // distanz in m pro gps_refresh_intervall (default 5) sekunden
+
+    // distanz in m pro gps_sum_intervall (default 5) sekunden
     // Bewegung                         GPS je 5 sec
-    // fuss          1.3 m/s ca. 4 m     20 m           
-    // fahrad        4.0 m/s ca. 12 m    60 m
+    // zu fuss       1.3 m/s ca. 4 m     20 m           
+    // fahrrad       4.0 m/s ca. 12 m    60 m
     // auto stadt   14.0 m/s ca. 42 m   210 m
     // auto land    22.0 m/s ca. 66 m   330 m
     // autobahn     36.0 m/s ca. 100 m  500 m
-    if(posinfo_distance < 100)  //  ... alle 100 m
-        gps_send_rate = 30; // seconds
-    else
-    if(posinfo_distance < 200)  // rad < 40 km/h
-        gps_send_rate = 60; // seconds
-    else
-    if(posinfo_distance < 1000)
-        gps_send_rate = 120; // auto > 80 km/h
-    else
-        gps_send_rate = 180; // auto stadt < 80 km/h
+    
 
-    int direction_diff=0;
-
-    if(posinfo_distance > 100 && bDisplayTrack)  // meter
+    if(posinfo_distance > 60 && distance_per_sec > 1.1)  // seit letzter gemeldeter position
     {
-        direction_diff=GetHeadingDifference((int)posinfo_last_direction, (int)posinfo_direction);
+        if(distance_per_sec < 4.0)  // fuss
+            gps_send_rate = 35; // seconds
+        else
+        if(distance_per_sec < 14.0)  // rad < 40 km/h
+            gps_send_rate = 75; // seconds
+        else
+        if(distance_per_sec < 22.0) // auto stadt
+            gps_send_rate = 120;
+        else
+        if(distance_per_sec < 36.0) // auto land
+            gps_send_rate = 150;
+        else
+            gps_send_rate = 180; // auto autobahn
 
-        if(direction_diff > 15)
-        {
-            posinfo_shot=true;
-        }
-    }
-
-    if(posinfo_last_lat == 0.0 && posinfo_last_lon == 0.0)
-        posinfo_shot=true;
-
-    if(posinfo_shot)
-    {
         if(bGPSDEBUG)
+            Serial.printf("%s [POSINFO]... dist/s:%.lf rate:%i\n", getTimeString().c_str(), distance_per_sec,(int)gps_send_rate);
+    }
+
+    if(gps_send_rate < 200)  // seit letzter gemeldeter position
+    {
+        int direction_diff=0;
+
+        if((int)posinfo_last_direction > 0 && (int)posinfo_direction > 0)  // seit letzter gemeldeter position
         {
-            Serial.printf("%s [POSINFO]... one-shot set - direction_diff:%i last_lat:%.1lf last_lon:%.1lf\n", getTimeString().c_str(), direction_diff, posinfo_last_lat, posinfo_last_lon);
+            direction_diff=GetHeadingDifference((int)posinfo_last_direction, (int)posinfo_direction);
+
+            if(direction_diff > 15)
+            {
+                posinfo_shot=true;
+
+                if(bGPSDEBUG)
+                    Serial.printf("%s [POSINFO]... one-shot set - direction_diff:%i last_lat:%.1lf last_lon:%.1lf\n", getTimeString().c_str(), direction_diff, posinfo_last_lat, posinfo_last_lon);
+            }
         }
     }
 
-    return gps_send_rate;
+    posinfo_last_rate = gps_send_rate;
+
+    if(bGPSDEBUG)
+        Serial.printf("%s [POSINFO]... RATE:%i\n", getTimeString().c_str(), (int)posinfo_last_rate);
+
+    return posinfo_last_rate;
 }
 
 String convertCallToShort(char callsign[10])

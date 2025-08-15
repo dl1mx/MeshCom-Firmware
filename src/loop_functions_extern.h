@@ -188,12 +188,12 @@ extern bool bPhoneTimeValid;
 extern bool bNTPDateTimeValid;
 
 // timers
+extern double gps_refresh_intervall;   // sec
+extern double gps_sum_intervall;   // sec
 extern unsigned long posinfo_interval; // check interval
 extern unsigned long posfixinterall;
-extern int posinfo_distance;
+extern double posinfo_distance;
 extern double posinfo_direction;
-extern int posinfo_distance_ring[10];
-extern int posinfo_ring_write;
 extern double posinfo_lat;
 extern double posinfo_lon;
 extern double posinfo_last_lat;
@@ -207,7 +207,7 @@ extern uint32_t posinfo_age;
 extern bool pos_shot;
 extern bool wx_shot;
 extern int no_gps_reset_counter;
-extern unsigned int gps_refresh_intervall;
+extern int gps_refresh_track;
 
 extern unsigned long posinfo_timer;      // we check periodically to send GPS
 extern unsigned long heyinfo_timer;      // we check periodically to send HEY

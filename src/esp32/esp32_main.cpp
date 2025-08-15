@@ -1683,7 +1683,7 @@ void esp32loop()
         strTime = "none";
 
         // every 15 minutes
-        if((updateTimeClient + 1000 * 60 * 15) < millis() || updateTimeClient == 0)
+        if((updateTimeClient + 1000 * 60 * 10) < millis() || updateTimeClient == 0)
         {
             strTime = udpUpdateTimeClient();
 
@@ -1781,8 +1781,11 @@ void esp32loop()
         // Starttime setzen
         if(meshcom_settings.node_date_year > 2023 && meshcom_settings.node_update[0] == 0x00)
         {
-            snprintf(meshcom_settings.node_update, sizeof(meshcom_settings.node_update), "%04i-%02i-%02i %02i:%02i:%02i",
+            char ctemp[80];
+            snprintf(ctemp, sizeof(ctemp), "%04i-%02i-%02i %02i:%02i:%02i",
              meshcom_settings.node_date_year, meshcom_settings.node_date_month, meshcom_settings.node_date_day, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second);
+
+            memcpy(meshcom_settings.node_update, ctemp, 21);
 
             #if defined(ENABLE_RTC)
             if(bRTCON && bNTPDateTimeValid) // NTP hat Vorang zur RTC und setzt RTC
@@ -1965,16 +1968,14 @@ void esp32loop()
     }
     #endif
 
-    // gps refresh every 10 sec
-    unsigned long gps_refresh_intervall = GPS_REFRESH_INTERVAL;
+    // gps display refresh every 10 sec
+    gps_refresh_intervall = GPS_REFRESH_INTERVAL;
 
     // TRACK ON
-    #ifndef BOARD_T_DECK_PRO
     if(bDisplayTrack)
-        gps_refresh_intervall = 5;
-    #endif
+        gps_refresh_intervall = 5.0;
 
-    if ((gps_refresh_timer + (gps_refresh_intervall * 1000)) < millis())
+    if ((gps_refresh_timer + ((unsigned long)gps_refresh_intervall * 1000)) < millis())
     {
         #ifdef ENABLE_GPS
 
@@ -1983,7 +1984,7 @@ void esp32loop()
         if(!bGPSON)
         {
             #if defined (BOARD_T_DECK_PRO)
-            TDeck_pro_set_gps(false);
+            tdeck_set_gps(false);
             #endif
 
             if(meshcom_settings.node_postime > 0)
@@ -2002,11 +2003,11 @@ void esp32loop()
         else
         {
             #if defined (BOARD_T_DECK_PRO)
-            TDeck_pro_set_gps(true);
+            tdeck_set_gps(true);
             #endif
 
             #ifdef BOARD_T_DECK_PRO
-            igps = TDeck_pro_get_gps();
+                igps = tdeck_get_gps();
             #else
                 #if defined (GPS_L76K)
                     igps = loopL76KGPS();
@@ -2014,7 +2015,7 @@ void esp32loop()
                     igps = getGPS();
                 #endif
             #endif
-        }
+    }
 
         if(igps > 0)
             posinfo_interval = igps;
@@ -2030,8 +2031,12 @@ void esp32loop()
 
 
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
-            if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45)
+            gps_refresh_track++;
+            if(gps_refresh_track > 2)
+            {
                 tdeck_refresh_track_view();
+                gps_refresh_track=0;
+            }
         #endif
 
         #endif
@@ -2042,29 +2047,31 @@ void esp32loop()
     // posinfo_interval in Seconds
     if (((posinfo_timer + (posinfo_interval * 1000)) < millis()) || (millis() > 100000 && millis() < 130000 && bPosFirst) || posinfo_shot)
     {
+        if(bDisplayInfo)
+        {
+            Serial.print(getTimeString());
+            Serial.printf(" [POS]...sendPostion initialized F:%i S:%i\n", bPosFirst, posinfo_shot);
+        }
+
         bPosFirst = false;
 
         posinfo_shot=false;
         
-        if(bDisplayInfo)
-        {
-            Serial.print(getTimeString());
-            Serial.println("[POS]...sendPostion initialized");
-        }
-
         sendPosition(posinfo_interval, meshcom_settings.node_lat, meshcom_settings.node_lat_c, meshcom_settings.node_lon, meshcom_settings.node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
 
         posinfo_last_lat=posinfo_lat;
         posinfo_last_lon=posinfo_lon;
         posinfo_last_direction=posinfo_direction;
+        posinfo_distance=0.0;
+        gps_sum_intervall=0.0;
+
+        posinfo_timer = millis();
 
         if(pos_shot)
         {
             commandAction((char*)"--pos", isPhoneReady, false);
             pos_shot = false;
         }
-
-        posinfo_timer = millis();
     }
 
     // HEYINFO_INTERVAL in Seconds == 15 minutes
@@ -2229,8 +2236,6 @@ void esp32loop()
     {
         if ((BMXTimeWait + 60000) < millis())   // 60 sec
         {
-            Serial.println("BMP Sensor");
-
             #if defined(ENABLE_BMX280)
                 if(loopBMX280())
                 {
@@ -2263,7 +2268,6 @@ void esp32loop()
             #endif
 
             #if defined(ENABLE_SHT21)
-            Serial.println("SHT Sensor");
                 if(loopSHT21())
                 {
                     meshcom_settings.node_temp2 = getSHT21Temp();

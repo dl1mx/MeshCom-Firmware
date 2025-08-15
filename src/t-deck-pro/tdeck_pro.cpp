@@ -562,10 +562,15 @@ void TDeck_pro_mheard_disp()
 
 void tdeck_refresh_track_view()
 {
-    ui_track_disp();
+    ui_track_disp(false);
 }
 
-void TDeck_pro_set_gps(bool bGPS)
+void tdeck_send_track_view()
+{
+    ui_track_disp(true);
+}
+
+void tdeck_set_gps(bool bGPS)
 {
     if(bGPS)
         ui_gps_task_resume();
@@ -573,7 +578,7 @@ void TDeck_pro_set_gps(bool bGPS)
         ui_gps_task_suspend();
 }
 
-unsigned int TDeck_pro_get_gps()
+unsigned int tdeck_get_gps()
 {
     double lat      = 0; // Latitude
     double lon      = 0; // Longitude
@@ -587,7 +592,7 @@ unsigned int TDeck_pro_get_gps()
     uint8_t   hour     = 0; // 
     uint8_t   min      = 0; // 
     uint8_t   sec      = 0; // 
-    uint8_t   fix      = 0; // 
+    uint8_t   fix      = 0; //
 
     ui_gps_get_coord(&lat, &lon, &alt);
     ui_gps_get_data(&year, &month, &day);

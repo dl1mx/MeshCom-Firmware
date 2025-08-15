@@ -608,9 +608,8 @@ String udpUpdateTimeClient()
     {
       Serial.println("TimeClient no force update possible");
 
-      timeClient.end();
-      delay(2000);
-      timeClient.begin();
+      rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+
       return "none";
     }
   }
