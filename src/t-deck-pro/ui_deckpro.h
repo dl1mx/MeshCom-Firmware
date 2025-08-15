@@ -137,7 +137,7 @@ typedef struct {
 void ui_deckpro_entry(void);
 void ui_lora_disp(String recv_info);
 void ui_mheard_disp();
-void ui_track_disp();
+void ui_track_disp(bool bSend);
 
 #ifdef __cplusplus
 } /*extern "C"*/

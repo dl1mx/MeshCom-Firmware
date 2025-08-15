@@ -1557,6 +1557,21 @@ void tdeck_refresh_SET_view()
         lv_obj_clear_state(wifiap_sw, LV_STATE_CHECKED);
 }
 
+char ctrack[300];
+
+/**
+ * show GPS Posítion sent
+ */
+void tdeck_send_track_view()
+{
+    if(bDisplayTrack)
+        snprintf(ctrack, sizeof(ctrack), "\n\n\n\n       TRACK\n   POSITION SENT\n");
+    else
+        snprintf(ctrack, sizeof(ctrack), "\n\n\n\n        GPS\n   POSITION SENT\n");
+
+    lv_textarea_set_text(track_ta, ctrack);
+}
+
 /**
  * refresh GPS view
  */
@@ -1578,15 +1593,13 @@ void tdeck_refresh_track_view()
         meshcom_settings.node_date_minute,
         meshcom_settings.node_date_second);
 
-    char ctrack[300];
-
     if(bGPSON)
     {
         if(posinfo_fix)
         {
             if(bDisplayTrack)
             {
-                snprintf(ctrack, sizeof(ctrack), "TRACK:on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nDIST :%i m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4li %isec",
+                snprintf(ctrack, sizeof(ctrack), "TRACK:on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nDIST :%.0lf m\nRATE :%4li %4isec\nDIR  :old %.0lf\nDIR  :new %.0lf",
                 (posinfo_fix ? "fix" : "nofix"), 
                 posinfo_hdop, 
                 cDatum, 
@@ -1596,14 +1609,14 @@ void tdeck_refresh_track_view()
                 meshcom_settings.node_lon, 
                 meshcom_settings.node_lon_c, 
                 posinfo_distance, 
-                posinfo_last_direction, 
-                posinfo_direction, 
                 posinfo_interval,
-                pos_seconds);
+                pos_seconds,
+                posinfo_last_direction, 
+                posinfo_direction);
             }
             else
             {
-                snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i\nSAT  :%u\nDIR  :%.0lf\nRATE :%4li %isec",
+                snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i\nRATE :%4li %isec\nSAT  :%u\nDIR  :%.0lf",
                 (posinfo_fix ? "fix" : "nofix"), 
                 posinfo_hdop, 
                 cDatum, 
@@ -1613,10 +1626,10 @@ void tdeck_refresh_track_view()
                 meshcom_settings.node_lon, 
                 meshcom_settings.node_lon_c, 
                 meshcom_settings.node_alt,
-                posinfo_satcount,
-                posinfo_direction, 
                 posinfo_interval,
-                pos_seconds);
+                pos_seconds,
+                posinfo_satcount,
+                posinfo_direction);
             }
 
             lv_textarea_set_text(track_ta, ctrack);

@@ -791,7 +791,7 @@ void sub_page_position()
     web_client.printf("<tr><td>Satellites</td><td>%i - %s - HDOP %i</td></tr>\n", (int)posinfo_satcount, (posinfo_fix ? "fix" : "nofix"), posinfo_hdop);
     web_client.printf("<tr><td>Rate</td><td>%i</td></tr>\n", (int)posinfo_interval);
     web_client.printf("<tr><td>Next</td><td>%i sec</td></tr>\n", (int)(((posinfo_timer + (posinfo_interval * 1000)) - millis()) / 1000));
-    web_client.printf("<tr><td>Distance</td><td>%i m</td></tr>\n", posinfo_distance);
+    web_client.printf("<tr><td>Distance</td><td>%.0lf m</td></tr>\n", posinfo_distance);
     web_client.printf("<tr><td>Dir (current)</td><td>%i&deg;</td></tr>\n", (int)posinfo_direction);
     web_client.printf("<tr><td>Dir (last)</td><td>%i&deg;</td></tr>\n", (int)posinfo_last_direction);
     web_client.printf("<tr><td>Date</td><td>%i.%02i.%02i %02i:%02i:%02i %s</td></tr>\n", meshcom_settings.node_date_year, meshcom_settings.node_date_month, meshcom_settings.node_date_day, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, getTimeZone().c_str());

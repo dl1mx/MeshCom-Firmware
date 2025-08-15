@@ -37,6 +37,7 @@ int getMapDropboxID(String strMap);
 
 void tdeck_refresh_SET_view();
 void tdeck_refresh_track_view();
+void tdeck_send_track_view();
 void tdeck_add_MSG(aprsMessage aprsmsg, bool bWithAudio);
 void tdeck_add_MSG(String callsign, String path, String message, bool bWithAudio);
 
