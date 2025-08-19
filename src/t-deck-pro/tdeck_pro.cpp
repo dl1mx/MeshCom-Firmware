@@ -643,7 +643,8 @@ unsigned int tdeck_get_gps()
             meshcom_settings.node_lat = lat * (-1);
             meshcom_settings.node_lat_c = 'S';
         }
-        else
+
+        if(lat > 0)
         {
             meshcom_settings.node_lat = lat;
             meshcom_settings.node_lat_c = 'N';
@@ -654,13 +655,15 @@ unsigned int tdeck_get_gps()
             meshcom_settings.node_lon = lon * (-1);
             meshcom_settings.node_lon_c = 'W';
         }
-        else
+
+        if(lon > 0)
         {
             meshcom_settings.node_lon = lon;
             meshcom_settings.node_lon_c = 'E';
         }
 
-        meshcom_settings.node_alt = (int)(alt + 0.5);
+        if(alt > 0)
+            meshcom_settings.node_alt = (int)(alt + 0.5);
 
         posinfo_satcount = vsat;
         posinfo_hdop = hdop;
