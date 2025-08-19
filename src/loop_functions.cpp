@@ -3378,6 +3378,9 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
 
         posinfo_last_rate = gps_send_rate;
 
+        if(bGPSDEBUG)
+           Serial.printf("%s [POSINFO]... STOP-RATE:%i\n", getTimeString().c_str(), (int)gps_send_rate);
+
         return gps_send_rate;
     }
 
@@ -3387,8 +3390,7 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     // fahrrad       4.0 m/s ca. 12 m    60 m
     // auto stadt   14.0 m/s ca. 42 m   210 m
     // auto land    22.0 m/s ca. 66 m   330 m
-    // autobahn     36.0 m/s ca. 100 m  500 m
-    
+    // autobahn     36.0 m/s ca. 100 m  500 m 
 
     if(posinfo_distance > 60 && distance_per_sec > 1.1)  // seit letzter gemeldeter position
     {
@@ -3396,18 +3398,41 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
             gps_send_rate = 35; // seconds
         else
         if(distance_per_sec < 14.0)  // rad < 40 km/h
-            gps_send_rate = 75; // seconds
+            gps_send_rate = 65; // seconds
         else
         if(distance_per_sec < 22.0) // auto stadt
-            gps_send_rate = 120;
+            gps_send_rate = 95;
         else
         if(distance_per_sec < 36.0) // auto land
-            gps_send_rate = 150;
+            gps_send_rate = 125;
         else
-            gps_send_rate = 180; // auto autobahn
+            gps_send_rate = 155; // auto autobahn
 
         if(bGPSDEBUG)
             Serial.printf("%s [POSINFO]... dist/s:%.lf rate:%i\n", getTimeString().c_str(), distance_per_sec,(int)gps_send_rate);
+    }
+    else
+    {
+        // 30 sec no new smartbeacon
+        if(gps_sum_intervall >= gps_send_rate)
+        {
+            posinfo_distance = 0;
+            gps_sum_intervall = 0;
+            posinfo_last_lat = dlat;
+            posinfo_last_lon = dlon;
+
+            if(meshcom_settings.node_postime > 0)
+                gps_send_rate = meshcom_settings.node_postime;
+            else
+                gps_send_rate = POSINFO_INTERVAL;
+
+            posinfo_last_rate = gps_send_rate;
+
+            if(bGPSDEBUG)
+                Serial.printf("%s [POSINFO]... STOP-RATE:%i\n", getTimeString().c_str(), (int)gps_send_rate);
+
+            return gps_send_rate;
+        }
     }
 
     if(gps_send_rate < 200)  // seit letzter gemeldeter position

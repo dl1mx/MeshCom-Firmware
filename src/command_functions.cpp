@@ -2778,8 +2778,8 @@ void commandAction(char *umsg_text, bool ble)
             bWifiSetting = true;
         }
 
-        if(strcmp(meshcom_settings.node_ssid, "none") == 0)
-            memset(meshcom_settings.node_ssid, 0x00, sizeof(meshcom_settings.node_ssid));
+        if(strcmp(meshcom_settings.node_pwd, "none") == 0)
+            memset(meshcom_settings.node_pwd, 0x00, sizeof(meshcom_settings.node_pwd));
 
         save_settings();
 
