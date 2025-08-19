@@ -460,8 +460,10 @@ bool startWIFI()
 
   if(bWIFIAP)
   {
-    WiFi.disconnect();
+    WiFi.disconnect(true, true);
     delay(500);
+
+    hasIPaddress=false;
 
     WiFi.mode(WIFI_AP);
     WiFi.softAP(meshcom_settings.node_call);
@@ -486,8 +488,10 @@ bool startWIFI()
     }
   }
 
-  WiFi.disconnect();
+  WiFi.disconnect(true, true);
 	delay(500);
+
+  hasIPaddress=false;
 
   // Scan for AP with best RSSI
 	int nrAps = WiFi.scanNetworks();
@@ -608,8 +612,12 @@ String udpUpdateTimeClient()
     {
       Serial.println("TimeClient no force update possible");
 
-      rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+      Udp.stop();
 
+      WiFi.disconnect(true, true);
+
+      hasIPaddress=false;
+      
       return "none";
     }
   }
@@ -817,7 +825,9 @@ void resetMeshComUDP()
 {
   Udp.stop();
 
-  WiFi.disconnect();
+  WiFi.disconnect(true, true);
+
+  hasIPaddress=false;
 
   if(bGATEWAY || bWEBSERVER)
   {
