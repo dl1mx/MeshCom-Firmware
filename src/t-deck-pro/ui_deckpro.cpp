@@ -12,6 +12,7 @@
 #include "loop_functions_extern.h"
 #include "mheard_functions.h"
 #include <command_functions.h>
+#include "regex_functions.h"
 
 #define SETTING_PAGE_MAX_ITEM 7
 #define GET_BUFF_LEN(a) sizeof(a)/sizeof(a[0])
@@ -2254,6 +2255,11 @@ static lv_obj_t * obj_keyboard;
 
 static lv_obj_t * call_ta;
 
+static lv_obj_t * lat_ta;
+static lv_obj_t * lat_c_ta;
+static lv_obj_t * lon_ta;
+static lv_obj_t * lon_c_ta;
+
 static lv_obj_t * group_1;
 static lv_obj_t * group_2;
 static lv_obj_t * group_3;
@@ -2268,6 +2274,58 @@ static lv_obj_t * gpson_sw;
 static lv_obj_t * track_sw;
 static lv_obj_t * mute_sw;
 static lv_obj_t * wifiap_sw;
+
+void btn_event_handler_save(lv_event_t * e)
+{
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if(code == LV_EVENT_CLICKED)
+    {
+        String sCall = lv_textarea_get_text(call_ta);
+
+        sCall.trim();
+        sCall.toUpperCase();
+
+        if(!checkRegexCall(sCall))
+        {
+            Serial.printf("\n[ERR]..Callsign <%s> not valid\n", sCall.c_str());
+            return;
+        }
+
+        snprintf(meshcom_settings.node_call, sizeof(meshcom_settings.node_call), "%s",  sCall.c_str());
+
+        lv_textarea_set_text(call_ta, meshcom_settings.node_call);
+
+        String strgrp=lv_textarea_get_text(group_1);
+        meshcom_settings.node_gcb[0] = strgrp.toInt();
+        strgrp=lv_textarea_get_text(group_2);
+        meshcom_settings.node_gcb[1] = strgrp.toInt();
+        strgrp=lv_textarea_get_text(group_3);
+        meshcom_settings.node_gcb[2] = strgrp.toInt();
+        strgrp=lv_textarea_get_text(group_4);
+        meshcom_settings.node_gcb[3] = strgrp.toInt();
+        strgrp=lv_textarea_get_text(group_5);
+        meshcom_settings.node_gcb[4] = strgrp.toInt();
+        strgrp=lv_textarea_get_text(group_6);
+        meshcom_settings.node_gcb[5] = strgrp.toInt();
+
+        String strtmp = lv_textarea_get_text(lat_ta);
+        double ltemp = strtmp.toDouble();
+        if(ltemp > 0 and ltemp<90.1)
+            meshcom_settings.node_lat = ltemp;
+
+        meshcom_settings.node_lat_c = lv_textarea_get_text(lat_c_ta)[0];
+
+        strtmp = lv_textarea_get_text(lon_ta);
+        ltemp = strtmp.toDouble();
+        if(ltemp > 0 and ltemp<180.1)
+            meshcom_settings.node_lon = ltemp;
+
+        meshcom_settings.node_lon_c = lv_textarea_get_text(lon_c_ta)[0];
+
+        save_settings();
+    }
+}
 
 static void scr9_btn_event_cb(lv_event_t * e)
 {
@@ -2460,19 +2518,14 @@ static void create9(lv_obj_t *parent)
     int ihor3 = 150;
     int ivert= 40;
     int ih = 28;
-    int iv_step=33;
+    int iv_step=31;
 
     /////////////////////////////////////////////////////////////////////////////
     // CALLSIGN
-    lv_obj_t * btcall = lv_btn_create(parent);
-    lv_obj_set_size(btcall, 50, ih);
-    lv_obj_align(btcall, LV_ALIGN_TOP_LEFT, ihor1, ivert);
 
-    lv_obj_set_style_radius(btcall, 5, LV_PART_MAIN);
-    lv_obj_set_style_border_width(btcall, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(btcall, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_t * labelcall = lv_label_create(btcall);
+    lv_obj_t * labelcall = lv_label_create(parent);
+    lv_obj_set_size(labelcall, 50, ih);
+    lv_obj_align(labelcall, LV_ALIGN_TOP_LEFT, ihor1, ivert);
     lv_label_set_text(labelcall, "CALL");
     lv_obj_set_style_text_font(labelcall, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
 
@@ -2496,15 +2549,9 @@ static void create9(lv_obj_t *parent)
     // GROUP A
     ivert += iv_step;
 
-    lv_obj_t * group = lv_btn_create(parent);
-    lv_obj_set_size(group, 30, ih);
-    lv_obj_align(group, LV_ALIGN_TOP_LEFT, ihor1, ivert);
-
-    lv_obj_set_style_radius(group, 5, LV_PART_MAIN);
-    lv_obj_set_style_border_width(group, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-    lv_obj_set_style_shadow_width(group, 0, LV_PART_MAIN | LV_STATE_DEFAULT);
-
-    lv_obj_t * labelgrouo = lv_label_create(group);
+    lv_obj_t * labelgrouo = lv_label_create(parent);
+    lv_obj_set_size(labelgrouo, 30, ih);
+    lv_obj_align(labelgrouo, LV_ALIGN_TOP_LEFT, ihor1, ivert);
     lv_label_set_text(labelgrouo, "GRP");
     lv_obj_set_style_text_font(labelgrouo, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
 
@@ -2569,7 +2616,6 @@ static void create9(lv_obj_t *parent)
     // GROUP B
     ivert += iv_step;
 
-    /////////////////////////////////////
     group_4 = lv_textarea_create(parent);
     lv_obj_set_size(group_4, 57, ih);
     lv_obj_align(group_4, LV_ALIGN_TOP_LEFT, ihor1+48, ivert);
@@ -2580,7 +2626,7 @@ static void create9(lv_obj_t *parent)
     lv_textarea_set_text_selection(group_4, true);
     lv_textarea_set_cursor_pos(group_4, 0);
     strg = "";
-    strg.concat(meshcom_settings.node_gcb[0]);
+    strg.concat(meshcom_settings.node_gcb[3]);
     lv_textarea_set_text(group_4, strg.c_str());
     lv_textarea_set_max_length(group_4, 5);
 
@@ -2599,7 +2645,7 @@ static void create9(lv_obj_t *parent)
     lv_textarea_set_text_selection(group_5, true);
     lv_textarea_set_cursor_pos(group_5, 0);
     strg = "";
-    strg.concat(meshcom_settings.node_gcb[1]);
+    strg.concat(meshcom_settings.node_gcb[4]);
     lv_textarea_set_text(group_5, strg.c_str());
     lv_textarea_set_max_length(group_5, 5);
 
@@ -2618,7 +2664,7 @@ static void create9(lv_obj_t *parent)
     lv_textarea_set_text_selection(group_6, true);
     lv_textarea_set_cursor_pos(group_6, 0);
     strg = "";
-    strg.concat(meshcom_settings.node_gcb[2]);
+    strg.concat(meshcom_settings.node_gcb[5]);
     lv_textarea_set_text(group_6, strg.c_str());
     lv_textarea_set_max_length(group_6, 5);
 
@@ -2627,8 +2673,112 @@ static void create9(lv_obj_t *parent)
     lv_obj_add_event_cb(group_6, check_active_sym, LV_EVENT_ALL, group_6);
 
     /////////////////////////////////////////////////////////////////////////////
+    // LAT
+    ivert += iv_step;
+
+    lv_obj_t * labellat = lv_label_create(parent);
+    lv_obj_set_size(labellat, 50, ih);
+    lv_obj_align(labellat, LV_ALIGN_TOP_LEFT, ihor1, ivert);
+    lv_label_set_text(labellat, "LAT");
+    lv_obj_set_style_text_font(labellat, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lat_ta = lv_textarea_create(parent);
+    lv_obj_set_size(lat_ta, 100, ih);
+    lv_obj_align(lat_ta, LV_ALIGN_TOP_LEFT, ihor1+48, ivert);
+
+    lv_obj_set_style_text_font(lat_ta, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(lat_ta, true);
+    lv_textarea_set_text_selection(lat_ta, true);
+    lv_textarea_set_cursor_pos(lat_ta, 0);
+    char ctemp[10];
+    snprintf(ctemp, sizeof(ctemp), "%.4lf", meshcom_settings.node_lat);
+    lv_textarea_set_text(lat_ta, ctemp);
+    lv_textarea_set_max_length(lat_ta, 7);
+
+    lv_textarea_set_accepted_chars(lat_ta, "0123456789.");
+
+    lv_obj_add_event_cb(lat_ta, check_active_sym, LV_EVENT_ALL, lat_ta);
+
+    lat_c_ta = lv_textarea_create(parent);
+    lv_obj_set_size(lat_c_ta, 20, ih);
+    lv_obj_align(lat_c_ta, LV_ALIGN_TOP_LEFT, ihor1+48+103, ivert);
+
+    lv_obj_set_style_text_font(lat_c_ta, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(lat_c_ta, true);
+    lv_textarea_set_text_selection(lat_c_ta, true);
+    lv_textarea_set_cursor_pos(lat_c_ta, 0);
+    strg = meshcom_settings.node_lat_c;
+    lv_textarea_set_text(lat_c_ta, strg.c_str());
+    lv_textarea_set_max_length(lat_c_ta, 1);
+
+    lv_textarea_set_accepted_chars(lat_c_ta, "NS");
+
+    lv_obj_add_event_cb(lat_c_ta, check_active_cap, LV_EVENT_ALL, lat_c_ta);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // LON
+    ivert += iv_step;
+
+    lv_obj_t * labellon = lv_label_create(parent);
+    lv_obj_set_size(labellon, 50, ih);
+    lv_obj_align(labellon, LV_ALIGN_TOP_LEFT, ihor1, ivert);
+    lv_label_set_text(labellon, "LON");
+    lv_obj_set_style_text_font(labellon, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lon_ta = lv_textarea_create(parent);
+    lv_obj_set_size(lon_ta, 100, ih);
+    lv_obj_align(lon_ta, LV_ALIGN_TOP_LEFT, ihor1+48, ivert);
+
+    lv_obj_set_style_text_font(lon_ta, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(lon_ta, true);
+    lv_textarea_set_text_selection(lon_ta, true);
+    lv_textarea_set_cursor_pos(lon_ta, 0);
+    snprintf(ctemp, sizeof(ctemp), "%.4lf", meshcom_settings.node_lon);
+    lv_textarea_set_text(lon_ta, ctemp);
+    lv_textarea_set_max_length(lon_ta, 8);
+
+    lv_textarea_set_accepted_chars(lon_ta, "0123456789.");
+
+    lv_obj_add_event_cb(lon_ta, check_active_sym, LV_EVENT_ALL, lat_ta);
+
+    lon_c_ta = lv_textarea_create(parent);
+    lv_obj_set_size(lon_c_ta, 20, ih);
+    lv_obj_align(lon_c_ta, LV_ALIGN_TOP_LEFT,  ihor1+48+103, ivert);
+
+    lv_obj_set_style_text_font(lon_c_ta, FONT_BOLD_MONO_SIZE_15, LV_PART_MAIN);
+
+    lv_textarea_set_cursor_click_pos(lon_c_ta, true);
+    lv_textarea_set_text_selection(lon_c_ta, true);
+    lv_textarea_set_cursor_pos(lon_c_ta, 0);
+    strg = meshcom_settings.node_lon_c;
+    lv_textarea_set_text(lon_c_ta, strg.c_str());
+    lv_textarea_set_max_length(lon_c_ta, 1);
+
+    lv_textarea_set_accepted_chars(lon_c_ta, "WE");
+
+    lv_obj_add_event_cb(lon_c_ta, check_active_cap, LV_EVENT_ALL, lon_c_ta);
+
+    /////////////////////////////////////////////////////////////////////////////
+    // SAVE
+    ivert += iv_step;
+
+    lv_obj_t * btsave = lv_btn_create(parent);
+    lv_obj_set_size(btsave, 100, 25);
+    lv_obj_set_style_radius(btsave, 5, LV_PART_MAIN);
+    lv_obj_set_style_border_width(btsave, 2, LV_PART_MAIN);
+    lv_obj_align(btsave, LV_ALIGN_TOP_LEFT, ihor1+48, ivert);
+    lv_obj_add_event_cb(btsave, btn_event_handler_save, LV_EVENT_ALL, NULL);
+
+    lv_obj_t * btnlabelsave = lv_label_create(btsave);
+    lv_label_set_text(btnlabelsave, "SAVE DATA");
+    lv_obj_center(btnlabelsave);
+
+    /////////////////////////////////////////////////////////////////////////////
     // MESH
-    ivert += iv_step + 10;
+    ivert += iv_step;
 
     mesh_sw = lv_checkbox_create(parent);
     lv_checkbox_set_text(mesh_sw, "MESH");
