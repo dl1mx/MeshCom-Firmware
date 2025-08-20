@@ -129,10 +129,10 @@ void gps_get_fix(uint8_t *fix)
 /* clang-format on */
 void displayInfo()
 {
-    gps_fix = 0;
-
     if(bGPSDEBUG)
         Serial.print(F("Location: "));
+
+    gps_fix = 1;
 
     if (gps.location.isValid())
     {
@@ -153,6 +153,8 @@ void displayInfo()
     {
         if(bGPSDEBUG)
             Serial.print(F("INVALID"));
+    
+        gps_fix = 0;
     }
 
     if(bGPSDEBUG)
@@ -177,6 +179,8 @@ void displayInfo()
     {
         if(bGPSDEBUG)
             Serial.print(F("INVALID"));
+
+        gps_fix = 0;
     }
 
     if(bGPSDEBUG)
@@ -208,6 +212,8 @@ void displayInfo()
     {
         if(bGPSDEBUG)
             Serial.print(F("INVALID"));
+            
+        gps_fix = 0;
     }
 
     if(bGPSDEBUG)
@@ -217,7 +223,6 @@ void displayInfo()
     {
         gps_vsat = gps.satellites.value();
         gps_hdop = gps.hdop.value();
-        gps_fix = 1;
 
         if(bGPSDEBUG)
         {
@@ -225,6 +230,16 @@ void displayInfo()
             Serial.print(F(" "));
         }
     }
+    else
+    {
+        if(bGPSDEBUG)
+            Serial.print(F("INVALID"));
+            
+        gps_vsat = 0;
+        gps_hdop = 9999;
+        gps_fix = 0;
+    }
+
 
     if(bGPSDEBUG)
         Serial.print(F("  Speed: "));
@@ -238,6 +253,14 @@ void displayInfo()
             Serial.print(gps_speed);
             Serial.print(F(" "));
         }
+    }
+    else
+    {
+        if(bGPSDEBUG)
+            Serial.print(F("INVALID"));
+            
+        gps_speed = 0;
+        gps_fix = 0;
     }
 
     if(bGPSDEBUG)
