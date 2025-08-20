@@ -135,7 +135,8 @@ void decodeMHeard(unsigned char u_mh_buffer[sizeof(mheardBuffer[0])], struct mhe
 
 void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
 {
-    if(mheardLine.mh_date.compareTo("2000") == 0)
+    String strYear = mheardLine.mh_date.substring(0, 4);
+    if(strYear.toInt() < 2025)
         return;
 
     int ipos=-1;
@@ -232,7 +233,8 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
 
 void updateHeyPath(struct mheardLine &mheardLine)
 {
-    if(mheardLine.mh_date.compareTo("2000") == 0)
+    String strYear = mheardLine.mh_date.substring(0, 4);
+    if(strYear.toInt() < 2025)
         return;
 
     // exclude the owncall

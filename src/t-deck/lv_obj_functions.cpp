@@ -1700,6 +1700,11 @@ void tdeck_add_MSG(String callsign, String path, String message, bool bWithAudio
         meshcom_settings.node_date_minute, 
         path.c_str(), callsign.c_str(), message.c_str());
                                             
+    if (!meshcom_settings.node_keyboardlock)
+    {
+        tft_on();
+    }
+
     if (strlen(lv_textarea_get_text(text_ta)) + 200 >= lv_textarea_get_max_length(text_ta))
     {
         String strText_ta = lv_textarea_get_text(text_ta);
@@ -1730,11 +1735,8 @@ void tdeck_add_MSG(String callsign, String path, String message, bool bWithAudio
     lv_textarea_add_text(text_ta, buf);
 
     if (lv_tabview_get_tab_act(tv) != 1 && lv_tabview_get_tab_act(tv) != 7)
-        lv_tabview_set_act(tv, 0, LV_ANIM_OFF);
-
-    if (!meshcom_settings.node_keyboardlock)
     {
-        tft_on();
+        lv_tabview_set_act(tv, 0, LV_ANIM_OFF);
     }
 
     if(bWithAudio)
