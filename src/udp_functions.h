@@ -11,6 +11,9 @@ String udpUpdateTimeClient();
 String udpGetTimeClient();
 String udpGetDateClient();
 
+// WIFI checks
+bool checkWifiPing();
+
 // MeshCom UDP functions
 void getMeshComUDP();
 void getMeshComUDPpacket(unsigned char inc_udp_buffer[500], int packetSize);

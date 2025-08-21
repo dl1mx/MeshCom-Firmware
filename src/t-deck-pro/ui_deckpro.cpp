@@ -2426,6 +2426,7 @@ void btn_event_handler_switch(lv_event_t * e)
         if (lv_event_get_target(e) == mute_sw)
         {
             meshcom_settings.node_mute = lv_obj_has_state(mute_sw, LV_STATE_CHECKED);
+            
             save_settings();
 
             return;
