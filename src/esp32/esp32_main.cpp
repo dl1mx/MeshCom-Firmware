@@ -1804,7 +1804,6 @@ void esp32loop()
     }
 
     // check WiFI connected every 30 sec
-    #ifndef BOARD_RAK4630
     if ((wifi_active_timer + 30000) < millis())
     {
         if(!checkWifiPing())
@@ -1820,7 +1819,6 @@ void esp32loop()
 
         wifi_active_timer = millis();
     }
-    #endif
 
 
     // SOFTSER
