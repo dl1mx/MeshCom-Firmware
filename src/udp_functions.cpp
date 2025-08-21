@@ -25,6 +25,7 @@ String grc_ids;
 #include <WiFi.h>
 #include <WiFiClient.h>
 #include "esp_wifi.h"
+#include <ESP32Ping.h>
 
 IPAddress node_ip = IPAddress(0,0,0,0);
 IPAddress node_gw = IPAddress(0,0,0,0);
@@ -598,6 +599,27 @@ bool doWiFiConnect()
 
   // run startMeshComUDP() to get IP Address
   startMeshComUDP();
+
+  return true;
+}
+
+bool checkWifiPing()
+{
+  if(hasIPaddress)
+  {
+    if(!Ping.ping(node_gw))
+    {
+      Udp.stop();
+
+      WiFi.disconnect(true, true);
+
+      hasIPaddress=false;
+
+      meshcom_settings.node_hasIPaddress = hasIPaddress;
+
+      return false;
+    }
+  }
 
   return true;
 }

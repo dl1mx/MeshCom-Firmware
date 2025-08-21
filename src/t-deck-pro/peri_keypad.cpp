@@ -280,11 +280,11 @@ void keypad_loop(void)
                 else
                 if((c == 'B'  || c == 'b') && (!meshcom_settings.node_keyboardlock)) // ALT + B
                 {
-                    //cycleBrightness();
+                    //cycleBrightness();    // TODO
                     bNORM = false;
                 }
                 else
-                if((c == 'M'  || c == 'm') && (!meshcom_settings.node_keyboardlock)) // ALT + B
+                if((c == 'M'  || c == 'm') && (!meshcom_settings.node_keyboardlock)) // ALT + M
                 {
                     meshcom_settings.node_mute = !meshcom_settings.node_mute;
                     bNORM = false;

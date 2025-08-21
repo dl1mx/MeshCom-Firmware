@@ -429,6 +429,7 @@ unsigned long softser_refresh_timer = 0;
 unsigned long rtc_refresh_timer = 0;
 unsigned long pixels_delay = 0;
 unsigned long ble_wait = 0;
+unsigned long wifi_active_timer = 0;
 
 bool is_new_packet(uint8_t compBuffer[4]);     // switch if we have a packet received we never saw before RcvBuffer[12] changes, rest is same
 void checkSerialCommand(void);
@@ -1683,7 +1684,7 @@ void esp32loop()
         strTime = "none";
 
         // every 15 minutes
-        if((updateTimeClient + 1000 * 60 * 10) < millis() || updateTimeClient == 0)
+        if((updateTimeClient + 1000 * 60 * 15) < millis() || updateTimeClient == 0)
         {
             strTime = udpUpdateTimeClient();
 
@@ -1801,6 +1802,26 @@ void esp32loop()
             #endif
         }
     }
+
+    // check WiFI connected every 30 sec
+    #ifndef BOARD_RAK4630
+    if ((wifi_active_timer + 30000) < millis())
+    {
+        if(!checkWifiPing())
+        {
+            // restart WEB-Client
+            if(bWEBSERVER)
+                stopWebserver();
+
+            startWIFI();
+
+            web_timer = millis();
+        }
+
+        wifi_active_timer = millis();
+    }
+    #endif
+
 
     // SOFTSER
     #if defined(ENABLE_SOFTSER)
@@ -1973,7 +1994,7 @@ void esp32loop()
 
     // TRACK ON
     if(bDisplayTrack)
-        gps_refresh_intervall = 5.0;
+        gps_refresh_intervall = 3.0;
 
     if ((gps_refresh_timer + ((unsigned long)gps_refresh_intervall * 1000)) < millis())
     {
@@ -2015,7 +2036,7 @@ void esp32loop()
                     igps = getGPS();
                 #endif
             #endif
-    }
+        }
 
         if(igps > 0)
             posinfo_interval = igps;
@@ -2032,7 +2053,7 @@ void esp32loop()
 
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
             gps_refresh_track++;
-            if(gps_refresh_track > 2)
+            if(gps_refresh_track > 4)
             {
                 tdeck_refresh_track_view();
                 gps_refresh_track=0;

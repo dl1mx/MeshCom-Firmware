@@ -185,7 +185,7 @@ void init_flash(void)
 
     meshcom_settings.node_analog_batt_faktor = preferences.getFloat("node_bfakt", 0.0);
 
-    #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+    #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
     meshcom_settings.node_map = preferences.getInt("node_map", 0);
     meshcom_settings.node_audio_start = preferences.getString("node_audstart", "/");
     meshcom_settings.node_audio_msg = preferences.getString("node_audmsg", "/");
@@ -393,7 +393,7 @@ void save_settings(void)
 
     preferences.putFloat("node_bfakt", meshcom_settings.node_analog_batt_faktor);
     
-    #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+    #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)  || defined(BOARD_T_DECK_PRO)
     preferences.putInt("node_map", meshcom_settings.node_map);
     preferences.putString("node_audstart", meshcom_settings.node_audio_start);
     preferences.putString("node_audmsg", meshcom_settings.node_audio_msg);

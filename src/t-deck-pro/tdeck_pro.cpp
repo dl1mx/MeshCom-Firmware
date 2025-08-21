@@ -543,15 +543,18 @@ void TDeck_pro_lora_disp(String strHead, String strText)
         strOldLine = "----- " + getDateString().substring(5, 11) + " " + getTimeString() + " -----\n" + strHead + "\n" + strText;
     }
 
-    if(strOldLine.length() > 400)
-        strOldLine = strOldLine.substring(0, 300);
+    if(strOldLine.length() > 600)
+        strOldLine = strOldLine.substring(0, 400);
 
     ui_lora_disp(strOldLine);
 
     // make noise
-    digitalWrite(BOARD_MOTOR_PIN, HIGH);
-    delay(100);
-    digitalWrite(BOARD_MOTOR_PIN, LOW);
+    if(!meshcom_settings.node_mute)
+    {
+        digitalWrite(BOARD_MOTOR_PIN, HIGH);
+        delay(100);
+        digitalWrite(BOARD_MOTOR_PIN, LOW);
+    }
 
 }
 
