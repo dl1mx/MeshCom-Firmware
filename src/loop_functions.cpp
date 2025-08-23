@@ -281,7 +281,6 @@ bool bNTPDateTimeValid = false;
 
 // GPS SmartBeaconing variables
 double gps_refresh_intervall = GPS_REFRESH_INTERVAL;   // sec
-double gps_sum_intervall = 0;   // sec
 unsigned long posinfo_interval = POSINFO_INTERVAL; // check interval
 double posinfo_distance = 0.0;
 double posinfo_direction = 0.0;
@@ -2693,23 +2692,9 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
 
         addRingPointer(iWrite, iRead, MAX_RING);
 
-        posinfo_last_lat=posinfo_lat;
-        posinfo_last_lon=posinfo_lon;
-        posinfo_last_direction=posinfo_direction;
-        posinfo_distance=0.0;
-        gps_sum_intervall=0.0;
-
-        posinfo_timer = millis();
-
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
             tdeck_send_track_view();
         #endif
-
-        /*
-        iWrite++;
-        if(iWrite >= MAX_RING)
-            iWrite=0;
-        */
 
         // An APP als Anzeige retour senden
         if(isPhoneReady == 1 || bGATEWAY)
@@ -2803,23 +2788,9 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
 
         addRingPointer(iWrite, iRead, MAX_RING);
 
-        posinfo_last_lat=posinfo_lat;
-        posinfo_last_lon=posinfo_lon;
-        posinfo_last_direction=posinfo_direction;
-        posinfo_distance=0.0;
-        gps_sum_intervall=0.0;
-
-        posinfo_timer = millis();
-
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
             tdeck_send_track_view();
         #endif
-
-        /*
-        iWrite++;
-        if(iWrite >= MAX_RING)
-            iWrite=0;
-        */
 
         if(bGATEWAY)
         {
@@ -3343,99 +3314,75 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     double distance = tinyGPSPLus.distanceBetween(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // meters
     posinfo_direction = tinyGPSPLus.courseTo(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // Grad
 
+    posinfo_distance += distance;
+
     // TEST
     /*
     distance = 6.5;
     posinfo_direction = 90.0;
     */
 
-    posinfo_distance += distance;
-    gps_sum_intervall += gps_refresh_intervall;
-
-    double distance_per_sec = posinfo_distance / gps_sum_intervall; // m/s
+    double distance_per_sec = distance / gps_refresh_intervall; // m/s
 
     if(bGPSDEBUG)
-        Serial.printf("%s [POSINFO]... dir:%.1lf° dist:%.1lf time:%.1lf speed:%.1lf intervall:%.1lf\n", getTimeString().c_str(), posinfo_direction, posinfo_distance, gps_sum_intervall, distance_per_sec, gps_refresh_intervall);
+        Serial.printf("%s [POSINFO]... dir:%.1lf° dist:%.1lf speed:%.1lf intervall:%.1lf\n", getTimeString().c_str(), posinfo_direction, distance, distance_per_sec, gps_refresh_intervall);
 
     // gps_refresh_intervall default 10
     // get gps distance every 100 seconds
     // gps_send_rate 30 minutes default
     // bDisplayTrack = true Smartbeaconing used
-    if(posinfo_distance < 200 && gps_sum_intervall > 80)  // seit letzter gemeldeter position
-    {
-        if(bGPSDEBUG)
-            Serial.printf("%s [POSINFO]... dist:%.1lf time:%.1lf\n", getTimeString().c_str(), posinfo_distance, gps_sum_intervall);
 
-        if(meshcom_settings.node_postime > 0)
-            gps_send_rate = meshcom_settings.node_postime;
-        else
-            gps_send_rate = POSINFO_INTERVAL;
+    // distanz in m pro gps_refresh_intervall (default 2) sekunden
+    // Bewegung                     m / rate
+    // zu fuss       1.1 m/s ca.   40
+    // fahrrad       4.0 m/s ca.  180
+    // auto stadt   14.0 m/s ca.  910
+    // auto land    22.0 m/s ca. 2090
+    // autobahn     36.0 m/s ca. 4500
 
-        posinfo_distance = 0;
-        gps_sum_intervall = 0;
-        posinfo_last_lat = dlat;
-        posinfo_last_lon = dlon;
-
-        posinfo_last_rate = gps_send_rate;
-
-        if(bGPSDEBUG)
-           Serial.printf("%s [POSINFO]... STOP-RATE:%i\n", getTimeString().c_str(), (int)gps_send_rate);
-
-        return gps_send_rate;
-    }
-
-    // distanz in m pro gps_sum_intervall (default 5) sekunden
-    // Bewegung                         GPS je 5 sec
-    // zu fuss       1.3 m/s ca. 4 m     20 m           
-    // fahrrad       4.0 m/s ca. 12 m    60 m
-    // auto stadt   14.0 m/s ca. 42 m   210 m
-    // auto land    22.0 m/s ca. 66 m   330 m
-    // autobahn     36.0 m/s ca. 100 m  500 m 
-
-    if(posinfo_distance > 60 && distance_per_sec > 1.1)  // seit letzter gemeldeter position
+    if(distance_per_sec > 1.1)  // seit letzter position
     {
         if(distance_per_sec < 4.0)  // fuss
             gps_send_rate = 35; // seconds
         else
         if(distance_per_sec < 14.0)  // rad < 40 km/h
-            gps_send_rate = 65; // seconds
+            gps_send_rate = 45; // seconds
         else
         if(distance_per_sec < 22.0) // auto stadt
-            gps_send_rate = 95;
+            gps_send_rate = 65;
         else
         if(distance_per_sec < 36.0) // auto land
-            gps_send_rate = 125;
+            gps_send_rate = 95;
         else
-            gps_send_rate = 155; // auto autobahn
+            gps_send_rate = 125; // auto autobahn
 
         if(bGPSDEBUG)
-            Serial.printf("%s [POSINFO]... dist/s:%.lf rate:%i\n", getTimeString().c_str(), distance_per_sec,(int)gps_send_rate);
+            Serial.printf("%s [POSINFO]... dist/s:%.lf rate:%i\n", getTimeString().c_str(), distance_per_sec, (int)gps_send_rate);
     }
     else
     {
         // 30 sec no new smartbeacon
-        if(gps_sum_intervall >= gps_send_rate)
+        if(gps_send_rate == 35)
+            gps_send_rate = 45;
+        else
+        if(gps_send_rate == 45)
+            gps_send_rate = 65;
+        else
+        if(gps_send_rate == 65)
+            gps_send_rate = 95;
+        else
+        if(gps_send_rate == 95)
+            gps_send_rate = 125;
+        else
         {
-            posinfo_distance = 0;
-            gps_sum_intervall = 0;
-            posinfo_last_lat = dlat;
-            posinfo_last_lon = dlon;
-
             if(meshcom_settings.node_postime > 0)
                 gps_send_rate = meshcom_settings.node_postime;
             else
                 gps_send_rate = POSINFO_INTERVAL;
-
-            posinfo_last_rate = gps_send_rate;
-
-            if(bGPSDEBUG)
-                Serial.printf("%s [POSINFO]... STOP-RATE:%i\n", getTimeString().c_str(), (int)gps_send_rate);
-
-            return gps_send_rate;
         }
     }
 
-    if(gps_send_rate < 200)  // seit letzter gemeldeter position
+    if(gps_send_rate < 200)  // seit letzter position
     {
         int direction_diff=0;
 
@@ -3443,7 +3390,7 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
         {
             direction_diff=GetHeadingDifference((int)posinfo_last_direction, (int)posinfo_direction);
 
-            if(direction_diff > 15)
+            if(direction_diff > 20)
             {
                 posinfo_shot=true;
 
