@@ -189,7 +189,6 @@ extern bool bNTPDateTimeValid;
 
 // timers
 extern double gps_refresh_intervall;   // sec
-extern double gps_sum_intervall;   // sec
 extern unsigned long posinfo_interval; // check interval
 extern unsigned long posfixinterall;
 extern double posinfo_distance;

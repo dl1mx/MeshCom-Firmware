@@ -1992,7 +1992,7 @@ void esp32loop()
 
     // TRACK ON
     if(bDisplayTrack)
-        gps_refresh_intervall = 3.0;
+        gps_refresh_intervall = 2.0;
 
     if ((gps_refresh_timer + ((unsigned long)gps_refresh_intervall * 1000)) < millis())
     {
@@ -2081,8 +2081,7 @@ void esp32loop()
         posinfo_last_lat=posinfo_lat;
         posinfo_last_lon=posinfo_lon;
         posinfo_last_direction=posinfo_direction;
-        posinfo_distance=0.0;
-        gps_sum_intervall=0.0;
+        posinfo_distance = 0.0;
 
         posinfo_timer = millis();
 
