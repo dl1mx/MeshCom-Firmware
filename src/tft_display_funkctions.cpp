@@ -12,7 +12,7 @@
 
     #define bigSizeFont     2
     #define smallSizeFont   1
-    #define lineSpacing     12
+    #define lineSpacing     13
     #define maxLineLength   26
 
     void drawButton(int xPos, int yPos, int wide, int height, String buttonText, int color) {
@@ -135,10 +135,10 @@
     void displayTFT(const String& header)
     {
         sprite.fillRect(0, 0, 160, 19, redColor);
-        sprite.setTextFont(0);
+        sprite.setTextFont(2);
         sprite.setTextSize(smallSizeFont);
         sprite.setTextColor(TFT_WHITE, redColor);
-        sprite.drawString(header, 3, 5);
+        sprite.drawString(header, 3, 2);
 
         sprite.pushSprite(0,0);
     }
@@ -147,15 +147,16 @@
     {
         sprite.fillSprite(TFT_BLACK); 
         sprite.fillRect(0, 0, 160, 19, redColor);
-        sprite.setTextFont(0);
+        sprite.setTextFont(2);
         sprite.setTextSize(smallSizeFont);
         sprite.setTextColor(TFT_WHITE, redColor);
-        sprite.drawString(header, 3, 5);
+        sprite.drawString(header, 3, 2);
 
         sprite.setTextSize(smallSizeFont);
         sprite.setTextColor(TFT_WHITE, TFT_BLACK);
 
-        int yLineOffset = (lineSpacing * 2) - 2;
+        int lspace = lineSpacing;
+        int yLineOffset = (lspace * 2) - 8;
 
         sprite.setCursor(2, yLineOffset);
 
@@ -173,14 +174,16 @@
         sprite.setTextFont(0);
         sprite.setTextSize(bigSizeFont);
         sprite.setTextColor(TFT_WHITE, redColor);
-        sprite.drawString(header, 3, 3);
+        sprite.drawString(header, 3, 2);
 
         const String* const lines[] = {&line1, &line2, &line3, &line4};
 
+        sprite.setTextFont(2);
         sprite.setTextSize(smallSizeFont);
         sprite.setTextColor(TFT_WHITE, TFT_BLACK);
 
-        int yLineOffset = (lineSpacing * 2) - 2;
+        int lspace = lineSpacing;
+        int yLineOffset = (lspace * 2) - 8;
 
         for (int i = 0; i < 4; i++) {
             String text = *lines[i];
@@ -191,13 +194,13 @@
                     String chunk = text.substring(0, maxLineLength);
                     sprite.drawString(chunk, 3, yLineOffset);
                     text = text.substring(maxLineLength);
-                    yLineOffset += lineSpacing;
+                    yLineOffset += lspace;
                 }
             }
             else
             {
                 sprite.drawString(text, 3, yLineOffset);
-                yLineOffset += lineSpacing;
+                yLineOffset += lspace;
             }
         }
         sprite.pushSprite(0,0);
@@ -209,17 +212,18 @@
     {
         sprite.fillSprite(TFT_BLACK); 
         sprite.fillRect(0, 0, 160, 19, redColor);
-        sprite.setTextFont(1);
+        sprite.setTextFont(2);
         sprite.setTextSize(smallSizeFont);
         sprite.setTextColor(TFT_WHITE, redColor);
-        sprite.drawString(header, 3, 5);
+        sprite.drawString(header, 3, 2);
 
         const String* const lines[] = {&line1, &line2, &line3, &line4, &line5};
 
         sprite.setTextSize(smallSizeFont);
         sprite.setTextColor(TFT_WHITE, TFT_BLACK);
 
-        int yLineOffset = (lineSpacing * 2) - 2;
+        int lspace = lineSpacing;
+        int yLineOffset = (lspace * 2) - 8;
 
         for (int i = 0; i < 5; i++) {
             String text = *lines[i];
@@ -228,11 +232,11 @@
                     String chunk = text.substring(0, maxLineLength);
                     sprite.drawString(chunk, 3, yLineOffset);
                     text = text.substring(maxLineLength);
-                    yLineOffset += lineSpacing;
+                    yLineOffset += lspace;
                 }
             } else {
                 sprite.drawString(text, 3, yLineOffset);
-                yLineOffset += lineSpacing;
+                yLineOffset += lspace;
             }
         }
         sprite.pushSprite(0,0);

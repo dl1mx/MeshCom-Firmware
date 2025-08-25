@@ -522,27 +522,27 @@ unsigned int getGPS(void)
             
             while(bw)
             {
-                if (checkGPS(gpsBaudrate))//priorisierte Baudrate zuerst testen
+                if (checkGPS(gpsBaudrate)) //priorisierte Baudrate zuerst testen
                 {
                     bw=false;
                 }
                 else
-                if (checkGPS(9600))//priorisierte Baudrate zuerst testen
+                if (checkGPS(9600))
                 {
                     bw=false;
                 }
                 else
-                if (checkGPS(38400))//priorisierte Baudrate zuerst testen
+                if (checkGPS(38400))
                 {
                     bw=false;
                 }
                 else
-                if (checkGPS(57600))//priorisierte Baudrate zuerst testen
+                if (checkGPS(57600))
                 {
                     bw=false;
                 }
                 else
-                if (checkGPS(115200))//priorisierte Baudrate zuerst testen
+                if (checkGPS(115200))
                 {
                     bw=false;
                 }
