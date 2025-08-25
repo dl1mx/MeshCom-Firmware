@@ -26,7 +26,7 @@ void singleClick()
   if(!bDisplayTrack)
   {
     if(bDisplayCont)
-        Serial.printf("BUTTON singel press last:%i pointer:%i lines:%i\n", pageLastPointer, pagePointer, pageLastLineAnz[pagePointer]);
+        Serial.printf("BUTTON single press last:%i pointer:%i lines:%i\n", pageLastPointer, pagePointer, pageLastLineAnz[pagePointer]);
 
     if(pagePointer == 5)
     {
