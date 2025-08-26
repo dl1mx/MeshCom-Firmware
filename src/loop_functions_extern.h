@@ -5,6 +5,8 @@
 
 extern bool bnextread;
 
+extern int ifalseping;
+
 extern int BOARD_HARDWARE;
 extern bool bUSER_BOARD_LED;
 

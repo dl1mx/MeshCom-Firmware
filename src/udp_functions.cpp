@@ -71,6 +71,8 @@ void getMeshComUDP()
   if(!hasIPaddress)
     return;
 
+  ifalseping = 5;
+
   // check if we received a UDP packet
   packetSize = Udp.parsePacket();
   
@@ -609,15 +611,21 @@ bool checkWifiPing()
   {
     if(!Ping.ping(node_gw))
     {
-      Udp.stop();
+      ifalseping--;
 
-      WiFi.disconnect(true, true);
+      if(ifalseping <= 0)
+      {
+        Udp.stop();
 
-      hasIPaddress=false;
+        WiFi.disconnect(true, true);
 
-      meshcom_settings.node_hasIPaddress = hasIPaddress;
+        hasIPaddress=false;
+
+        meshcom_settings.node_hasIPaddress = hasIPaddress;
+      }
 
       return false;
+      
     }
   }
 
@@ -734,6 +742,8 @@ void startMeshComUDP()
     else
     {
       hasIPaddress=true;
+      ifalseping=5;
+
       Serial.printf("[WIFI]...now listening at IP %s, UDP port %d\n",  s_node_ip.c_str(), LOCAL_PORT);
     }
 
@@ -741,6 +751,8 @@ void startMeshComUDP()
 
     if(hasIPaddress)
     {
+      ifalseping = 5;
+
       if (node_ip[0] == 44 || meshcom_settings.node_hamnet_only == 1)
       {
         if(memcmp(meshcom_settings.node_gwsrv, "DL", 2) == 0)
@@ -803,6 +815,7 @@ void startMeshComUDP()
     Serial.println(node_ip);
   
     hasIPaddress=true;
+    ifalseping=5;
   }
 
 

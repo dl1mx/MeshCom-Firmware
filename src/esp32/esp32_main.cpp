@@ -1808,16 +1808,29 @@ void esp32loop()
     {
         if(!checkWifiPing())
         {
-            // restart WEB-Client
-            if(bWEBSERVER)
-                stopWebserver();
+            if(ifalseping > 0)
+            {
+               wifi_active_timer = millis() - 20000;   // next ping max. 10 sec
+            }
+            else
+            {
+                // restart WEB-Client
+                if(bWEBSERVER)
+                    stopWebserver();
 
-            startWIFI();
+                startWIFI();
 
-            web_timer = millis();
+                ifalseping = 5;
+                
+                wifi_active_timer = millis();
+            }
         }
-
-        wifi_active_timer = millis();
+        else
+        {
+            ifalseping = 5;
+            
+            wifi_active_timer = millis();
+        }
     }
 
 

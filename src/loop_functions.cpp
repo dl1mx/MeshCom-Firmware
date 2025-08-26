@@ -37,6 +37,7 @@ extern TinyGPSPlus tinyGPSPLus;
 
 bool bnextread=false;
 
+int ifalseping = 0;
 
 int BOARD_HARDWARE = MODUL_HARDWARE;
 bool bUSER_BOARD_LED = false;
