@@ -1803,14 +1803,14 @@ void esp32loop()
         }
     }
 
-    // check WiFI connected every 30 sec
+    // check WiFI connected with Ping every 30 sec
     if ((wifi_active_timer + 30000) < millis())
     {
         if(!checkWifiPing())
         {
             if(ifalseping > 0)
             {
-               wifi_active_timer = millis() - 20000;   // next ping max. 10 sec
+               wifi_active_timer = millis() - 25000;   // next ping max. 5 sec
             }
             else
             {
@@ -1833,6 +1833,21 @@ void esp32loop()
         }
     }
 
+    if(meshcom_settings.node_hasIPaddress)
+    {
+        currentWiFiMillis = millis();
+
+        // if WiFi is down, try reconnecting every 5 sec
+        if ((WiFi.status() != WL_CONNECTED) && (currentWiFiMillis - previousWiFiMillis >= 5000))
+        {
+            Serial.printf("%s [WIFI]..Reconnecting to WiFi...\n", getTimeString().c_str());
+
+            WiFi.disconnect();
+            WiFi.reconnect();
+
+            previousWiFiMillis = currentWiFiMillis;
+        }
+    }
 
     // SOFTSER
     #if defined(ENABLE_SOFTSER)
@@ -2241,15 +2256,27 @@ void esp32loop()
     {
         if ((onewireTimeWait + 30000) < millis())  // 30 sec
         {
+            unsigned long lreduction = 0;
+
             //if (tx_is_active == false && is_receiving == false)
             {
                 if(one_found)
-                    loop_onewire_ds18();
+                {
+                    if(loop_onewire_ds18())
+                    {
+                        one_start = 0;
+                    }
+                    else
+                    {
+                        if(one_start > 0)
+                            lreduction = 29000;
+                    }
+                }
 
                 if(dht_found)
                     loop_onewire_dht();
 
-                onewireTimeWait = millis();
+                onewireTimeWait = millis() - lreduction;
 
                 if(wx_shot)
                 {
@@ -2265,6 +2292,8 @@ void esp32loop()
     #if defined(ENABLE_BMX280) || defined(ENABLE_AHT20) || defined(ENABLE_SHT21)
     if(((bBMPON || bBMEON) && bmx_found) || (bAHT20ON && aht20_found) || (bSHT21ON && sht21_found))
     {
+        unsigned long lreduction = 0;
+
         if ((BMXTimeWait + 60000) < millis())   // 60 sec
         {
             #if defined(ENABLE_BMX280)
@@ -2286,6 +2315,13 @@ void esp32loop()
                         meshcom_settings.node_press_alt = getPressALT();
                         meshcom_settings.node_press_asl = getPressASL(meshcom_settings.node_alt);
                     }
+
+                    bmx_start = 0;
+                }
+                else
+                {
+                    if(bmx_start > 0)
+                        lreduction = 58000;
                 }
             #endif
 
@@ -2312,7 +2348,7 @@ void esp32loop()
                 wx_shot = false;
             }
 
-            BMXTimeWait = millis(); // wait for next messurement
+            BMXTimeWait = millis() - lreduction; // wait for next messurement
         }
     }
     #endif

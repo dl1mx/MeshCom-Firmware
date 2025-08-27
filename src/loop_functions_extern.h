@@ -83,11 +83,13 @@ extern bool bLPS33;
 
 extern bool bme680_found;
 extern bool bmx_found;
+extern int bmx_start;
 extern bool bmp3_found;
 extern bool aht20_found;
 extern bool sht21_found;
 extern bool mcu811_found;
 extern bool one_found;
+extern int one_start;
 extern bool ina226_found;
 extern bool shtc3_found;
 extern bool dht_found;
@@ -193,6 +195,10 @@ extern bool bNTPDateTimeValid;
 extern double gps_refresh_intervall;   // sec
 extern unsigned long posinfo_interval; // check interval
 extern unsigned long posfixinterall;
+
+extern unsigned long currentWiFiMillis;
+extern unsigned long previousWiFiMillis;
+
 extern double posinfo_distance;
 extern double posinfo_direction;
 extern double posinfo_lat;

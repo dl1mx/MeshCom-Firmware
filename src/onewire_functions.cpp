@@ -3,6 +3,13 @@
 
 #include "onewire_functions.h"
 
+byte i;
+byte present = 0;
+//byte type_s;
+byte data[9];
+byte addr[8];
+float celsius, fahrenheit;
+
 #ifdef OneWire_GPIO
 //--------------------------------------------------------------------------
 
@@ -92,15 +99,21 @@ void init_onewire_dht()
     }
 }
 
-void loop_onewire_dht()
+bool loop_onewire_dht()
 {
     if(!dht_found)
     {
-        return;
+        return false;
     }
 
     // Delay between measurements.
+    /* defined by mainloop
     delay(delayMS);
+    
+    if(bWXDEBUG)
+        Serial.printf("delayMS: %u\n", delayMS);
+    */
+
     // Get temperature event and print its value.
     sensors_event_t event;
     dht.temperature().getEvent(&event);
@@ -143,6 +156,8 @@ void loop_onewire_dht()
             Serial.println(F("%"));
         }
     }
+
+    return true;
 }
 
 //--------------------------------------------------------------------------
@@ -194,83 +209,82 @@ void init_onewire_ds18(void)
     }
 }
 
-void loop_onewire_ds18()
+bool loop_onewire_ds18()
 {
     if(!one_found)
     {
         meshcom_settings.node_temp2 = 0;
-        return;
+        return false;
     }
 
-    byte i;
-    byte present = 0;
-    //byte type_s;
-    byte data[9];
-    byte addr[8];
-    float celsius, fahrenheit;
-
-    if (!ds.search(addr))
+    if(one_start == 0)
     {
+        if (!ds.search(addr))
+        {
+            if(bWXDEBUG && bDisplayCont)
+            {
+                Serial.println("No more OneWire addresses.");
+            }
+            ds.reset_search();
+            return false;
+        }
+
         if(bWXDEBUG && bDisplayCont)
         {
-            Serial.println("No more OneWire addresses.");
+            Serial.print("ROM =");
+            for( i = 0; i < 8; i++)
+            {
+                Serial.write(' ');
+                Serial.print(addr[i], HEX);
+            }
         }
-        ds.reset_search();
-        return;
-    }
 
-    if(bWXDEBUG && bDisplayCont)
-    {
-        Serial.print("ROM =");
-        for( i = 0; i < 8; i++)
+        if (OneWire::crc8(addr, 7) != addr[7])
         {
-            Serial.write(' ');
-            Serial.print(addr[i], HEX);
-        }
-    }
-
-    if (OneWire::crc8(addr, 7) != addr[7])
-    {
-        Serial.println("OneWire CRC is not valid!");
-        one_found=false;
-        return;
-    }
-
-    if(bWXDEBUG && bDisplayCont)
-    {
-        Serial.println();
-    }
-
-    // the first ROM byte indicates which chip
-    switch (addr[0])
-    {
-        case 0x10:
-            if(bWXDEBUG && bDisplayCont)
-                Serial.println("  Chip = DS18S20");  // or old DS1820
-            //type_s = 1;
-            break;
-        case 0x28:
-            if(bWXDEBUG && bDisplayCont)
-                Serial.println("  Chip = DS18B20");
-            //type_s = 0;
-            break;
-        case 0x22:
-            if(bWXDEBUG && bDisplayCont)
-                Serial.println("  Chip = DS1822");
-            //type_s = 0;
-            break;
-        default:
-            if(bWXDEBUG && bDisplayCont)
-                Serial.println("Device is not a DS18x20 family device.");
+            Serial.println("OneWire CRC is not valid!");
             one_found=false;
-            return;
-    } 
+            return false;
+        }
 
-    ds.reset();
-    ds.select(addr);
-    ds.write(0x44, 1);        // start conversion, with parasite power on at the end
+        if(bWXDEBUG && bDisplayCont)
+        {
+            Serial.println();
+        }
 
-    delay(1000);     // maybe 750ms is enough, maybe not
+        // the first ROM byte indicates which chip
+        switch (addr[0])
+        {
+            case 0x10:
+                if(bWXDEBUG && bDisplayCont)
+                    Serial.println("  Chip = DS18S20");  // or old DS1820
+                //type_s = 1;
+                break;
+            case 0x28:
+                if(bWXDEBUG && bDisplayCont)
+                    Serial.println("  Chip = DS18B20");
+                //type_s = 0;
+                break;
+            case 0x22:
+                if(bWXDEBUG && bDisplayCont)
+                    Serial.println("  Chip = DS1822");
+                //type_s = 0;
+                break;
+            default:
+                if(bWXDEBUG && bDisplayCont)
+                    Serial.println("Device is not a DS18x20 family device.");
+                one_found=false;
+                return false;
+        } 
+
+        ds.reset();
+        ds.select(addr);
+        ds.write(0x44, 1);        // start conversion, with parasite power on at the end
+
+        //delay(1000);     // maybe 750ms is enough, maybe not
+        one_start++;
+
+        return false;
+    }
     // we might do a ds.depower() here, but the reset will take care of it.
 
     present = ds.reset();
@@ -352,6 +366,8 @@ void loop_onewire_ds18()
     }
 
     meshcom_settings.node_temp2 = celsius;
+
+    return true;
 }
 //--------------------------------------------------------------------------
 #endif

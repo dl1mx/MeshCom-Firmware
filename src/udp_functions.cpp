@@ -609,9 +609,11 @@ bool checkWifiPing()
 {
   if(hasIPaddress)
   {
-    if(!Ping.ping(node_gw))
+    if(!Ping.ping(meshcom_settings.node_gw))
     {
       ifalseping--;
+
+      Serial.printf("%s [WIFI]..Ping to IP<%s> failed:%i\n", getTimeString().c_str(), meshcom_settings.node_gw, ifalseping);
 
       if(ifalseping <= 0)
       {
@@ -626,6 +628,11 @@ bool checkWifiPing()
 
       return false;
       
+    }
+    else
+    {
+      if(bDEBUG && bDisplayCont)
+        Serial.printf("%s [WIFI]..Ping to IP<%s> success\n", getTimeString().c_str(), meshcom_settings.node_gw);
     }
   }
 

@@ -202,7 +202,7 @@ void setupBMX280(bool bNewStart)
 	bmx_found = true;
 }
 
-bool loopBMX280()
+bool loopBMX280(void)
 {
 	if(!bBMEON && !bBMPON)
 		return false;
@@ -216,28 +216,35 @@ bool loopBMX280()
 	#endif
 
 	//start a measurement
-	if (!bmx280.measure())
+	if(bmx_start == 0)
 	{
-    	if(bWXDEBUG)
-		  Serial.println("could not start measurement, is a measurement already running?");
+		if (!bmx280.measure())
+		{
+			if(bWXDEBUG)
+			Serial.println("could not start measurement, is a measurement already running?");
+		}
+		else
+		{
+			bmx_start++;
+		}
 
 		return false;
 	}
 
 	//wait for the measurement to finish
-	int maxLoop=10;
-	do
-	{
-		delay(100);
-		maxLoop--;
-		
-	} while (!bmx280.hasValue() && maxLoop > 0);
 
-	if(maxLoop <= 0)
+	if(!bmx280.hasValue())
 	{
-		Serial.println("BMX280 vales not valid");
-		return false;
+		bmx_start++;
+
+		if(bmx_start > 5)
+		{
+			Serial.println("BMX280 vales not valid");
+			bmx_start = 0;
+			return false;
+		}
 	}
+
 
 	//important: measurement data is read from the sensor in function hasValue() only. 
 	//make sure to call get*() functions only after hasValue() has returned true. 
