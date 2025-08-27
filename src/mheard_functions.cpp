@@ -14,13 +14,13 @@
 #endif
 
 unsigned char mheardBuffer[MAX_MHEARD][60]; //Ringbuffer for MHeard Lines
-unsigned char mheardCalls[MAX_MHEARD][10]; //Ringbuffer for MHeard Key = Call
+char mheardCalls[MAX_MHEARD][10]; //Ringbuffer for MHeard Key = Call
 double mheardLat[MAX_MHEARD];
 double mheardLon[MAX_MHEARD];
 unsigned long mheardEpoch[MAX_MHEARD];
 
-unsigned char mheardPathBuffer1[MAX_MHPATH][30]; //Ringbuffer for MHeard Sourcepath
-unsigned char mheardPathCalls[MAX_MHPATH][10]; //Ringbuffer for MHeard Key = Call
+unsigned char mheardPathBuffer1[MAX_MHPATH][38]; //Ringbuffer for MHeard Sourcepath
+char mheardPathCalls[MAX_MHPATH][10]; //Ringbuffer for MHeard Key = Call
 unsigned long mheardPathEpoch[MAX_MHPATH];
 uint8_t mheardPathLen[MAX_MHPATH];
 
@@ -151,7 +151,11 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
             }
             else
             {
-                if(memcmp(mheardCalls[iset], mheardLine.mh_callsign.c_str(), mheardLine.mh_callsign.length()) == 0)
+                int ivgll= mheardLine.mh_callsign.length();
+                if(strlen(mheardCalls[iset]) > ivgll)
+                    ivgll=strlen(mheardCalls[iset]);
+
+                if(memcmp(mheardCalls[iset], mheardLine.mh_callsign.c_str(), ivgll) == 0)
                 {
                     ipos=iset;
                 }
@@ -252,9 +256,15 @@ void updateHeyPath(struct mheardLine &mheardLine)
                 mheardPathCalls[iset][0] = 0x00;
             }
             else
-            if(memcmp(mheardPathCalls[iset], mheardLine.mh_sourcecallsign.c_str(), mheardLine.mh_sourcecallsign.length()) == 0)
             {
-                ipos=iset;
+                int ivgll= mheardLine.mh_sourcecallsign.length();
+                if(strlen(mheardPathCalls[iset]) > ivgll)
+                    ivgll=strlen(mheardPathCalls[iset]);
+
+                if(memcmp(mheardPathCalls[iset], mheardLine.mh_sourcecallsign.c_str(), ivgll) == 0)
+                {
+                    ipos=iset;
+                }
             }
         }
         else
@@ -294,8 +304,8 @@ void updateHeyPath(struct mheardLine &mheardLine)
     int ips = mheardLine.mh_sourcepath.indexOf(',') + 1;
     if(ips > 0)
     {
-        memcpy(mheardPathBuffer1[ipos], mheardLine.mh_sourcepath.substring(ips, 29).c_str(), sizeof(mheardPathBuffer1[ipos]));
-        mheardPathBuffer1[ipos][29] = 0x00;
+        memcpy(mheardPathBuffer1[ipos], mheardLine.mh_sourcepath.substring(ips, 37).c_str(), sizeof(mheardPathBuffer1[ipos]));
+        mheardPathBuffer1[ipos][37] = 0x00;
         // TODO second 30 chars
     }
     else

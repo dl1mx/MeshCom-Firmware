@@ -100,11 +100,13 @@ bool bLPS33 = false;
 
 bool bme680_found = false;
 bool bmx_found = false;
+int bmx_start = 0;
 bool bmp3_found = false;
 bool aht20_found =false;
 bool sht21_found = false;
 bool mcu811_found = false;
 bool one_found = false;
+int one_start = 0;
 bool ina226_found = false;
 bool shtc3_found = false;
 bool dht_found = false;
@@ -142,6 +144,9 @@ int iDisplayChange = 0;
 
 unsigned long lastHeardTime = 0;
 unsigned long posfixinterall = 0;
+
+unsigned long currentWiFiMillis = 0;
+unsigned long previousWiFiMillis = 0;
 
 char cTimeSource[10];
 
