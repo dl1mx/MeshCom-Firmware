@@ -2050,7 +2050,7 @@ void esp32loop()
         else
         {
             #if defined (BOARD_T_DECK_PRO)
-            tdeck_set_gps(true);
+                tdeck_set_gps(true);
             #endif
 
             #ifdef BOARD_T_DECK_PRO

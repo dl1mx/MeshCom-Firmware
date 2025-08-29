@@ -1002,7 +1002,7 @@ void sendDisplayTrack()
         snprintf(print_text, sizeof(print_text), "RATE: %4i NEXT %4i", (int)posinfo_interval, pos_seconds);
         sendDisplay1306(false, false, 3, dzeile[3], print_text);
 
-        snprintf(print_text, sizeof(print_text), "DIST: %4.0lf hdop%4i", posinfo_distance, posinfo_hdop);
+        snprintf(print_text, sizeof(print_text), "DIST: %.0lf hdop%4i", posinfo_distance, posinfo_hdop);
         sendDisplay1306(false, false, 3, dzeile[4], print_text);
 
         snprintf(print_text, sizeof(print_text), "DIR :old%3i° new%3i°", (int)posinfo_last_direction, (int)posinfo_direction);
@@ -2381,7 +2381,7 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
         lon = plon * -1.0;
 
 
-    if(lat == 0.0 or lon == 0.0)
+    if(lat == 0.0 && lon == 0.0)
     {
         Serial.println("[APRS] Error PositionToAPRS");
         return "";
@@ -2618,6 +2618,10 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
 
 void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, char lon_c, int alt, float press, float hum, float temp, float temp2, float gasres, float co2, int qfe, float qnh)
 {
+    // position 0.0/0.0 no message sent
+    if(lat == 0.0 && lon == 0.0)
+        return;
+
     uint8_t msg_buffer[MAX_MSG_LEN_PHONE];
 
     bool bSendViaAPRS = bDisplayTrack;
@@ -3349,18 +3353,18 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     if(distance_per_sec > 1.1)  // seit letzter position
     {
         if(distance_per_sec < 4.0)  // fuss
-            gps_send_rate = 35; // seconds
+            gps_send_rate = 35; // seconds intervall
         else
         if(distance_per_sec < 14.0)  // rad < 40 km/h
-            gps_send_rate = 45; // seconds
+            gps_send_rate = 45;
         else
         if(distance_per_sec < 22.0) // auto stadt
-            gps_send_rate = 65;
+            gps_send_rate = 55;
         else
         if(distance_per_sec < 36.0) // auto land
-            gps_send_rate = 95;
+            gps_send_rate = 65;
         else
-            gps_send_rate = 125; // auto autobahn
+            gps_send_rate = 75; // auto autobahn
 
         if(bGPSDEBUG)
             Serial.printf("%s [POSINFO]... dist/s:%.lf rate:%i\n", getTimeString().c_str(), distance_per_sec, (int)gps_send_rate);
@@ -3372,13 +3376,13 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
             gps_send_rate = 45;
         else
         if(gps_send_rate == 45)
+            gps_send_rate = 55;
+        else
+        if(gps_send_rate == 55)
             gps_send_rate = 65;
         else
         if(gps_send_rate == 65)
-            gps_send_rate = 95;
-        else
-        if(gps_send_rate == 95)
-            gps_send_rate = 125;
+            gps_send_rate = 75;
         else
         {
             if(meshcom_settings.node_postime > 0)
@@ -3396,7 +3400,7 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
         {
             direction_diff=GetHeadingDifference((int)posinfo_last_direction, (int)posinfo_direction);
 
-            if(direction_diff > 20)
+            if(direction_diff > 15)
             {
                 posinfo_shot=true;
 
