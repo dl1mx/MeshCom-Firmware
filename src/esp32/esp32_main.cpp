@@ -2102,9 +2102,49 @@ void esp32loop()
 
         bPosFirst = false;
 
-        posinfo_shot=false;
+        if(posinfo_shot)
+        {
+            double slat = 0.0;
+            double slon = 0.0;
+            
+            double slatr=60.0;
+            double slonr=60.0;
+            
+            slat = (int)posinfo_prev_lat;
+            slatr = (posinfo_prev_lat - slat) * slatr;
+            slat = (slat * 100.) + slatr;
+            
+            slon = (int)posinfo_prev_lon;
+            slonr = (posinfo_prev_lon - slon) * slonr;
+            slon = (slon * 100.) + slonr;
         
-        sendPosition(posinfo_interval, meshcom_settings.node_lat, meshcom_settings.node_lat_c, meshcom_settings.node_lon, meshcom_settings.node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
+            double node_lat = cround4(posinfo_prev_lat);
+            double node_lon = cround4(posinfo_prev_lon);
+
+            char node_lat_c = 'N';
+            char node_lon_c = 'E';
+
+            if(posinfo_prev_lat < 0.0)
+                node_lat_c='S';
+            else
+                node_lat_c='N';
+                
+            if(posinfo_prev_lon < 0.0)
+                node_lon_c='W';
+            else
+                node_lon_c='E';
+
+            posinfo_prev_lat = posinfo_lat;
+            posinfo_prev_lon = posinfo_lon;
+
+            sendPosition(posinfo_interval, node_lat, node_lat_c, node_lon, node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
+        }
+        else
+        {
+            sendPosition(posinfo_interval, meshcom_settings.node_lat, meshcom_settings.node_lat_c, meshcom_settings.node_lon, meshcom_settings.node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
+        }
+
+        posinfo_shot=false;
 
         posinfo_last_lat=posinfo_lat;
         posinfo_last_lon=posinfo_lon;
@@ -2258,7 +2298,7 @@ void esp32loop()
         {
             unsigned long lreduction = 0;
 
-            //if (tx_is_active == false && is_receiving == false)
+            if (tx_is_active == false && is_receiving == false)
             {
                 if(one_found)
                 {

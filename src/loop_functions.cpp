@@ -294,6 +294,8 @@ double posinfo_lat = 0.0;
 double posinfo_lon = 0.0;
 double posinfo_last_lat = 0.0;
 double posinfo_last_lon = 0.0;
+double posinfo_prev_lat = 0.0;
+double posinfo_prev_lon = 0.0;
 double posinfo_last_direction = 0.0;
 unsigned int posinfo_last_rate = POSINFO_INTERVAL;  // seconds
 
@@ -3319,10 +3321,12 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     {
         posinfo_last_lat = dlat;
         posinfo_last_lon = dlon;
+        posinfo_prev_lat = dlat;
+        posinfo_prev_lon = dlon;
     }
 
     double distance = tinyGPSPLus.distanceBetween(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // meters
-    posinfo_direction = tinyGPSPLus.courseTo(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // Grad
+    posinfo_direction = tinyGPSPLus.courseTo(posinfo_prev_lat, posinfo_prev_lon, dlat, dlon);    // Grad
 
     posinfo_distance += distance;
 
@@ -3405,9 +3409,14 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
                 posinfo_shot=true;
 
                 if(bGPSDEBUG)
-                    Serial.printf("%s [POSINFO]... one-shot set - direction_diff:%i last_lat:%.1lf last_lon:%.1lf\n", getTimeString().c_str(), direction_diff, posinfo_last_lat, posinfo_last_lon);
+                    Serial.printf("%s [POSINFO]... one-shot set - direction_diff:%i last_lat:%.1lf last_lon:%.1lf\n", getTimeString().c_str(), direction_diff, posinfo_prev_lat, posinfo_prev_lon);
             }
         }
+    }
+    else
+    {
+        posinfo_prev_lat = posinfo_lat;
+        posinfo_prev_lon = posinfo_lon;
     }
 
     posinfo_last_rate = gps_send_rate;

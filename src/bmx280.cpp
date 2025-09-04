@@ -221,7 +221,7 @@ bool loopBMX280(void)
 		if (!bmx280.measure())
 		{
 			if(bWXDEBUG)
-			Serial.println("could not start measurement, is a measurement already running?");
+				Serial.println("could not start measurement, is a measurement already running?");
 		}
 		else
 		{
@@ -232,7 +232,6 @@ bool loopBMX280(void)
 	}
 
 	//wait for the measurement to finish
-
 	if(!bmx280.hasValue())
 	{
 		bmx_start++;
@@ -245,9 +244,8 @@ bool loopBMX280(void)
 		}
 	}
 
-
 	//important: measurement data is read from the sensor in function hasValue() only. 
-	//make sure to call get*() functions only after hasValue() has returned true. 
+	//make sure to call get*() functions only after hasValue() has returned true.
   	if(bmx280.getTemperature() == (float)NAN)
 		fTemp = 0.0;
 	else

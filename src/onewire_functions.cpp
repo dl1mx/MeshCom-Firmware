@@ -299,7 +299,8 @@ bool loop_onewire_ds18()
     }
 
     for ( i = 0; i < 9; i++)
-    {           // we need 9 bytes
+    {
+        // we need 9 bytes
         data[i] = ds.read();
         if(bWXDEBUG && bDisplayCont)
         {
