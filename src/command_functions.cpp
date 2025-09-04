@@ -1649,7 +1649,9 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"onewire on") == 0)
     {
         bONEWIRE=true;
-        
+        one_found=false;
+        dht_found=false;
+
         meshcom_settings.node_sset2 |= 0x0001;
 
         if(ble)
@@ -1671,6 +1673,8 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"onewire off") == 0)
     {
         bONEWIRE=false;
+        one_found=false;
+        dht_found=false;
         
         meshcom_settings.node_sset2 &= ~0x0001;
 
@@ -4221,7 +4225,6 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc["OWPIN"] = meshcom_settings.node_owgpio;
         sensdoc["OWF"] = one_found;
         sensdoc["USERPIN"] = ibt;
-
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));
 
@@ -4242,6 +4245,8 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc1["SHUNT"] = meshcom_settings.node_shunt;
         sensdoc1["IMAX"] = meshcom_settings.node_imax;
         sensdoc1["SAMP"] = meshcom_settings.node_isamp;
+        sensdoc1["SHT"] = bSHT21ON;
+        sensdoc1["SHTF"] = sht21_found;
 
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));

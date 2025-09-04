@@ -205,6 +205,8 @@ extern double posinfo_lat;
 extern double posinfo_lon;
 extern double posinfo_last_lat;
 extern double posinfo_last_lon;
+extern double posinfo_prev_lat;
+extern double posinfo_prev_lon;
 extern double posinfo_last_direction;
 extern uint32_t posinfo_satcount;
 extern int posinfo_hdop;
