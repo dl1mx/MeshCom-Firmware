@@ -2134,9 +2134,6 @@ void esp32loop()
             else
                 node_lon_c='E';
 
-            posinfo_prev_lat = posinfo_lat;
-            posinfo_prev_lon = posinfo_lon;
-
             sendPosition(posinfo_interval, node_lat, node_lat_c, node_lon, node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
         }
         else
@@ -2146,8 +2143,12 @@ void esp32loop()
 
         posinfo_shot=false;
 
+        posinfo_prev_lat = posinfo_lat;
+        posinfo_prev_lon = posinfo_lon;
+
         posinfo_last_lat=posinfo_lat;
         posinfo_last_lon=posinfo_lon;
+
         posinfo_last_direction=posinfo_direction;
         posinfo_distance = 0.0;
 

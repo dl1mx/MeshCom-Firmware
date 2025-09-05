@@ -2706,6 +2706,34 @@ void sendPosition(unsigned int uintervall, double lat, char lat_c, double lon, c
 
         #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_T_DECK_PRO)
             tdeck_send_track_view();
+        #elif defined(HAS_TFT)
+        // none
+        #elif defined(BOARD_E290)
+        // none
+        #elif defined(BOARD_TRACKER)
+        // none
+        #elif defined(BOARD_STICK_V3)
+        // none
+        #else
+            if(u8g2 != NULL)
+            {
+                char cvers[20];
+
+                u8g2->clearDisplay();
+                u8g2->firstPage();
+
+                do
+                {
+                    u8g2->setFont(u8g2_font_10x20_mf);
+                    u8g2->drawStr(5, 16, "MeshCom 4.0");
+                    u8g2->setFont(u8g2_font_6x10_mf);
+                    u8g2->drawStr(5, 30, (char*)"");
+                    u8g2->drawStr(5, 40, (char*)"       TRACK");
+                    u8g2->drawStr(5, 50, (char*)"   POSITION SENT");
+                    snprintf(cvers, sizeof(cvers), " %.4lf%c %.4lf%c", lat, lat_c, lon, lon_c);
+                    u8g2->drawStr(5, 60, cvers);
+                } while (u8g2->nextPage());
+            }
         #endif
 
         // An APP als Anzeige retour senden
@@ -3360,15 +3388,15 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
             gps_send_rate = 35; // seconds intervall
         else
         if(distance_per_sec < 14.0)  // rad < 40 km/h
-            gps_send_rate = 45;
+            gps_send_rate = 35;
         else
         if(distance_per_sec < 22.0) // auto stadt
-            gps_send_rate = 55;
+            gps_send_rate = 45;
         else
         if(distance_per_sec < 36.0) // auto land
-            gps_send_rate = 65;
+            gps_send_rate = 55;
         else
-            gps_send_rate = 75; // auto autobahn
+            gps_send_rate = 65; // auto autobahn
 
         if(bGPSDEBUG)
             Serial.printf("%s [POSINFO]... dist/s:%.lf rate:%i\n", getTimeString().c_str(), distance_per_sec, (int)gps_send_rate);
