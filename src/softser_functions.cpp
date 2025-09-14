@@ -49,7 +49,10 @@ bool loopSOFTSER(int ID)
         
     // last query running
     if(softserFunktion == 0 && strSOFTSER_BUF.length() > 0)
+    {
+        Serial.printf("[APP]...last query running %i\n", strSOFTSER_BUF.length());
         return false;
+    }
 
     char cText[100] = {0};
 

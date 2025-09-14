@@ -310,11 +310,12 @@ int no_gps_reset_counter = 0;
 int gps_refresh_track = 0;
 
 // Loop timers
-unsigned long posinfo_timer = 0;    // we check periodically to send GPS
-unsigned long heyinfo_timer = 0;    // we check periodically to send HEY
-unsigned long telemetry_timer = 0;  // we check periodically to send TELEMETRY
-unsigned long temphum_timer = 0;    // we check periodically get TEMP/HUM
-unsigned long druck_timer = 0;      // we check periodically get AIRPRESURE
+unsigned long posinfo_timer = 0;        // we check periodically to send GPS
+unsigned long posinfo_timer_min = 0;    // we check min. periodically to send GPS
+unsigned long heyinfo_timer = 0;        // we check periodically to send HEY
+unsigned long telemetry_timer = 0;      // we check periodically to send TELEMETRY
+unsigned long temphum_timer = 0;        // we check periodically get TEMP/HUM
+unsigned long druck_timer = 0;          // we check periodically get AIRPRESURE
 unsigned long hb_timer = 0;
 unsigned long web_timer = 0;
 
@@ -3349,14 +3350,23 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     {
         posinfo_last_lat = dlat;
         posinfo_last_lon = dlon;
-        posinfo_prev_lat = dlat;
-        posinfo_prev_lon = dlon;
     }
 
     double distance = tinyGPSPLus.distanceBetween(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // meters
-    posinfo_direction = tinyGPSPLus.courseTo(posinfo_prev_lat, posinfo_prev_lon, dlat, dlon);    // Grad
 
     posinfo_distance += distance;
+
+    if(posinfo_prev_lat == 0.0 && posinfo_prev_lon == 0.0)
+    {
+        posinfo_prev_lat = dlat;
+        posinfo_prev_lon = dlon;
+
+        posinfo_direction = 0.0;
+    }
+    else
+    {
+        posinfo_direction = tinyGPSPLus.courseTo(posinfo_prev_lat, posinfo_prev_lon, dlat, dlon);    // Grad
+    }
 
     // TEST
     /*
