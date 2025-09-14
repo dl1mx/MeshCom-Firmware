@@ -2364,6 +2364,8 @@ void commandAction(char *umsg_text, bool ble)
     {
         bSOFTSER_APP = true;
         
+        strSOFTSER_BUF="";
+        
         return;
     }
     else
