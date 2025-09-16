@@ -2747,7 +2747,7 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"setssid ") == 0)
     {
         // max. 32 char
-        msg_text[32]=0x00;
+        msg_text[10+32]=0x00;
 
         snprintf(meshcom_settings.node_ssid, sizeof(meshcom_settings.node_ssid), "%s", msg_text+10);
 

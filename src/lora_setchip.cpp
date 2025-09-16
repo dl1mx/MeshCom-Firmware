@@ -151,6 +151,10 @@ int getCR()
 int8_t getPower()
 {
     int power = meshcom_settings.node_power;
+
+    if(bLORADEBUG)
+        Serial.printf("[LoRa]...POWER (FLASH): %i dBm\n", power);
+
     if(power <= 0)
         power = TX_OUTPUT_POWER;
     if(power > TX_OUTPUT_POWER)
@@ -433,10 +437,14 @@ void lora_setcountry(int iCtry)
     save_settings();
 }
 
-bool lora_setchip_meshcom()
-{
 #if defined BOARD_RAK4630
 void RadioInit();
+#endif
+
+bool lora_setchip_meshcom()
+{
+
+#if defined BOARD_RAK4630
 
     //  Initialize the LoRa Transceiver
     RadioInit();
@@ -508,11 +516,13 @@ void RadioInit();
 
 }
 
+#if defined BOARD_RAK4630
+void RadioInit();
+#endif
+
 bool lora_setchip_aprs()
 {
 #if defined BOARD_RAK4630
-void RadioInit();
-
     //  Initialize the LoRa Transceiver
     RadioInit();
 
