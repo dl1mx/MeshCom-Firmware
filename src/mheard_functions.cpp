@@ -245,6 +245,20 @@ void updateHeyPath(struct mheardLine &mheardLine)
     if(mheardLine.mh_sourcecallsign == meshcom_settings.node_call)
         return;
 
+    // check MHEARD exists
+    for(int imh=0; imh<MAX_MHEARD; imh++)
+    {
+        if(mheardCalls[imh][0] != 0x00)
+        {
+            int ivgll= mheardLine.mh_sourcecallsign.length();
+            if(strlen(mheardCalls[imh]) > ivgll)
+                ivgll=strlen(mheardCalls[imh]);
+
+            if(memcmp(mheardCalls[imh], mheardLine.mh_sourcecallsign.c_str(), ivgll) == 0)
+                return; // call heard direct
+        }
+    }
+
     int ipos=-1;
     int inext=-1;
     for(int iset=0; iset<MAX_MHPATH; iset++)
@@ -297,21 +311,26 @@ void updateHeyPath(struct mheardLine &mheardLine)
         return;
     }
 
+    // OE3YCB-15,OE3XOC-12,OE3SPR-1>
+    int ips = mheardLine.mh_sourcepath.indexOf(',') + 1;
+    int ipc = mheardLine.mh_sourcepath.length() - ips;
+    if(ipc > 37)
+        ipc = 37;
+
+    
+    // only MHEARD HEY
+    if(ips <= 0)
+        return;
+
     memset(mheardPathCalls[ipos], 0x00, sizeof(mheardPathCalls[ipos]));
     memcpy(mheardPathCalls[ipos], mheardLine.mh_sourcecallsign.c_str(), mheardLine.mh_sourcecallsign.length());
     mheardPathCalls[ipos][9]=0x00;
 
-    int ips = mheardLine.mh_sourcepath.indexOf(',') + 1;
-    if(ips > 0)
-    {
-        memcpy(mheardPathBuffer1[ipos], mheardLine.mh_sourcepath.substring(ips, 37).c_str(), sizeof(mheardPathBuffer1[ipos]));
-        mheardPathBuffer1[ipos][37] = 0x00;
-        // TODO second 30 chars
-    }
-    else
-    {
-        memset(mheardPathBuffer1[ipos], 0x00, sizeof(mheardPathBuffer1[ipos]));
-    }
+    //Serial.printf("PATH:%i <%s> <%s> %i %i\n", ipos,  mheardLine.mh_sourcepath.c_str(), mheardLine.mh_sourcepath.substring(ips).c_str(), ips, ipc);
+
+    memcpy(mheardPathBuffer1[ipos], mheardLine.mh_sourcepath.substring(ips).c_str(), ipc);
+    mheardPathBuffer1[ipos][37] = 0x00;
+    // TODO second 30 chars
 
     // check HEY! comming from gateway
     if(mheardLine.mh_destinationpath == "HG")
@@ -448,8 +467,8 @@ void showMHeard()
 
 void showPath()
 {
-    Serial.printf("/-------------------------------------------------------------------------------------------------\\\n");
-    Serial.printf("|MHeard call |       date          | lng/Gate/Path                                                |\n");
+    Serial.printf("/---------------------------------------------------------------------------\\\n");
+    Serial.printf("|       date          | lng/Gate/Path                                       |\n");
 
     for(int iset=0; iset<MAX_MHPATH; iset++)
     {
@@ -457,15 +476,15 @@ void showPath()
         {
             if((mheardPathEpoch[iset]+60*60*3) > getUnixClock())    // 3h
             {
-                Serial.printf("|------------|---------------------|--------------------------------------------------------------|\n");
+                Serial.printf("|---------------------|-----------------------------------------------------|\n");
 
-                Serial.printf("| %-10.10s | ", mheardPathCalls[iset]);
+                //Serial.printf("| %-10.10s | ", mheardPathCalls[iset]);
 
                 unsigned long lt = mheardPathEpoch[iset] + ((60 * 60 + 24) * (int)meshcom_settings.node_utcoff);
                 
-                Serial.printf("%-19.19s | ", convertUNIXtoString(lt).c_str()); // yyyy.mm.dd hh:mm:ss
+                Serial.printf("| %-19.19s | ", convertUNIXtoString(lt).c_str()); // yyyy.mm.dd hh:mm:ss
 
-                Serial.printf("%01u%s/%-29.29s                             |\n", (mheardPathLen[iset] & 0x7F), ((mheardPathLen[iset] & 0x80)?"G":" "), mheardPathBuffer1[iset]);
+                Serial.printf("%01u%s/%-10.10s %-37.37s |\n", (mheardPathLen[iset] & 0x7F), ((mheardPathLen[iset] & 0x80)?"G":" "), mheardPathCalls[iset], mheardPathBuffer1[iset]);
             }
             else
             {
@@ -474,7 +493,7 @@ void showPath()
         }
     }
 
-    Serial.printf("\\-------------------------------------------------------------------------------------------------/\n");
+    Serial.printf("\\---------------------------------------------------------------------------/\n");
 }
 
 char* getPayloadType(char ptype)
