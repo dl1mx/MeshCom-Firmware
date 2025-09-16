@@ -1,5 +1,5 @@
 #define SOURCE_VERSION "4.35"
-#define SOURCE_VERSION_SUB "d"
+#define SOURCE_VERSION_SUB "e"
 
 //Hardware Types
 #define TLORA_V2 1
@@ -69,7 +69,7 @@
 #define MAX_RING_UDP 20                    // size of Ringbuffer for UDP TX messages received from LoRa
 #else
 #define MAX_MHEARD 20                      // max count of messages in mheard ringbuffer
-#define MAX_MHPATH 30                      // max count of messages in mhpath ringbuffer
+#define MAX_MHPATH 25                      // max count of messages in mhpath ringbuffer
 #define MAX_RING 30                        // max count of messages in ringbuffer
 #define MAX_LOG 20                         // max count of messages in LOG-ringbuffer
 #define MAX_RING_UDP 20                    // size of Ringbuffer for UDP TX messages received from LoRa
