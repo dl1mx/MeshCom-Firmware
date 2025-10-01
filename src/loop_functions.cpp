@@ -1531,7 +1531,6 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     #elif defined(BOARD_TRACKER)
 
     sendDisplayMainline();
-
     sendDisplay1306(false, true, 0, dzeile[0], (char*)"#F");    // not fastmode for CET display
 
     String strPath = "M* <" + aprsmsg.msg_source_call + ">";
@@ -1557,9 +1556,10 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     strAscii = utf8ascii(aprsmsg.msg_payload);
 
-    #if defined(HAS_TFT)
+    strcpy(pageLastTextLong1[pagePointer], strPath.c_str());
+    strcpy(pageLastTextLong2[pagePointer], strAscii.c_str());
+
     displayTFT(strPath, strAscii);
-    #endif
 
     #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     

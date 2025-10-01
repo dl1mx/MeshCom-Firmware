@@ -13,6 +13,10 @@
 #include <t-deck/lv_obj_functions.h>
 #endif 
 
+#if defined(HAS_TFT)
+#include "tft_display_functions.h"
+#endif
+
 void singleClick()
 {
   if(bDisplayCont)
@@ -40,6 +44,7 @@ void singleClick()
     bDisplayIsOff=false;
 
     pageLineAnz = pageLastLineAnz[pagePointer];
+
     for(int its=0;its<pageLineAnz;its++)
     {
         // Save last Text (init)
@@ -47,6 +52,7 @@ void singleClick()
         pageLine[its][1] = pageLastLine[pagePointer][its][1];
         pageLine[its][2] = pageLastLine[pagePointer][its][2];
         memcpy(pageText[its], pageLastText[pagePointer][its], 25);
+        
         if(its == 0)
         {
             for(int iss=0; iss < 20; iss++)
@@ -65,10 +71,19 @@ void singleClick()
         iDisplayType=0;
     #endif
 
-    strcpy(pageTextLong1, pageLastTextLong1[pagePointer]);
-    strcpy(pageTextLong2, pageLastTextLong2[pagePointer]);
+    #if defined(HAS_TFT)
+      displayTFT(pageLastTextLong1[pagePointer], pageLastTextLong2[pagePointer]);
+    #else
+      strcpy(pageTextLong1, pageLastTextLong1[pagePointer]);
+      if(bDisplayCont && strlen(pageTextLong1) > 0)
+        Serial.println(pageTextLong1);
 
-    sendDisplay1306(false, true, 0, 0, (char*)"#N");
+      strcpy(pageTextLong2, pageLastTextLong2[pagePointer]);
+      if(bDisplayCont && strlen(pageTextLong2) > 0)
+        Serial.println(pageTextLong2);
+
+      sendDisplay1306(false, true, 0, 0, (char*)"#N");
+    #endif
 
     pagePointer--;
     if(pagePointer < 0)

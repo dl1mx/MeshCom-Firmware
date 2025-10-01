@@ -68,7 +68,19 @@ bool loopSOFTSER(int ID)
         else
         if(softserFunktion == 1)
         {
-            snprintf(cText, sizeof(cText), "/cl/data/get/%s", strSOFTSER_BUF.substring(6, 20).c_str());
+            if(strSOFTSER_BUF.compareTo("<0x03>") == 0)
+                snprintf(cText, sizeof(cText), "/cl/data/get/%s", strSOFTSER_BUF.substring(6, 20).c_str());
+            else
+            {
+                int i02 = strSOFTSER_BUF.indexOf("<0x02>");
+                if(i02 < 0)
+                {
+                    softserFunktion = 0;
+                    return false;
+                }
+
+                snprintf(cText, sizeof(cText), "/cl/data/get/%s", strSOFTSER_BUF.substring(i02+6, 20).c_str());
+            }
 
             unsigned int year;
             unsigned int month;
@@ -139,6 +151,9 @@ bool appSOFTSER(int ID)
     // just for test
         if(softserFunktion == 1)
         {
+            if(bSOFTSERDEBUG)
+                Serial.printf("strSOFTSER_BUF>>%s<<\n", strSOFTSER_BUF.c_str());
+
             if(strSOFTSER_BUF.indexOf("<0x03>") < 0)
             {
                 softserFunktion = 0; // restart
@@ -247,7 +262,7 @@ bool getSOFTSER()
                 tmp_data += c;
         }
         
-        if((millis() - start) > 3000)
+        if((millis() - start) > 6000)
             bgrun=false;
     }
 

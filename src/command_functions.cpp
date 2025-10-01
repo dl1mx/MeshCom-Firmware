@@ -2363,9 +2363,9 @@ void commandAction(char *umsg_text, bool ble)
     else
     if(commandCheck(msg_text+2, (char*)"softser app") == 0)
     {
-        bSOFTSER_APP = true;
-        
         strSOFTSER_BUF="";
+
+        bSOFTSER_APP = true;
         
         return;
     }
@@ -2373,6 +2373,8 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"softser app0") == 0)
     {
         iNextTelemetry = 0;
+
+        strSOFTSER_BUF="";
 
         bSOFTSER_APP = true;
         
@@ -2414,7 +2416,7 @@ void commandAction(char *umsg_text, bool ble)
     else
     if(commandCheck(msg_text+2, (char*)"softser rxpin ") == 0)
     {
-        sscanf(msg_text+15, "%d", &meshcom_settings.node_ss_rx_pin);
+        sscanf(msg_text+16, "%d", &meshcom_settings.node_ss_rx_pin);
 
         save_settings();
 
@@ -2423,7 +2425,7 @@ void commandAction(char *umsg_text, bool ble)
     else
     if(commandCheck(msg_text+2, (char*)"softser txpin ") == 0)
     {
-        sscanf(msg_text+15, "%d", &meshcom_settings.node_ss_tx_pin);
+        sscanf(msg_text+16, "%d", &meshcom_settings.node_ss_tx_pin);
 
         save_settings();
 
@@ -2776,7 +2778,7 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"setpwd ") == 0)
     {
         // max. 63 char
-        msg_text[63]=0x00;
+        msg_text[63+9]=0x00;
 
         snprintf(meshcom_settings.node_pwd, sizeof(meshcom_settings.node_pwd), "%s", msg_text+9);
 
@@ -3411,23 +3413,28 @@ void commandAction(char *umsg_text, bool ble)
     else
     if(commandCheck(msg_text+2, (char*)"txcr ") == 0)
     {
+        // 4/txcr --> 4/5 ... 4/8
         snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+7);
         sscanf(_owner_c, "%d", &iVar);
 
-        if(iVar < 4 || iVar > 6)
+        if(iVar < 5 || iVar > 8)
         {
-            Serial.printf("txcr %i only 4 to 6\n", iVar);
+            Serial.printf("txcr %i only 5 to 8 (4/5 to 4/8)\n", iVar);
         }
         else
         {
-            meshcom_settings.node_cr=iVar;
-
-            Serial.printf("set txcr to %i\n", meshcom_settings.node_cr);
+            Serial.printf("set txcr to %i\n", iVar);
 
             if(ble)
             {
                 addBLECommandBack((char*)msg_text);
             }
+
+            meshcom_settings.node_cr = iVar;
+
+            #ifdef BOARD_RAK4630
+                meshcom_settings.node_cr = iVar - 4;
+            #endif
 
             save_settings();
 
@@ -3608,7 +3615,7 @@ void commandAction(char *umsg_text, bool ble)
 
                 igrc++;
                 if(igrc > 6)
-                    igrc=6;
+                    break;
             }
             else
             {

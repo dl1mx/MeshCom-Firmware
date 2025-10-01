@@ -25,6 +25,10 @@ void webSetup_setParam(setupStruct *setupData){
 
     if(setupData->paramName.equals("manualcommand")) {        
         snprintf(message_text, sizeof(message_text), "%s", setupData->paramValue.c_str());                             // set command string
+        
+        if(memcmp(message_text, "&&", 2) == 0)
+            memcpy(message_text, "--", 2);
+
         commandAction(message_text, bPhoneReady);                                                                      // try to execute the command
         setupData->returnCode = WS_RETURNCODE_OKAY;                                                                    // we can not check if that comamnd was valid (at the moment)
         setupData->returnValue = "";                                                                                   // send back empty string

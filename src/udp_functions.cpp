@@ -607,6 +607,9 @@ bool doWiFiConnect()
 
 bool checkWifiPing()
 {
+  if(bWIFIAP)
+    return true;
+
   if(hasIPaddress)
   {
     if(!Ping.ping(meshcom_settings.node_gw))
