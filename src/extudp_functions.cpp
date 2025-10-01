@@ -178,6 +178,8 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen)
   }
 
   char c_json[500] = {0};
+  char c_tjson[500] = {0};
+
   char escape_symbol[3];
   char escape_group[3];
 
@@ -185,6 +187,7 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen)
   memset(escape_group, 0x00, 3);
 
   uint8_t u_json[500] = {0};
+  uint8_t t_json[500] = {0};
 
   // convert the mesgid to 8 digits hex
   char _msgId[9];
@@ -263,6 +266,32 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen)
     serializeJson(cJson, c_json, json_len + 1);
 
     memcpy(u_json, c_json, json_len + 1);
+
+    JsonDocument ctJson;
+    int tjson_len = 0;
+
+    // Telemtrie
+    if(strcmp(src_type, "node") == 0)
+    {
+      // build the json with Arduino JSON
+      ctJson["src_type"] = src_type;
+      ctJson["type"] = "tele";
+      ctJson["temp1"] = meshcom_settings.node_temp;
+      ctJson["temp2"] = meshcom_settings.node_temp2;
+      ctJson["hum"] = meshcom_settings.node_hum;
+      ctJson["qfe"] = meshcom_settings.node_press;
+      ctJson["qnh"] = meshcom_settings.node_press_asl;
+      ctJson["gas"] = meshcom_settings.node_gas_res;
+      ctJson["co2"] = meshcom_settings.node_co2;
+
+      // clear the buffer
+      memset(t_json, 0x00, sizeof(t_json));
+      // serialize the json
+      tjson_len = measureJson(ctJson);
+      serializeJson(ctJson, c_tjson, tjson_len + 1);
+
+      memcpy(t_json, c_tjson, tjson_len + 1);
+    }
   }
   else
   // Text
@@ -301,7 +330,7 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen)
       serializeJson(cJson, c_json, json_len + 1);
 
       memcpy(u_json, c_json, json_len + 1);
-      }
+    }
   }
   else
     return;
@@ -328,10 +357,26 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen)
     }
 
     UdpExtern.endPacket();
+
+    if(strcmp(src_type, "node") == 0 && strlen(c_tjson) > 0)
+    {
+      // Telemetrie
+      UdpExtern.beginPacket(apip , EXTERN_PORT);
+
+      Serial.printf("[EXT] Tele-Out: %s Len: %i\n", c_tjson, strlen(c_tjson));
+
+      if (!UdpExtern.write(t_json, strlen(c_tjson)))
+      {
+        resetExternUDP();
+      }
+
+      UdpExtern.endPacket();
+    }
   }
   else
   {
     Serial.printf("%s\n", c_json);
+    Serial.printf("%s\n", c_tjson);
   }
 }
 

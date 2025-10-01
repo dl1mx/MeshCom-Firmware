@@ -850,9 +850,9 @@ void esp32setup()
         char cvers[22];
         sprintf(cvers, "  FW %s/%-1.1s <%s>", SOURCE_VERSION, SOURCE_VERSION_SUB, getCountry(meshcom_settings.node_country).c_str());
         String  version = cvers;
-        displayTFT(" MeshCom 4.0 ", version, "  @by icssw.org", "  OE1KBC, OE1KFR",  "  ...starting now", 5000);
+        displayTFT(" MeshCom 4.0 ", version, "  @BY ICSSW.ORG", "  OE1KBC, OE1KFR",  "  ...starting now", 5000);
     #else
-        startDisplay((char*)"...starting now", (char*)"@by icssw.org", (char*)"OE1KBC, OE1KFR");
+        startDisplay((char*)"...starting now", (char*)"@BY ICSSW.ORG", (char*)"OE1KBC, OE1KFR");
     #endif
 
     //LORA CHIP present
@@ -2196,12 +2196,15 @@ void esp32loop()
     akt_timer = akt_timer * 1000 * 60; // convert to minutes
 
     if(bSOFTSERON)
-        akt_timer= 10 * 1000; // 10 Seconds PARM, UNIT, EQNS and 1st T-Message
+    {
+        akt_timer = 20 * 1000; // 20 Seconds PARM, UNIT, EQNS and 1st T-Message
+    }
         
     if (((telemetry_timer + akt_timer) < millis()) || (bTeleFirst && bAllStarted))
     {
         bTeleFirst=false;
 
+        // APP-ID , Header only flag
         sendTelemetry(SOFTSER_APP_ID);
 
         telemetry_timer = millis();

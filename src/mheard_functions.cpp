@@ -145,14 +145,14 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
     {
         if(mheardCalls[iset][0] != 0x00)
         {
-            if((mheardEpoch[iset]+60*60*3) < getUnixClock())    // 3h
+            if((mheardEpoch[iset]+60*60*12) < getUnixClock())    // 12h
             {
                 mheardCalls[iset][0] = 0x00;
             }
             else
             {
                 int ivgll= mheardLine.mh_callsign.length();
-                if(strlen(mheardCalls[iset]) > ivgll)
+                if(strlen(mheardCalls[iset]) > (size_t)ivgll)
                     ivgll=strlen(mheardCalls[iset]);
 
                 if(memcmp(mheardCalls[iset], mheardLine.mh_callsign.c_str(), ivgll) == 0)
@@ -251,7 +251,7 @@ void updateHeyPath(struct mheardLine &mheardLine)
         if(mheardCalls[imh][0] != 0x00)
         {
             int ivgll= mheardLine.mh_sourcecallsign.length();
-            if(strlen(mheardCalls[imh]) > ivgll)
+            if(strlen(mheardCalls[imh]) > (size_t)ivgll)
                 ivgll=strlen(mheardCalls[imh]);
 
             if(memcmp(mheardCalls[imh], mheardLine.mh_sourcecallsign.c_str(), ivgll) == 0)
@@ -265,14 +265,15 @@ void updateHeyPath(struct mheardLine &mheardLine)
     {
         if(mheardPathCalls[iset][0] != 0x00)
         {
-            if((mheardPathEpoch[iset]+60*60*3) < getUnixClock())
+            // PATH DELETE after 12 Hours
+            if((mheardPathEpoch[iset]+60*60*12) < getUnixClock())
             {
                 mheardPathCalls[iset][0] = 0x00;
             }
             else
             {
                 int ivgll= mheardLine.mh_sourcecallsign.length();
-                if(strlen(mheardPathCalls[iset]) > ivgll)
+                if(strlen(mheardPathCalls[iset]) > (size_t)ivgll)
                     ivgll=strlen(mheardPathCalls[iset]);
 
                 if(memcmp(mheardPathCalls[iset], mheardLine.mh_sourcecallsign.c_str(), ivgll) == 0)
@@ -328,6 +329,7 @@ void updateHeyPath(struct mheardLine &mheardLine)
 
     //Serial.printf("PATH:%i <%s> <%s> %i %i\n", ipos,  mheardLine.mh_sourcepath.c_str(), mheardLine.mh_sourcepath.substring(ips).c_str(), ips, ipc);
 
+    memset(mheardPathBuffer1[ipos], 0x00, sizeof(mheardPathBuffer1[ipos]));
     memcpy(mheardPathBuffer1[ipos], mheardLine.mh_sourcepath.substring(ips).c_str(), ipc);
     mheardPathBuffer1[ipos][37] = 0x00;
     // TODO second 30 chars
@@ -369,7 +371,8 @@ void sendMheard()
     {
         if(mheardCalls[iset][0] != 0x00)
         {
-            if((mheardEpoch[iset]+60*60*3) > getUnixClock()) // 3h
+            // PATH DELETE after 12 Hours
+            if((mheardEpoch[iset]+60*60*12) > getUnixClock()) // 12h
             {
                 initMheardLine(mheardLine);
 
@@ -437,7 +440,7 @@ void showMHeard()
     {
         if(mheardCalls[iset][0] != 0x00)
         {
-            if((mheardEpoch[iset]+60*60*6) > getUnixClock())
+            if((mheardEpoch[iset]+60*60*12) > getUnixClock())
             {
                 Serial.printf("|------------|------------|----------|-----|-----------------|-----|------|------|------|----|---|\n");
 
@@ -474,7 +477,7 @@ void showPath()
     {
         if(mheardPathCalls[iset][0] != 0x00)
         {
-            if((mheardPathEpoch[iset]+60*60*3) > getUnixClock())    // 3h
+            if((mheardPathEpoch[iset]+60*60*12) > getUnixClock())    // 12h
             {
                 Serial.printf("|---------------------|-----------------------------------------------------|\n");
 
@@ -653,30 +656,11 @@ void showPathTDECK()
 
     lv_table_set_row_cnt(path_ta, anzrow);
 
-    /*
-            if((mheardPathEpoch[iset]+60*60*3) > getUnixClock())    // 3h
-            {
-                Serial.printf("|------------|---------------------|--------------------------------------------------------------|\n");
-
-                Serial.printf("| %-10.10s | ", mheardPathCalls[iset]);
-
-                unsigned long lt = mheardPathEpoch[iset] + ((60 * 60 + 24) * (int)meshcom_settings.node_utcoff);
-                
-                Serial.printf("%-19.19s | ", convertUNIXtoString(lt).c_str()); // yyyy.mm.dd hh:mm:ss
-
-                Serial.printf("%01u%s/%-29.29s                             |\n", (mheardPathLen[iset] & 0x7F), ((mheardPathLen[iset] & 0x80)?"G":" "), mheardPathBuffer1[iset]);
-            }
-            else
-            {
-                mheardPathCalls[iset][0] = 0x00;
-            }
-    */
-
     for(int iset=0; iset<MAX_MHPATH; iset++)
     {
         if(mheardPathCalls[iset][0] != 0x00)
         {
-            if((mheardPathEpoch[iset]+60*60*3) > getUnixClock())    // 3h
+            if((mheardPathEpoch[iset]+60*60*12) > getUnixClock())    // 12h
             {
                 snprintf(buf, 11, "%s", mheardPathCalls[iset]);
                 lv_table_set_cell_value(path_ta, row, 0, buf);

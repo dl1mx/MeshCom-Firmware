@@ -153,7 +153,7 @@ int8_t getPower()
     int power = meshcom_settings.node_power;
 
     if(bLORADEBUG)
-        Serial.printf("[LoRa]...POWER (FLASH): %i dBm\n", power);
+        Serial.printf("...POWER (FLASH): %i dBm\n", power);
 
     if(power <= 0)
         power = TX_OUTPUT_POWER;
