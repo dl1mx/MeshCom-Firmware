@@ -15,6 +15,7 @@ uint16_t decodeAPRSPOS(String PayloadBuffer, struct aprsPosition &aprsPosition);
 
 uint16_t encodeLoRaAPRS(uint8_t msg_buffer[UDP_TX_BUF_SIZE], char strSourceCall[10], double lat, char lat_c, double lon, char lon_c, int alt);
 uint16_t encodeLoRaAPRScompressed(uint8_t msg_buffer[UDP_TX_BUF_SIZE], char cSourceCall[10], double lat, char lat_c, double lon, char lon_c, int alt);
+uint16_t encodeLoRaAPRSText(uint8_t msg_buffer[UDP_TX_BUF_SIZE], char cSourceCall[10], char cText[100]);
 
 double conv_coord_to_dec(double coord);
 
