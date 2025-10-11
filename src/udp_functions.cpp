@@ -30,6 +30,7 @@ String grc_ids;
 IPAddress node_ip = IPAddress(0,0,0,0);
 IPAddress node_gw = IPAddress(0,0,0,0);
 IPAddress node_ms = IPAddress(0,0,0,0);
+IPAddress node_dns = IPAddress(0,0,0,0);
 
 IPAddress node_hostip = IPAddress(0,0,0,0);
 
@@ -703,7 +704,12 @@ void startMeshComUDP()
   {
     snprintf(meshcom_settings.node_ip, sizeof(meshcom_settings.node_ip), "%s", meshcom_settings.node_ownip);
     snprintf(meshcom_settings.node_gw, sizeof(meshcom_settings.node_gw), "%s", meshcom_settings.node_owngw);
-    snprintf(meshcom_settings.node_dns, sizeof(meshcom_settings.node_dns), "%s", (char*)"8.8.8.8");
+
+    if(strlen(meshcom_settings.node_owndns) >= 7)
+      snprintf(meshcom_settings.node_dns, sizeof(meshcom_settings.node_dns), "%s", meshcom_settings.node_owndns);
+    else
+      snprintf(meshcom_settings.node_dns, sizeof(meshcom_settings.node_dns), "%s", (char*)"8.8.8.8");
+
     snprintf(meshcom_settings.node_subnet, sizeof(meshcom_settings.node_subnet), "%s", meshcom_settings.node_ownms);
 
     // Set your Static IP address
@@ -712,11 +718,11 @@ void startMeshComUDP()
     node_gw.fromString(meshcom_settings.node_owngw);
     // Set your Gateway IP mask
     node_ms.fromString(meshcom_settings.node_ownms);
+    // Set your DNS IP
+    node_dns.fromString(meshcom_settings.node_owndns);
 
-    IPAddress primaryDNS(8, 8, 8, 8);   //optional
-    IPAddress secondaryDNS(44, 143, 0, 10); //optional
     // Configures static IP address
-    if (!WiFi.config(node_ip, node_gw, node_ms, primaryDNS, secondaryDNS))
+    if (!WiFi.config(node_ip, node_gw, node_ms, node_dns))
     {
       Serial.println("[Error] STA Failed to configure");
     }

@@ -1176,6 +1176,42 @@ uint16_t encodeLoRaAPRScompressed(uint8_t msg_buffer[UDP_TX_BUF_SIZE], char cSou
 
     //snprintf(msg_start, sizeof(msg_start), "%s>APLT00-1,WIDE1-1:=%c%c%c%c%c%c%c%c%c%c P[%s", cSourceCall, meshcom_settings.node_symid, clat[0], clat[1], clat[2], clat[3], clon[0], clon[1], clon[2], clon[3], meshcom_settings.node_symcd, msgtext.c_str());
     snprintf(msg_start, sizeof(msg_start), "%s>APLT00-1,WIDE1-1:=%c%c%c%c%c%c%c%c%c%c P[", cSourceCall, meshcom_settings.node_symid, clat[0], clat[1], clat[2], clat[3], clon[0], clon[1], clon[2], clon[3], meshcom_settings.node_symcd);
+    
+
+    ilng = strlen(msg_start) + 3;
+
+    if(ilng >= UDP_TX_BUF_SIZE)
+        ilng = UDP_TX_BUF_SIZE - 1;
+
+    memcpy(msg_buffer + 3, msg_start, ilng - 3);
+
+    msg_buffer[ilng] = 0x00;
+
+    return ilng;
+}
+
+uint16_t encodeLoRaAPRSText(uint8_t msg_buffer[UDP_TX_BUF_SIZE], char cSourceCall[10], char cText[100])
+{
+    char msg_start[UDP_TX_BUF_SIZE];
+
+    uint16_t ilng = 0;
+
+    // Create buffer
+    msg_buffer[0]='<';
+    
+    msg_buffer[1]=0xFF;
+    msg_buffer[2]=0x01;
+
+    /* check for some IGates
+    String msgtext="(MeshCom)";
+    if(meshcom_settings.node_atxt[0] != 0x00)
+        msgtext = meshcom_settings.node_atxt;
+    */
+
+    if(memcmp(cText, "T#", 2) == 0)
+        snprintf(msg_start, sizeof(msg_start), "%s>APLT00-1,WIDE1-1:%s", cSourceCall, cText);
+    else
+        snprintf(msg_start, sizeof(msg_start), "%s>APLT00-1,WIDE1-1::%s:%s", cSourceCall, cSourceCall, cText);
 
     ilng = strlen(msg_start) + 3;
 

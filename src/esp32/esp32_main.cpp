@@ -587,9 +587,13 @@ void esp32setup()
     if(memcmp(meshcom_settings.node_call, "XX0XXX", 6) == 0 || meshcom_settings.node_call[0] == 0x00 || memcmp(meshcom_settings.node_call, "none", 4) == 0)
     {
         bWIFIAP = true;
-        bWEBSERVER = true;
+        Serial.println("[INIT]...WIFIAP starting...");
+    }
 
-        Serial.println("WIFIAP starting...");
+    if(bWIFIAP)
+    {
+        bWEBSERVER = true;
+        Serial.println("[INIT]...WEBServer starting...");
     }
 
     if(meshcom_settings.node_gwsrv[0] == 0x00)
@@ -606,7 +610,9 @@ void esp32setup()
     if(strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0)
     {
         bGATEWAY=false;
-        bWEBSERVER=false;
+
+        if(!bWIFIAP)
+            bWEBSERVER=false;
     }
        
     if(bBMPON)

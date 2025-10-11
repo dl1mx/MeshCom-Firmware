@@ -214,6 +214,9 @@ void init_flash(void)
     meshcom_settings.node_shunt = preferences.getFloat("node_shunt", 0.002);
     meshcom_settings.node_imax = preferences.getFloat("node_imax", 20.0);
     meshcom_settings.node_isamp = preferences.getInt("node_isamp", 7);
+
+    strVar = preferences.getString("node_owndns");
+    snprintf(meshcom_settings.node_owndns, sizeof(meshcom_settings.node_owndns), "%s", strVar.c_str());
 }
 
 void save_settings(void)
@@ -422,6 +425,10 @@ void save_settings(void)
     preferences.putFloat("node_shunt", meshcom_settings.node_shunt);
     preferences.putFloat("node_imax", meshcom_settings.node_imax);
     preferences.putInt("node_isamp", meshcom_settings.node_isamp);
+
+    strVar = meshcom_settings.node_owndns;
+    preferences.putString("node_owndns", strVar); 
+
 
     preferences.end();
 

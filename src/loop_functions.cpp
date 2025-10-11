@@ -3314,13 +3314,24 @@ void sendTelemetry(int ID)
             ringBuffer[iWrite][1] = 0xFF; // retransmission Status ...0xFF no retransmission
             memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
 
-            addRingPointer(iWrite, iRead, MAX_RING);
+            if(!bDisplayTrack)
+                addRingPointer(iWrite, iRead, MAX_RING);
+        }
 
-            /*
-            iWrite++;
-            if(iWrite >= MAX_RING)
-                iWrite=0;
-            */
+        // send value messages to Lora-APRS
+        if(bDisplayTrack && !bGATEWAY)
+        {
+            uint16_t tlng=0;
+
+            tlng = encodeLoRaAPRSText(msg_buffer, meshcom_settings.node_call, msg_text+10);
+
+            // Master RingBuffer for transmission
+            // local messages send to LoRa TX
+            ringBuffer[iWrite][0] = tlng;
+            ringBuffer[iWrite][1] = 0xFF; // retransmission Status ...0xFF no retransmission
+            memcpy(ringBuffer[iWrite]+2, msg_buffer, tlng);
+
+            addRingPointer(iWrite, iRead, MAX_RING);
         }
     }
 }

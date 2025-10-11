@@ -557,7 +557,7 @@ void commandAction(char *umsg_text, bool ble)
             Serial.printf("MeshCom %-4.4s%-1.1s commands\n--setcall  set callsign (OE0XXX-1)\n--setname  set first name/none\n--setctry 0-99 set RX/RX-LoRa-Parameter\n--reboot   Node reboot\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
             delay(100);
 
-            Serial.printf("--setssid  WLAN SSID/none\n--setpwd   WLAN PASSWORD/none\n--setownip 255.255.255.255\n--setowngw 255.255.255.255\n--setownms mask:255.255.255.255\n--wifiap on/off WLAN AP\n--extudp  on/off\n--extudpip 255.255.255.255/none\n");
+            Serial.printf("--setssid  WLAN SSID/none\n--setpwd   WLAN PASSWORD/none\n--setownip 255.255.255.255\n--setowngw 255.255.255.255\n--setownms mask:255.255.255.255\n--setowndns 255.255.255.255\n--wifiap on/off WLAN AP\n--extudp  on/off\n--extudpip 255.255.255.255/none\n");
             delay(100);
 
             Serial.printf("--btcode 999999 BT-Code\n--button gpio 99 User-Button PIN\n--analog gpio 99 Analog PIN\n--analog factor 9.9 Analog factor\n--analogcheck on/off\n");
@@ -2869,6 +2869,23 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    if(commandCheck(msg_text+2, (char*)"setowndns ") == 0)
+    {
+        // max. 40 char
+        msg_text[50]=0x00;
+
+        snprintf(meshcom_settings.node_owndns, sizeof(meshcom_settings.node_owndns), "%s", msg_text+12);
+
+        if(ble)
+        {
+            bWifiSetting = true;
+        }
+
+        save_settings();
+
+        return;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"setowngw ") == 0)
     {
         // max. 40 char
@@ -4057,6 +4074,7 @@ void commandAction(char *umsg_text, bool ble)
                 ibt = BUTTON_PIN;
             #endif
 
+            Serial.println("");
             Serial.printf("--MeshCom %-4.4s%-1.1s (build: %s / %s)\n...UPDATE: %s\n...Call: <%s> ...ID %08X ...NODE %i <%s> ...UTC-OFF %f [%s]\n...BATT %.2f V ...BATT %d %% ...MAXV %.3f V\n...TIME %li ms\n", 
                     SOURCE_VERSION, SOURCE_VERSION_SUB , __DATE__ , __TIME__ , meshcom_settings.node_update,
                     meshcom_settings.node_call, _GW_ID, BOARD_HARDWARE, getHardwareLong(BOARD_HARDWARE).c_str(), meshcom_settings.node_utcoff, cTimeSource, global_batt/1000.0, global_proz, meshcom_settings.node_maxv, millis());
@@ -4147,9 +4165,10 @@ void commandAction(char *umsg_text, bool ble)
             {
                 if(strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7)
                 {
-                    Serial.printf("...OWNIP address: %s\n", meshcom_settings.node_ownip);
-                    Serial.printf("...OWNMS address: %s\n", meshcom_settings.node_ownms);
-                    Serial.printf("...OWNGW address: %s\n", meshcom_settings.node_owngw);
+                    Serial.printf("...OWNIP  address: %s\n", meshcom_settings.node_ownip);
+                    Serial.printf("...OWNMS  address: %s\n", meshcom_settings.node_ownms);
+                    Serial.printf("...OWNGW  address: %s\n", meshcom_settings.node_owngw);
+                    Serial.printf("...OWNDNS address: %s\n", meshcom_settings.node_owndns);
                 }
             }
 
@@ -4299,6 +4318,7 @@ void commandAction(char *umsg_text, bool ble)
         swdoc["OWNIP"] = meshcom_settings.node_ownip;
         swdoc["OWNGW"] = meshcom_settings.node_owngw;
         swdoc["OWNMS"] = meshcom_settings.node_ownms;
+        swdoc["OWNDNS"] = meshcom_settings.node_owndns;
         swdoc["EUDP"] = bEXTUDP;
         swdoc["EUDPIP"] = meshcom_settings.node_extern;
         swdoc["TXPOW"] = meshcom_settings.node_wifi_power;

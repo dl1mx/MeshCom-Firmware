@@ -150,6 +150,8 @@ struct s_meshcom_settings
 	float node_imax = 20.0;
 	int node_isamp = 7;
 
+	char node_owndns[20] = {0};
+
 	// nicht im Flash
 	int node_press_alt = 0;
 	float node_press_asl = 0;

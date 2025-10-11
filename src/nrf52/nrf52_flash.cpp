@@ -219,6 +219,8 @@ void init_flash(void)
 		meshcom_settings.node_imax = old_struct.node_imax;
 		meshcom_settings.node_isamp = old_struct.node_isamp;
 
+		memcpy(meshcom_settings.node_owndns, old_struct.node_owndns, 20);
+
 		save_settings();
 		// delay(1000);
 		// sd_nvic_SystemReset();
