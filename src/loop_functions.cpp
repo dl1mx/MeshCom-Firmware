@@ -952,12 +952,14 @@ void sendDisplayHead(bool bInit)
     snprintf(print_text, sizeof(print_text), "BLE-C: %06i", meshcom_settings.bt_code);
     sendDisplay1306(false, false, 3, dzeile[3], print_text);
 
+    #if !defined (BOARD_TRACKER)
     if(bWIFIAP)
         snprintf(print_text, sizeof(print_text), "AP   : %-13.13s", meshcom_settings.node_call);
     else
         snprintf(print_text, sizeof(print_text), "SSID : %-15.15s", meshcom_settings.node_ssid);
 
     sendDisplay1306(false, false, 3, dzeile[4], print_text);
+    #endif
 
     snprintf(print_text, sizeof(print_text), "IP%s%s %s", (bGATEWAY?"G":""), (bWEBSERVER?"W":""), meshcom_settings.node_ip);
     sendDisplay1306(false, true, 3, dzeile[5], print_text);
@@ -1006,10 +1008,16 @@ void sendDisplayTrack()
         sendDisplay1306(false, false, 3, dzeile[3], print_text);
 
         snprintf(print_text, sizeof(print_text), "DIST: %.0lf hdop%4i", posinfo_distance, posinfo_hdop);
-        sendDisplay1306(false, false, 3, dzeile[4], print_text);
+        #if !defined (BOARD_TRACKER)
+            sendDisplay1306(false, false, 3, dzeile[4], print_text);
+        #else
+            sendDisplay1306(false, true, 3, dzeile[4], print_text);
+        #endif
 
-        snprintf(print_text, sizeof(print_text), "DIR :old%3i° new%3i°", (int)posinfo_last_direction, (int)posinfo_direction);
-        sendDisplay1306(false, true, 3, dzeile[5], print_text);
+        #if !defined (BOARD_TRACKER)
+            snprintf(print_text, sizeof(print_text), "DIR :old%3i° new%3i°", (int)posinfo_last_direction, (int)posinfo_direction);
+            sendDisplay1306(false, true, 3, dzeile[5], print_text);
+        #endif
     }
 
 
@@ -3365,7 +3373,9 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
 
     double distance = tinyGPSPLus.distanceBetween(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // meters
 
-    posinfo_distance += distance;
+    
+    //posinfo_distance += distance;
+    posinfo_distance = distance; // KBC 25.11.14
 
     if(posinfo_prev_lat == 0.0 && posinfo_prev_lon == 0.0)
     {
@@ -3377,6 +3387,17 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     else
     {
         posinfo_direction = tinyGPSPLus.courseTo(posinfo_prev_lat, posinfo_prev_lon, dlat, dlon);    // Grad
+    }
+
+    // to little distance
+    if(distance < 55)
+    {
+        posinfo_last_rate = 1800;
+
+        if(bGPSDEBUG)
+            Serial.printf("%s [POSINFO]... LITTLE (%.0lf m) --> DISTANCE RATE:%i\n", getTimeString().c_str(), distance, (int)posinfo_last_rate);
+
+        return posinfo_last_rate;
     }
 
     // TEST
