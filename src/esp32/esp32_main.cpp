@@ -1849,7 +1849,10 @@ void esp32loop()
             Serial.printf("%s [WIFI]..Reconnecting to WiFi...\n", getTimeString().c_str());
 
             WiFi.disconnect();
-            WiFi.reconnect();
+            //WiFi.reconnect();
+
+            meshcom_settings.node_hasIPaddress=false;
+            web_timer=0;
 
             previousWiFiMillis = currentWiFiMillis;
         }

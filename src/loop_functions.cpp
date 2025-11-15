@@ -398,7 +398,7 @@ void addBLEComToOutBuffer(uint8_t *buffer, uint16_t len)
 {
     if (len > 245)
     {
-        Serial.printf("[ERR]...BLE out-buffer to long <%i> <%-15.15s>\n", len, buffer);
+        Serial.printf("[ERR]...BLE out-buffer to long <%i> <%-245.245s>\n", len, buffer);
     }
 
     //first two bytes are always the message length
