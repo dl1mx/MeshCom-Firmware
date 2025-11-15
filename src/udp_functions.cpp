@@ -719,7 +719,12 @@ void startMeshComUDP()
     // Set your Gateway IP mask
     node_ms.fromString(meshcom_settings.node_ownms);
     // Set your DNS IP
-    node_dns.fromString(meshcom_settings.node_owndns);
+    if(strlen(meshcom_settings.node_owndns) >= 7)
+      snprintf(meshcom_settings.node_dns, sizeof(meshcom_settings.node_dns), "%s", meshcom_settings.node_owndns);
+    else
+      snprintf(meshcom_settings.node_dns, sizeof(meshcom_settings.node_dns), "%s", (char*)"8.8.8.8");
+
+    node_dns.fromString(meshcom_settings.node_dns);
 
     // Configures static IP address
     if (!WiFi.config(node_ip, node_gw, node_ms, node_dns))

@@ -4319,9 +4319,9 @@ void commandAction(char *umsg_text, bool ble)
         swdoc["OWNGW"] = meshcom_settings.node_owngw;
         swdoc["OWNMS"] = meshcom_settings.node_ownms;
         swdoc["OWNDNS"] = meshcom_settings.node_owndns;
-        swdoc["EUDP"] = bEXTUDP;
-        swdoc["EUDPIP"] = meshcom_settings.node_extern;
-        swdoc["TXPOW"] = meshcom_settings.node_wifi_power;
+        //swdoc["EUDP"] = bEXTUDP;
+        //swdoc["EUDPIP"] = meshcom_settings.node_extern;
+        //swdoc["TXPOW"] = meshcom_settings.node_wifi_power;
 
         // reset print buffer
         memset(print_buff, 0, sizeof(print_buff));
@@ -4336,6 +4336,26 @@ void commandAction(char *umsg_text, bool ble)
         memcpy(msg_buffer +1, print_buff, strlen(print_buff));
         addBLEComToOutBuffer(msg_buffer, strlen(print_buff) + 1);
         
+        JsonDocument swdoc2;
+
+        swdoc2["TYP"] = "S2";
+        swdoc2["EUDP"] = bEXTUDP;
+        swdoc2["EUDPIP"] = meshcom_settings.node_extern;
+        swdoc2["TXPOW"] = meshcom_settings.node_wifi_power;
+
+        // reset print buffer
+        memset(print_buff, 0, sizeof(print_buff));
+
+        serializeJson(swdoc2, print_buff, measureJson(swdoc2));
+
+        // clear buffer
+        memset(msg_buffer, 0, sizeof(msg_buffer));
+
+        // set data message flag and tx ble
+        msg_buffer[0] = 0x44;
+        memcpy(msg_buffer +1, print_buff, strlen(print_buff));
+        addBLEComToOutBuffer(msg_buffer, strlen(print_buff) + 1);
+
         return;
     }
     else
