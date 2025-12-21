@@ -168,10 +168,13 @@ void init_onebutton()
 *  pin and GND, which is active low [2] and uses the internal pull-up resistor.
 */
     #if defined (BOARD_E290)
-      btn.setup( /*GPIO=*/ iButtonPin, /*active LOW=*/ true, /*pull-up=*/ false);
+      // btn.setup( /*GPIO=*/ iButtonPin, /*active LOW=*/ true, /*pull-up=*/ false);
+      btn.setup( /*GPIO=*/ iButtonPin, INPUT, /*active LOW=*/ true);
     #else
-      btn.setup( /*GPIO=*/ iButtonPin, /*active LOW=*/ true, /*pull-up=*/ true);
+      // btn.setup( /*GPIO=*/ iButtonPin, /*active LOW=*/ true, /*pull-up=*/ true);
+      btn.setup( /*GPIO=*/ iButtonPin, INPUT_PULLUP, /*active LOW=*/ true);
     #endif
+
     btn.attachClick(singleClick);         // Single Click event attachment
     btn.attachDoubleClick(doubleClick);   // Double Click event attachment
     btn.attachMultiClick(tripleClick);    // Multi Click event attachement
