@@ -1,6 +1,4 @@
-
 #include "Arduino.h"
-#include "ui_deckpro.h"
 #include "src/assets.h"
 #include "stdio.h"
 #include "ui_deckpro.h"
@@ -76,11 +74,11 @@ static const char *line_full_format(int max_c, const char *str1, const char *str
     int len1 = 0, len2 = 0;
     int j;
 
-    len1 = strlen(str1);
+    len1 = (int)strlen(str1);
 
     strncpy(global_buf, str1, len1);
 
-    len2 = strlen(str2);
+    len2 = (int)strlen(str2);
     for(j = len1; j < max_c -1 - len2; j++){
         global_buf[j] = ' ';
     }
@@ -112,6 +110,9 @@ static lv_obj_t * menu_taskbar_charge = NULL;
 static lv_obj_t * menu_taskbar_battery = NULL;
 static lv_obj_t * menu_taskbar_battery_percent = NULL;
 static lv_obj_t * menu_taskbar_wifi = NULL;
+static lv_obj_t * menu_taskbar_gps = NULL;
+
+static lv_obj_t * status_parent = NULL;
 
 static int page_num = 0;
 static int page_curr = 0;
@@ -204,7 +205,7 @@ static void menu_btn_create(lv_obj_t *parent, struct menu_btn *info)
     lv_obj_add_event_cb(btn, menu_btn_event_cb, LV_EVENT_CLICKED, (void *)info);
 }
 
-static void create0(lv_obj_t *parent) 
+static void create_head(lv_obj_t *parent) 
 {
     int status_bar_height = 25;
 
@@ -221,7 +222,7 @@ static void create0(lv_obj_t *parent)
     lv_obj_set_style_text_font(menu_taskbar_time, &Font_Mono_Bold_14, LV_PART_MAIN);
     lv_obj_align(menu_taskbar_time, LV_ALIGN_LEFT_MID, 10, 0);
 
-    lv_obj_t *status_parent = lv_obj_create(menu_taskbar);
+    status_parent = lv_obj_create(menu_taskbar);
     lv_obj_set_size(status_parent, lv_pct(80)-2, status_bar_height-2);
     lv_obj_set_style_pad_all(status_parent, 0, LV_PART_MAIN);
     lv_obj_set_style_border_width(status_parent, 0, LV_PART_MAIN);
@@ -236,6 +237,12 @@ static void create0(lv_obj_t *parent)
     lv_obj_set_scrollbar_mode(status_parent, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(status_parent, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_align(status_parent, LV_ALIGN_RIGHT_MID, 0, 0);
+
+    menu_taskbar_gps = lv_label_create(status_parent);
+    lv_label_set_text_fmt(menu_taskbar_gps, "%s", LV_SYMBOL_GPS);
+    lv_obj_add_flag(menu_taskbar_gps, LV_OBJ_FLAG_HIDDEN);
+    if(bGPSON)
+        lv_obj_clear_flag(menu_taskbar_gps, LV_OBJ_FLAG_HIDDEN);
 
     menu_taskbar_wifi = lv_label_create(status_parent);
     lv_label_set_text_fmt(menu_taskbar_wifi, "%s", LV_SYMBOL_WIFI);
@@ -260,6 +267,13 @@ static void create0(lv_obj_t *parent)
     
     menu_taskbar_battery_percent = lv_label_create(status_parent);
     lv_obj_set_style_text_font(menu_taskbar_battery_percent, &Font_Mono_Bold_14, LV_PART_MAIN);
+}
+
+static void create0(lv_obj_t *parent) 
+{
+    int status_bar_height = 25;
+
+    create_head(parent);
 
     //
     page_num = MENU_BTN_NUM / 9;
@@ -460,6 +474,7 @@ static scr_lifecycle_t screen1 = {
 // --------------------- screen 1.1 --------------------- Auto Send
 #if 1
 static lv_obj_t *scr1_1_cont;
+static lv_obj_t *scr7_cont;
 static lv_obj_t *lora_lab_buf = {0};
 static lv_obj_t *lora_sw_btn;
 static lv_obj_t *lora_sw_btn_info;
@@ -517,46 +532,52 @@ static void create1_1(lv_obj_t *parent)
 {
     scr1_1_cont = lv_obj_create(parent);
     lv_obj_set_size(scr1_1_cont, lv_pct(96), lv_pct(87));
-    lv_obj_set_pos(scr1_1_cont, 4, 35);
+    lv_obj_set_pos(scr1_1_cont, 4, 25);
     lv_obj_set_style_bg_color(scr1_1_cont, DECKPRO_COLOR_BG, LV_PART_MAIN);
 
     lora_lab_buf = scr2_create_label(scr1_1_cont);
     lv_label_set_text(lora_lab_buf, strOldLine.c_str());
 
-    lora_sw_btn = lv_btn_create(parent);
-    lv_obj_set_size(lora_sw_btn, 70, 25);
-    lv_obj_set_style_radius(lora_sw_btn, 5, LV_PART_MAIN);
-    lv_obj_set_style_border_width(lora_sw_btn, 2, LV_PART_MAIN);
-    lv_obj_align(lora_sw_btn, LV_ALIGN_TOP_MID, 0, 5);
-    lv_obj_add_event_cb(lora_sw_btn, lora_mode_sw_event, LV_EVENT_CLICKED, NULL);
+    // Statusbar
+    int status_bar_height = 25;
 
-    lora_sw_btn_info = lv_label_create(lora_sw_btn);
-    lv_obj_set_style_text_font(lora_sw_btn_info, FONT_BOLD_SIZE_15, LV_PART_MAIN);
-    lv_obj_set_style_text_align(lora_sw_btn_info, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(lora_sw_btn_info, "RX->TX");
-    lv_obj_center(lora_sw_btn_info);
-
-    lv_obj_t *lab = lv_label_create(parent);
-    lv_obj_set_style_text_font(lab, FONT_BOLD_SIZE_15, LV_PART_MAIN);
-    lv_label_set_text_fmt(lab, "%.3fM", ui_lora_get_freq());
-    lv_obj_align(lab, LV_ALIGN_TOP_RIGHT, -10, 10);
+    create_head(parent);
 
     // back
-    scr_back_btn_create(parent, ("MeshCom"), scr1_1_btn_event_cb);
+    scr_back_btn_create(status_parent, (" "), scr1_1_btn_event_cb);
 }
 static void entry1_1(void) 
 {
     ui_disp_full_refr();
 
+    ui_get_gesture_dir = menu_get_gesture_dir;
+    lv_timer_resume(touch_chk_timer);
+    lv_timer_resume(taskbar_update_timer);
+
+    lv_label_set_text_fmt(menu_taskbar_battery, "%s", ui_battert_27220_get_percent_level());
+
+    lv_label_set_text_fmt(menu_taskbar_battery_percent, "%d", ui_battery_27220_get_percent());
+
     keypad_register_cb(cb_1_handler);
 }
 static void exit1_1(void)
 {
+    ui_get_gesture_dir = NULL;
+    lv_timer_pause(touch_chk_timer);
+    lv_timer_pause(taskbar_update_timer);
+
     keypad_register_cb(NULL);
 
     ui_disp_full_refr();
 }
-static void destroy1_1(void) { }
+static void destroy1_1(void)
+{
+    if(menu_taskbar)
+    {
+        lv_obj_del(menu_taskbar);
+        menu_taskbar = NULL;
+    }
+}
 
 static scr_lifecycle_t screen1_1 = {
     .create = create1_1,
@@ -564,6 +585,7 @@ static scr_lifecycle_t screen1_1 = {
     .exit  = exit1_1,
     .destroy = destroy1_1,
 };
+
 #endif
 //************************************[ screen 2 ]****************************************** Setting
 // --------------------- screen 2.1 --------------------- About System
@@ -1878,39 +1900,21 @@ static void create7(lv_obj_t *parent)
     lv_style_set_bg_opa(&ta_style, LV_OPA_100);
     lv_style_set_line_width(&ta_style, 4);
 
-    scr7_1_cont = lv_obj_create(parent);
-    lv_obj_set_size(scr7_1_cont, lv_pct(96), lv_pct(10));
-    lv_obj_align(scr7_1_cont, LV_ALIGN_TOP_LEFT, 4, 0);
-    lv_obj_set_style_bg_color(scr7_1_cont, DECKPRO_COLOR_BG, LV_PART_MAIN);
-    lv_obj_set_style_radius(scr7_1_cont, 5, LV_PART_MAIN);
-
-    scr7_1_sw_btn = lv_btn_create(parent);
-    lv_obj_set_size(scr7_1_sw_btn, 70, 25);
-    lv_obj_set_style_radius(scr7_1_sw_btn, 5, LV_PART_MAIN);
-    lv_obj_set_style_border_width(scr7_1_sw_btn, 2, LV_PART_MAIN);
-    lv_obj_align(scr7_1_sw_btn, LV_ALIGN_TOP_MID, 0, 5);
-    
-    scr7_1_sw_btn_info = lv_label_create(scr7_1_sw_btn);
-    lv_obj_set_style_text_font(scr7_1_sw_btn_info, FONT_BOLD_SIZE_15, LV_PART_MAIN);
-    lv_obj_set_style_text_align(scr7_1_sw_btn_info, LV_TEXT_ALIGN_CENTER, 0);
-    lv_label_set_text(scr7_1_sw_btn_info, "TX");
-    lv_obj_center(scr7_1_sw_btn_info);
-
-    lv_obj_t *lab = lv_label_create(parent);
-    lv_obj_set_style_text_font(lab, FONT_BOLD_SIZE_15, LV_PART_MAIN);
-    lv_label_set_text_fmt(lab, "%.3fM", ui_lora_get_freq());
-    lv_obj_align(lab, LV_ALIGN_TOP_RIGHT, -10, 10);
+    scr7_cont = lv_obj_create(parent);
+    lv_obj_set_size(scr7_cont, lv_pct(96), lv_pct(87));
+    lv_obj_set_pos(scr7_cont, 4, 25);
+    lv_obj_set_style_bg_color(scr7_cont, DECKPRO_COLOR_BG, LV_PART_MAIN);
 
     //DM/group
     lv_obj_t *lab_dm = lv_label_create(parent);
     lv_obj_set_style_text_font(lab_dm, FONT_BOLD_SIZE_15, LV_PART_MAIN);
     lv_label_set_text(lab_dm, (char*)"call/group");
-    lv_obj_align(lab_dm, LV_ALIGN_TOP_LEFT, 4, lv_pct(15));
+    lv_obj_align(lab_dm, LV_ALIGN_TOP_LEFT, 6, lv_pct(15));
 
     dm_keypad = lv_textarea_create(parent);
     lv_obj_set_size(dm_keypad, lv_pct(50), lv_pct(10));
     lv_textarea_set_one_line(dm_keypad, true);
-    lv_obj_align(dm_keypad, LV_ALIGN_TOP_LEFT, 4, lv_pct(23));
+    lv_obj_align(dm_keypad, LV_ALIGN_TOP_LEFT, 6, lv_pct(23));
     lv_obj_set_style_text_font(dm_keypad, FONT_BOLD_SIZE_14, LV_PART_MAIN);
     lv_obj_set_style_radius(dm_keypad, 5, LV_PART_MAIN);
     lv_obj_clear_state(dm_keypad, LV_STATE_FOCUSED);
@@ -1921,9 +1925,9 @@ static void create7(lv_obj_t *parent)
 
     //send text
     input_keypad = lv_textarea_create(parent);
-    lv_obj_set_size(input_keypad, lv_pct(96), lv_pct(50));
+    lv_obj_set_size(input_keypad, lv_pct(94), lv_pct(50));
     lv_textarea_set_one_line(input_keypad, false);
-    lv_obj_align(input_keypad, LV_ALIGN_TOP_LEFT, 4, lv_pct(33));
+    lv_obj_align(input_keypad, LV_ALIGN_TOP_LEFT, 6, lv_pct(33));
     lv_obj_set_style_text_font(input_keypad, FONT_BOLD_SIZE_14, LV_PART_MAIN);
     lv_obj_set_style_radius(input_keypad, 5, LV_PART_MAIN);
     lv_obj_clear_state(input_keypad, LV_STATE_FOCUSED);
@@ -1935,7 +1939,7 @@ static void create7(lv_obj_t *parent)
     lv_obj_set_size(input_info_btn, 70, 25);
     lv_obj_set_style_radius(input_info_btn, 5, LV_PART_MAIN);
     lv_obj_set_style_border_width(input_info_btn, 2, LV_PART_MAIN);
-    lv_obj_align(input_info_btn, LV_ALIGN_TOP_LEFT, 4,  lv_pct(85));
+    lv_obj_align(input_info_btn, LV_ALIGN_TOP_LEFT, 6,  lv_pct(85));
 
     input_info = lv_label_create(input_info_btn);
     lv_obj_set_style_text_font(input_info, FONT_BOLD_SIZE_15, LV_PART_MAIN);
@@ -1947,7 +1951,7 @@ static void create7(lv_obj_t *parent)
     lv_obj_set_size(scr7_1_send_btn, 70, 25);
     lv_obj_set_style_radius(scr7_1_send_btn, 5, LV_PART_MAIN);
     lv_obj_set_style_border_width(scr7_1_send_btn, 2, LV_PART_MAIN);
-    lv_obj_align(scr7_1_send_btn, LV_ALIGN_TOP_RIGHT, -5,  lv_pct(85));
+    lv_obj_align(scr7_1_send_btn, LV_ALIGN_TOP_RIGHT, -8,  lv_pct(85));
     lv_obj_add_event_cb(scr7_1_send_btn, lora_mode_send_event, LV_EVENT_CLICKED, NULL);
     
     scr7_1_send_btn_info = lv_label_create(scr7_1_send_btn);
@@ -1956,11 +1960,24 @@ static void create7(lv_obj_t *parent)
     lv_label_set_text(scr7_1_send_btn_info, "SEND");
     lv_obj_center(scr7_1_send_btn_info);
 
+    // Statusbar
+    int status_bar_height = 25;
+
+    create_head(parent);
+
     // back
-    scr_back_btn_create(parent, ("MeshCom"), scr7_btn_event_cb);
+    scr_back_btn_create(status_parent, (" "), scr7_btn_event_cb);
 }
 static void entry7(void) 
 {
+    ui_get_gesture_dir = menu_get_gesture_dir;
+    lv_timer_resume(touch_chk_timer);
+    lv_timer_resume(taskbar_update_timer);
+
+    lv_label_set_text_fmt(menu_taskbar_battery, "%s", ui_battert_27220_get_percent_level());
+
+    lv_label_set_text_fmt(menu_taskbar_battery_percent, "%d", ui_battery_27220_get_percent());
+
     ui_disp_full_refr();
 
     keypad_register_cb(cb_7_handler);
@@ -1968,12 +1985,22 @@ static void entry7(void)
 
 static void exit7(void)
 {
+    ui_get_gesture_dir = NULL;
+    lv_timer_pause(touch_chk_timer);
+    lv_timer_pause(taskbar_update_timer);
+
     keypad_register_cb(NULL);
 
     ui_disp_full_refr();
 }
 
-static void destroy7(void) { }
+static void destroy7(void)
+{
+    if(menu_taskbar) {
+        lv_obj_del(menu_taskbar);
+        menu_taskbar = NULL;
+    }
+}
 
 static scr_lifecycle_t screen7 = {
     .create = create7,
@@ -1981,6 +2008,7 @@ static scr_lifecycle_t screen7 = {
     .exit  = exit7,
     .destroy = destroy7,
 };
+
 #endif
 //************************************[ screen 8 ]****************************************** TRACK
 #if 1
@@ -3033,6 +3061,16 @@ static void menu_taskbar_update_timer_cb(lv_timer_t *t)
             lv_obj_add_flag(menu_taskbar_keylock, LV_OBJ_FLAG_HIDDEN);
         }
         taskbar_statue[TASKBAR_ID_KEYLOCK] = keylock;
+    }
+
+    if(taskbar_statue[TASKBAR_ID_GPS] != bGPSON) 
+    {
+        if(bGPSON) {
+            lv_obj_clear_flag(menu_taskbar_gps, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(menu_taskbar_gps, LV_OBJ_FLAG_HIDDEN);
+        }
+        taskbar_statue[TASKBAR_ID_GPS] = bGPSON;
     }
 }
 

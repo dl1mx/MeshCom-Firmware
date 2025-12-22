@@ -215,7 +215,7 @@ void keypad_loop(void)
             // spezial Keys
             if(ikeypad_layer == 3)
             {
-                if(c == 'S' || c == 's') // ALT + S
+                if(c == 'T' || c == 't') // ALT + T
                 {
                     c = 0xF9;
 
@@ -225,6 +225,13 @@ void keypad_loop(void)
                 if(c == 'R' || c == 'r') // ALT + R
                 {
                     c = 0xFA;
+
+                    bNORM = true;
+                }
+                else
+                if(c == 'G' || c == 'g') // ALT + G
+                {
+                    bGPSON = ! bGPSON;
 
                     bNORM = true;
                 }

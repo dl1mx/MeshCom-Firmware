@@ -183,29 +183,38 @@ void web_client_html(CommonWebClient web_client)
             }
         }
 
-        if (!bPasswordOk)
+        if(inext_free < 0)
         {
-            String strGetPassword = work_webpage(true, inext_free);
-
-            if (strcmp(strGetPassword.c_str(), meshcom_settings.node_webpwd) == 0)
+            Serial.print(getTimeString());
+            Serial.printf(" WEBServer not free IP/Password table\n");
+        }
+        else
+        {
+            if (!bPasswordOk)
             {
-                Serial.print(getTimeString());
-                Serial.printf(" WEBServer Password OK IP:<%s pos:%i>\n", c_web_ip_now, inext_free);
+                String strGetPassword = work_webpage(true, inext_free);
 
-                snprintf(web_ip[inext_free], sizeof(web_ip[inext_free]), "%s", c_web_ip_now);
-                web_ip_passwd_time[inext_free] = millis();
-                bPasswordOk = true;
-                iwebid = inext_free;
-            }
-            else
-            {
-                Serial.print(getTimeString());
-                Serial.printf(" WEBServer Password not found IP:<%s> show LOGIN\n", c_web_ip_now);
+                if (strcmp(strGetPassword.c_str(), meshcom_settings.node_webpwd) == 0)
+                {
+                    Serial.print(getTimeString());
+                    Serial.printf(" WEBServer Password OK IP:<%s pos:%i>\n", c_web_ip_now, inext_free);
+
+                    snprintf(web_ip[inext_free], sizeof(web_ip[inext_free]), "%s", c_web_ip_now);
+                    web_ip_passwd_time[inext_free] = millis();
+                    bPasswordOk = true;
+                    iwebid = inext_free;
+                }
+                else
+                {
+                    Serial.print(getTimeString());
+                    Serial.printf(" WEBServer Password not found IP:<%s> show LOGIN\n", c_web_ip_now);
+                }
             }
         }
     }
     else
         bPasswordOk = true;
+        
     // no connection via password or no password need
     if (!bPasswordOk)
     {
