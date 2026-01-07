@@ -242,7 +242,7 @@ void webSetup_setParam(setupStruct *setupData){
     } else
 
     if(setupData->paramName.equals("afactor")) {        
-        snprintf(message_text, sizeof(message_text), "--afactor %s", setupData->paramValue.c_str());
+        snprintf(message_text, sizeof(message_text), "--analog factor %s", setupData->paramValue.c_str());
         commandAction(message_text, bPhoneReady);
         setupData->returnCode = (fabs(meshcom_settings.node_analog_faktor) == fabs(setupData->paramValue.toFloat()))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = String(meshcom_settings.node_analog_faktor);
@@ -250,7 +250,7 @@ void webSetup_setParam(setupStruct *setupData){
     } else
 
     if(setupData->paramName.equals("analogcheck")) {        
-        snprintf(message_text, sizeof(message_text), "--analogcheck %s", setupData->paramValue.c_str());
+        snprintf(message_text, sizeof(message_text), "--analog check %s", setupData->paramValue.c_str());
         commandAction(message_text, bPhoneReady);
         setupData->returnCode = (bAnalogCheck == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = bAnalogCheck?"on":"off";
