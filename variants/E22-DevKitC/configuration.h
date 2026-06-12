@@ -34,7 +34,7 @@ definitions for E22 Board
   #define BAT_MULTIPLIER (BAT_ADC_PULLUP_RES+BAT_ADC_PULLDOWN_RES)/BAT_ADC_PULLDOWN_RES
   #define BAT_MAX_VOLTAGE         12.8     //für Volt => Proz Umrechnung, definiert durch Akku
   #define BAT_MIN_VOLTAGE         10.5     //für Volt => Proz Umrechnung, definiert durch LDO
-  #define BAT_VOLT_OFFSET         0.0      //offset
+  #define BAT_VOLT_OFFSET         -0.12    //offset
   #define BAT_VOLT_FACTOR         1      //factor
   #define BAT_ATTEN               ADC_11db
   #define BAT_WIDTH               12
