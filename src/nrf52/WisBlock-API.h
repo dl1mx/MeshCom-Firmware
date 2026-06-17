@@ -218,7 +218,7 @@ struct s_meshcom_settings
 
 	int node_sset = 0;
 
-	float node_maxv = 4.125;
+	float node_maxv = 4.200;
 
 	char node_extern[40] = {0};
 
@@ -338,6 +338,9 @@ struct s_meshcom_settings
 
 	int node_sset4 = 0x0002;
 
+	char node_aprsmc[10] = {0};
+
+	//////////////////////////////////////////////////////////////////////////////////////////////
 	// nicht im Flash
 	float node_specstart = 432.0;
 	float node_specend = 434.0;
@@ -444,7 +447,7 @@ struct s_meshcomcompat_settings
 
 	int node_sset = 0;
 
-	float node_maxv = 4.125;
+	float node_maxv = 4.200;
 
 	char node_extern[40] = {0};
 
@@ -564,6 +567,9 @@ struct s_meshcomcompat_settings
 
 	int node_sset4 = 0x0002;
 
+	char node_aprsmc[10] = {0};
+
+	//////////////////////////////////////////////////////////////////////////////////////////////
 	// not within RAK Flash
 	float node_specstart = 432.0;
 	float node_specend = 434.0;

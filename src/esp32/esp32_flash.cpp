@@ -45,7 +45,7 @@ void init_flash(void)
 
     meshcom_settings.node_sset = preferences.getInt("node_sset", 0x0004);
 
-    meshcom_settings.node_maxv = preferences.getFloat("node_maxv", 4.125);
+    meshcom_settings.node_maxv = preferences.getFloat("node_maxv", 4.200);
 
     strVar = preferences.getString("node_extern", "none");
     snprintf(meshcom_settings.node_extern, sizeof(meshcom_settings.node_extern), "%s", strVar.c_str());
@@ -196,11 +196,11 @@ void init_flash(void)
     meshcom_settings.node_kbllightlock = preferences.getBool("node_kllock", false);
     meshcom_settings.node_modus = preferences.getInt("node_modus", 0);
     meshcom_settings.node_mute = preferences.getBool("node_mute", false);
-    meshcom_settings.node_persist_to_flash = preferences.getBool("node_perflash", true);
-    meshcom_settings.node_persist_to_sd = preferences.getBool("node_persd", true);
+    meshcom_settings.node_persist_to_flash = preferences.getBool("node_perflash", false);
+    meshcom_settings.node_persist_to_sd = preferences.getBool("node_persd", false);
     meshcom_settings.node_immediate_save = preferences.getBool("node_immsave", false);
     meshcom_settings.node_kbl_sync = preferences.getBool("node_kblsync", false);
-    meshcom_settings.node_wifion = preferences.getBool("node_wifion", true);
+    meshcom_settings.node_wifion = preferences.getBool("node_wifion", false);
     #endif
 
     meshcom_settings.node_wifi_power = preferences.getInt("node_wifip", 60);
@@ -255,6 +255,10 @@ void init_flash(void)
     snprintf(meshcom_settings.node_via, sizeof(meshcom_settings.node_via), "%s", strVar.c_str());
 
     meshcom_settings.node_sset4 = preferences.getInt("node_sset4", 0x0002); // defaut 0x0002: DEBUGEN = true
+
+    strVar = preferences.getString("node_aprsmc");
+    snprintf(meshcom_settings.node_aprsmc, sizeof(meshcom_settings.node_aprsmc), "%s", strVar.c_str());
+
     preferences.end();
 }
 
@@ -516,6 +520,9 @@ void save_settings(void)
     preferences.putString("node_via", strVar); 
 
     preferences.putInt("node_sset4", meshcom_settings.node_sset4);
+
+    strVar = meshcom_settings.node_aprsmc;
+    preferences.putString("node_aprsmc", strVar); 
 
     //printfdeb("[INIT]...FLASH #entries %i after write\n", (int)preferences.freeEntries());
     preferences.end();

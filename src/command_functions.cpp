@@ -1325,10 +1325,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"track off") == 0)
@@ -1349,10 +1345,6 @@ void commandAction(char *umsg_text, bool ble)
         save_settings();
 
         sendDisplayHead(true);
-
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     else
     #if defined (ENABLE_GPS) or defined(BOARD_RAK4630) or defined(BOARD_HELTEC_T114) or defined(BOARD_T_ECHO)
@@ -1374,10 +1366,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"gps off") == 0)
@@ -1408,10 +1396,6 @@ void commandAction(char *umsg_text, bool ble)
         posinfo_interval = POSINFO_INTERVAL;
 
         save_settings();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     if(commandCheck(msg_text+2, (char*)"gps autosymbol") == 0)
     {
@@ -1472,7 +1456,9 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
 
         return;
     }
@@ -1490,7 +1476,9 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
 
         return;
     }
@@ -1734,10 +1722,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"bmx off") == 0 || commandCheck(msg_text+2, (char*)"bme off") == 0 || commandCheck(msg_text+2, (char*)"bmp off") == 0)
@@ -1825,10 +1809,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
 #if defined(LPS33)
     else
@@ -2047,9 +2027,10 @@ void commandAction(char *umsg_text, bool ble)
 
         if(bGATEWAY)
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 5 sec.");
-
             rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+            #endif
         }
     }
     else
@@ -2109,13 +2090,6 @@ void commandAction(char *umsg_text, bool ble)
 
 
             save_settings();
-
-            //if(!meshcom_settings.node_hasIPaddress)
-            //    rebootAuto = millis() + 15 * 1000; // 15 Sekunden
-            
-            #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-            tdeck_refresh_SET_view();
-            #endif
         }
 
         bReturn = true;
@@ -2134,13 +2108,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-
-        //if(meshcom_settings.node_hasIPaddress)
-        //    rebootAuto = millis() + 15 * 1000; // 15 Sekunden
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"webpwd ") == 0)
@@ -2200,10 +2167,6 @@ void commandAction(char *umsg_text, bool ble)
         }
 
         save_settings();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
 
         return;
     }
@@ -2222,10 +2185,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"mesh off") == 0)
@@ -2242,10 +2201,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"extudp on") == 0)
@@ -2451,6 +2406,30 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    if(commandCheck(msg_text+2, (char*)"viadebug on") == 0)
+    {
+        bDisplayVia=true;
+
+        if(ble)
+        {
+            addBLECommandBack((char*)"--viadebug on");
+        }
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"viadebug off") == 0)
+    {
+        bDisplayVia=false;
+
+        if(ble)
+        {
+            addBLECommandBack((char*)"--viadebug off");
+        }
+
+        return;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"via on") == 0)
     {
         bVIA=true;
@@ -2523,9 +2502,10 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         printfdeb("Auto. Reboot after 5 sec.");
-
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
 
     }
     else
@@ -2544,9 +2524,10 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         printfdeb("Auto. Reboot after 5 sec.");
-
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
     }
     #endif
     else
@@ -3109,10 +3090,6 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
             sendAPRSset();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
 
         return;
     }
@@ -3137,10 +3114,6 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
             sendAPRSset();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
 
         return;
     }
@@ -3195,12 +3168,10 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         rebootAuto = millis() + 15 * 1000; // 15 Sekunden
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
         #endif
-
+        
         return;
     }
     else
@@ -3252,9 +3223,10 @@ void commandAction(char *umsg_text, bool ble)
         if((strlen(meshcom_settings.node_pwd) > 1 && strlen(meshcom_settings.node_ssid) > 1) ||
            (strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0))
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 15 Sekunden
+            #endif
         }
 
         return;
@@ -3280,9 +3252,10 @@ void commandAction(char *umsg_text, bool ble)
         if((strlen(meshcom_settings.node_pwd) > 1 && strlen(meshcom_settings.node_ssid) > 1) ||
            (strlen(meshcom_settings.node_pwd) == 0 && strlen(meshcom_settings.node_ssid) == 0))
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 10 Sekunden
+            #endif
         }
 
         return;
@@ -3374,7 +3347,10 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
+        printfdeb("Auto. Reboot after 15 sec.");
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"wifiap off") == 0)
@@ -3391,7 +3367,9 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
     }
     else
 #endif
@@ -3412,9 +3390,10 @@ void commandAction(char *umsg_text, bool ble)
         if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
            (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 10 Sekunden
+            #endif
         }
 
         return;
@@ -3454,9 +3433,10 @@ void commandAction(char *umsg_text, bool ble)
         if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
            (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 10 Sekunden
+            #endif
         }
 
         return;
@@ -3478,9 +3458,10 @@ void commandAction(char *umsg_text, bool ble)
         if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
            (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 10 Sekunden
+            #endif
         }
 
         return;
@@ -3503,9 +3484,10 @@ void commandAction(char *umsg_text, bool ble)
         if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
            (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 10 Sekunden
+            #endif
         }
 
         return;
@@ -3528,9 +3510,10 @@ void commandAction(char *umsg_text, bool ble)
         if((strlen(meshcom_settings.node_ownip) >= 7 && strlen(meshcom_settings.node_owngw) >= 7 && strlen(meshcom_settings.node_ownms) >= 7) ||
            (strlen(meshcom_settings.node_ownip) < 7 && strlen(meshcom_settings.node_owngw) < 7 && strlen(meshcom_settings.node_ownms) < 7))
         {
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 10 Sekunden
+            #endif
         }
 
         return;
@@ -3549,7 +3532,9 @@ void commandAction(char *umsg_text, bool ble)
 
         bInfo=true;
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
 
         return;
     }
@@ -3567,7 +3552,9 @@ void commandAction(char *umsg_text, bool ble)
 
         bInfo=true;
 
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
         rebootAuto = millis() + 5 * 1000; // 5 Sekunden
+        #endif
 
         return;
     }
@@ -3590,10 +3577,6 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
         
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
-
         bPos=true;
     }
     else
@@ -3615,10 +3598,6 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
         
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
-
         bPos=true;
     }
     else
@@ -3636,10 +3615,6 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
         
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
-
         bPos=true;
     }
     #if defined(ENABLE_RTC)
@@ -3863,15 +3838,12 @@ void commandAction(char *umsg_text, bool ble)
             
             save_settings();
 
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
-
             rebootAuto = millis() + 15 * 1000; // 15 Sekunden
+            #endif
         }
         
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
-
         return;
     }
     else
@@ -3892,8 +3864,10 @@ void commandAction(char *umsg_text, bool ble)
 
             save_settings();
             
+            #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
             printfdeb("Auto. Reboot after 15 sec.");
             rebootAuto = millis() + 15 * 1000; // 15 Sekunden
+            #endif
         }
 
         return;
@@ -4236,11 +4210,6 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         save_settings();
-        
-        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
-        tdeck_refresh_SET_view();
-        #endif
-
     }
     else
     if(commandCheck(msg_text+2, (char*)"seset") == 0)
@@ -4261,6 +4230,19 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"analogset") == 0)
     {
         bAnalogSetting=true;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"aprsmc ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+9);
+
+        String strCallSign = _owner_c;
+        
+        strCallSign.toUpperCase();
+    
+        snprintf(meshcom_settings.node_aprsmc, sizeof(meshcom_settings.node_aprsmc), "%s", strCallSign.c_str());
+
+        return;
     }
     else
     if(commandCheck(msg_text+2, (char*)"aprsset") == 0)
@@ -4700,8 +4682,8 @@ void commandAction(char *umsg_text, bool ble)
             printfdeb("...EXTUDP %s ...EXT IP %s\n", (bEXTUDP?"on":"off"), meshcom_settings.node_extern);
 
             printfdeb("...BTCODE %06i\n", meshcom_settings.bt_code);
-            printfdeb("...ATXT: %s\n...NAME: %s\n...BLE : %s\n...DISPLAY %s\n...CTRY %s\n...FREQ %.4f MHz TXPWR %i dBm RXBOOST %s\n",
-                    meshcom_settings.node_atxt, meshcom_settings.node_name, (bBLElong?"long":"short"),  (bDisplayOff?"off":"on"),
+            printfdeb("...APRSMC: %s\n...ATXT: %s\n...NAME: %s\n...BLE : %s\n...DISPLAY %s\n...CTRY %s\n...FREQ %.4f MHz TXPWR %i dBm RXBOOST %s\n",
+                    meshcom_settings.node_aprsmc, meshcom_settings.node_atxt, meshcom_settings.node_name, (bBLElong?"long":"short"),  (bDisplayOff?"off":"on"),
                     getCountry(meshcom_settings.node_country).c_str() , getFreq(), getPower(), (bBOOSTEDGAIN?"on":"off"));
 
             for(int ig=0;ig<6;ig++)
