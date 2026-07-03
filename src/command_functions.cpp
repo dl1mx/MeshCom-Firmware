@@ -43,13 +43,20 @@
 //TEST #include "compress_functions.h"
 
 // For display contrast control
-#if !defined(BOARD_E290) && !defined(BOARD_WIRELESS_PAPER) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_TRACKER) && !defined(BOARD_HELTEC_T114) && !defined(BOARD_T_ECHO) && !defined(BOARD_T5_EPAPER) && !defined(BOARD_T_DECK_PRO) && !defined(BOARD_T_CONNECT_PRO)
+#if !defined(BOARD_E290) && !defined(BOARD_WIRELESS_PAPER) && !defined(BOARD_E213) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_TRACKER) && !defined(BOARD_HELTEC_T114) && !defined(BOARD_T_ECHO) && !defined(BOARD_T5_EPAPER) && !defined(BOARD_T_DECK_PRO) && !defined(BOARD_T_CONNECT_PRO)
     #include <U8g2lib.h>
     extern U8G2 *u8g2;
 #endif
 
 #if defined(ENABLE_BMX680)
 #include "bme680.h"
+#endif
+
+#if defined(BOARD_E213)
+// prepareToSleep()/loraToSleep() sind im E213-Platform-Layer (Namespace Platform) definiert
+// (VisionMasterE213/power_controls.cpp). Forward-Deklaration statt schwergewichtigem
+// Platform-Header-Include. prepareToSleep(): voller Deepsleep-Strom-Spar-Pfad (E213-Long-Press).
+namespace Platform { void prepareToSleep(); void loraToSleep(); }
 #endif
 
 unsigned long rebootAuto = 0;
@@ -595,17 +602,20 @@ void commandAction(char *umsg_text, bool ble)
         }
 //        else
         {
-            printfdeb("MeshCom %-4.4s%-1.1s commands\n--setcall  set callsign (OE0XXX-1)\n--setname  set first name/none\n--setctry 0-99 set RX/RX-LoRa-Parameter\n--reboot   Node reboot\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
+            printfdeb("MeshCom %-4.4s%-1.1s commands\n--setcall  set callsign (OE0XXX-1)\n--operatorname set first name/none\n--setctry 0-99 set RX/RX-LoRa-Parameter\n--reboot   Node reboot\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
             delay(100);
 
             printlndeb("--setssid  WLAN SSID/none\n--setpwd   WLAN PASSWORD/none\n--setownip 255.255.255.255\n--setowngw 255.255.255.255\n--setownms mask:255.255.255.255\n--setowndns 255.255.255.255\n--setownntp 255.255.255.255\n--wifiap on/off WLAN AP\n--extudp  on/off\n--extudpip 255.255.255.255/none\n");
+            delay(100);
+
+            printlndeb("--sethamnet on/off\n--setinet   on/off\n");
             delay(100);
 
             printlndeb("--btcode 999999 BT-Code\n--button gpio 99 User-Button PIN\n--analog gpio 99 Analog PIN\n--analog factor 9.9 Analog factor\n--analog check on/off\n");
             delay(100);
             printfdeb("--pos      show lat/lon/alt/time info\n--weather  show temp/hum/press\n--sendpos  send pos info now\n--setlat   set latitude 44.12345\n--setlon   set logitude 016.12345\n--setalt   set altidude 9999m\n");
             delay(100);
-            printlndeb("--symid  set prim/sec Sym-Table\n--symcd  set table column\n--atxt   set APRS Textinfo/none\n--showI2C\n");
+            printlndeb("--symid  set prim/sec Sym-Table\n--symcd  set table column\n--aprscomment  set APRS Comment/none\n--showI2C\n");
             delay(100);
             printlndeb("--debug    on/off\n--bledebug on/off\n--loradebug on/off\n--gpsdebug  on/off\n--softserdebug  on/off\n--wxdebug   on/off\n--display   on/off\n--setinfo   on/off\n--volt    show battery voltage\n--proz    show battery proz.\n");
             delay(100);
@@ -633,34 +643,34 @@ void commandAction(char *umsg_text, bool ble)
                 delay(100);
             #endif
             delay(100);
-            printlndeb("--softser   on/off/send/app/baud/fixpegel/fixpegel2/fixtemp\n");
+            printlndeb("--softser   on/off/send/app/baud/fixpegel/fixpegel2/fixtemp");
             delay(100);
-            printlndeb("--softserread   on/off (show rx msg)\n");
+            printlndeb("--softserread   on/off (show rx msg)");
             delay(100);
-            printlndeb("--spectrum  run spectral scan  --specstart MHz --specend MHz  --specstep MHz  --specsamples 500-2048\n");
+            printlndeb("--spectrum  run spectral scan  --specstart MHz --specend MHz  --specstep MHz  --specsamples 500-2048");
             delay(100);
             //own-call-ssid:PARM.VOLT,AMPERE,BATT,,,track,-,-,-,-,-,-,-
-            printlndeb("--parm tm1,tm2,tm3,tm4,tm5 (measured value name ... not used leave blank)\n");
+            printlndeb("--parm tm1,tm2,tm3,tm4,tm5 (measured value name ... not used leave blank)");
             delay(100);
             //own-call-ssid:%-9.9s:UNIT.V,A,V,,,Y/N,O/N,O/N,O/N,O/N,O/N,O/N,O/N
-            printlndeb("--unit tm1,tm2,tm3,tm4,tm5 (unit like V,A,mV, ... not used leave blank)\n");
+            printlndeb("--unit tm1,tm2,tm3,tm4,tm5 (unit like V,A,mV, ... not used leave blank)");
             delay(100);
             //#%03i,%.1f,%.1f,0,0,0,%01i0000000
-            printlndeb("--format 1,1,1,1,1 (decimal places ... not used leave 0)\n");
+            printlndeb("--format 1,1,1,1,1 (decimal places ... not used leave 0)");
             delay(100);
             //own-call-ssid:EQNS.0,1,0,0,1,0,0,1,0,0,1,0,0,1,0
-            printlndeb("--eqns 0,1,0, 0,1,0, 0,1,0, 0,1,0, 0,1,0 (default is set)\n");
+            printlndeb("--eqns 0,1,0, 0,1,0, 0,1,0, 0,1,0, 0,1,0 (default is set)");
             delay(100);
             //internal value names
-            printlndeb("--values press,hum,temp,onewire,co2 (see project pages)\n");
+            printlndeb("--values press,hum,temp,onewire,co2 (see project pages)");
             delay(100);
             //value timer
-            printlndeb("--ptime 99 messuring interval minutes\n");
+            printlndeb("--ptime 99 messuring interval minutes");
 
             #if defined(SX126X_V3) || defined(SX1262_E290) || defined(SX1262X) || defined(SX126X) || \
                 defined(SX1262_V3) || defined(USING_SX1262) || defined(BOARD_RAK4630)
                 delay(100);
-                printlndeb("--setboostedgain    on/off  enable/disable boosted rx gain\n");
+                printlndeb("--setboostedgain    on/off  enable/disable boosted rx gain");
             #endif
         }
 
@@ -801,6 +811,30 @@ void commandAction(char *umsg_text, bool ble)
                 bDEEP_SLEEP = true;
             }
         #else
+            #if defined(WP_DISP)
+            // E-Ink vor dem Schlafen sichtbar loeschen (sonst bleibt das letzte Bild stehen und
+            // der Deepsleep ist am bistabilen Panel nicht erkennbar). #992.
+            wpShowDeepSleep();
+            #if defined(BOARD_E213)
+            // PRG-Button (GPIO0, active LOW) als Aufweckquelle armieren. Ohne Wakeup-Quelle
+            // schlaeft der ESP32-S3 nach dem Deepsleep bis zum Power-Cycle/RESET - das bistabile
+            // E-Ink bliebe scheinbar fuer immer eingefroren. Mit ext1 weckt ein Tastendruck.
+            // Wakeup-Quelle(n): immer GPIO0 (PRG/BOOT) + der TATSAECHLICH konfigurierte
+            // Bedien-Button (iButtonPin; E213 = GPIO21 aus node_button_pin, WP = GPIO0). Beide
+            // active LOW. Ohne den Bedien-Button wuerde ein per Long-Press (USER-Taste) ausgeloester
+            // Deepsleep an genau dieser Taste NICHT mehr aufwecken. iButtonPin 0..21 = RTC-faehiger
+            // GPIO (ESP32-S3 ext1); 99 = kein Button -> nur GPIO0.
+            uint64_t wake_mask = (1ULL << 0);
+            if (iButtonPin < 22) wake_mask |= (1ULL << iButtonPin);
+            esp_sleep_enable_ext1_wakeup(wake_mask, ESP_EXT1_WAKEUP_ANY_LOW);
+            // Schlafstrom senken. Kurzes Settle, damit der E-Ink-Voll-Refresh aus wpShowDeepSleep()
+            // sicher fertig ist, dann prepareToSleep(): SX1262 -> SLEEP (sonst Dauer-RX ~5 mA),
+            // VEXT (Display-/LoRa-Versorgung) aus, LoRa-Pins hochohmig -> Ziel ~18 uA. Ohne das
+            // entlaedt der "Deepsleep" den Akku weiter. E213 nutzt dieselbe Sequenz (gleiche Pins).
+            delay(100);
+            Platform::prepareToSleep();
+            #endif
+            #endif
             #if not defined(BOARD_RAK4630)
             esp_deep_sleep_start();
             #endif
@@ -811,7 +845,7 @@ void commandAction(char *umsg_text, bool ble)
     else
     if(commandCheck(msg_text+2, (char*)"contrast ") == 0)
     {
-        #if !defined(BOARD_E290) && !defined(BOARD_WIRELESS_PAPER) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_HELTEC_T114) && !defined(BOARD_T_ECHO) && !defined(BOARD_T5_EPAPER) && !defined(BOARD_T_DECK_PRO) && !defined(BOARD_T_CONNECT_PRO)
+        #if !defined(BOARD_E290) && !defined(BOARD_WIRELESS_PAPER) && !defined(BOARD_E213) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_HELTEC_T114) && !defined(BOARD_T_ECHO) && !defined(BOARD_T5_EPAPER) && !defined(BOARD_T_DECK_PRO) && !defined(BOARD_T_CONNECT_PRO)
         int contrast_value = atoi(msg_text + 11);  // "--" + "contrast " = 2 + 9 = 11
         if(contrast_value <= 0) contrast_value = 1;
         if(contrast_value > 255) contrast_value = 255;
@@ -832,7 +866,7 @@ void commandAction(char *umsg_text, bool ble)
             addBLECommandBack(response);
         }
         
-        #elif !defined(BOARD_E290) && !defined(BOARD_WIRELESS_PAPER) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_TRACKER) && !defined(BOARD_HELTEC_T114) && !defined(BOARD_T_ECHO) && !defined(BOARD_T5_EPAPER) && !defined(BOARD_T_DECK_PRO) && !defined(BOARD_T_CONNECT_PRO)
+        #elif !defined(BOARD_E290) && !defined(BOARD_WIRELESS_PAPER) && !defined(BOARD_E213) && !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS) && !defined(BOARD_TRACKER) && !defined(BOARD_HELTEC_T114) && !defined(BOARD_T_ECHO) && !defined(BOARD_T5_EPAPER) && !defined(BOARD_T_DECK_PRO) && !defined(BOARD_T_CONNECT_PRO)
         if(u8g2 != NULL)
         {
             u8g2->setContrast(contrast_value);
@@ -2144,9 +2178,13 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
-    if(commandCheck(msg_text+2, (char*)"setname ") == 0)
+    if(commandCheck(msg_text+2, (char*)"setname ") == 0 || commandCheck(msg_text+2, (char*)"operatorname ") == 0)
     {
-        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+10);
+        if(commandCheck(msg_text+2, (char*)"operatorname ") == 0)
+            snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+15);
+        else
+            snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+10);
+
         if(_owner_c[strlen(_owner_c)-1] == 0x0a)
             _owner_c[strlen(_owner_c)-1] = 0x00;
         sVar = _owner_c;
@@ -3118,9 +3156,13 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
-    if(commandCheck(msg_text+2, (char*)"atxt ") == 0)
+    if(commandCheck(msg_text+2, (char*)"atxt ") == 0 || commandCheck(msg_text+2, (char*)"aprscomment ") == 0)
     {
-        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+7);
+        if(commandCheck(msg_text+2, (char*)"aprscomment ") == 0)
+            snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+14);
+        else
+            snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+7);
+
         if(_owner_c[strlen(_owner_c)-1] == 0x0a)
             _owner_c[strlen(_owner_c)-1] = 0x00;
         sVar = _owner_c;
@@ -3130,6 +3172,8 @@ void commandAction(char *umsg_text, bool ble)
         if(sVar == "none")
             sVar = "";
 
+        if(sVar.length() > 39)
+            sVar = sVar.substring(0, 39);
 
         snprintf(meshcom_settings.node_atxt, sizeof(meshcom_settings.node_atxt), "%s", sVar.c_str());
 
@@ -3519,7 +3563,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
-    if(commandCheck(msg_text+2, (char*)"sethamnet") == 0)
+    if(commandCheck(msg_text+2, (char*)"sethamnet") == 0 || commandCheck(msg_text+2, (char*)"setinet off") == 0)
     {
         meshcom_settings.node_hamnet_only = 1;
         
@@ -3539,7 +3583,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
-    if(commandCheck(msg_text+2, (char*)"setinet") == 0)
+    if(commandCheck(msg_text+2, (char*)"setinet") == 0 || commandCheck(msg_text+2, (char*)"sethamnet off") == 0)
     {
         meshcom_settings.node_hamnet_only = 0;
         

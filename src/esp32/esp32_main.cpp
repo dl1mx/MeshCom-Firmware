@@ -263,6 +263,7 @@ extern uint8_t txt_msg_len_phone;
 extern unsigned long last_upd_timer;
 extern bool hb_warn_logged;
 
+
 // FreeRTOS Queue for BLE data from NimBLE task to Main Loop
 #include "freertos/queue.h"
 
@@ -313,7 +314,7 @@ class MyServerCallbacks: public NimBLEServerCallbacks {
         deviceConnected = false;
         // print the reason for the disconnection in hex
         // https://github.com/apache/mynewt-nimble/blob/master/docs/ble_hs/ble_hs_return_codes.rst
-        printfdeb("BLE disconnected. Reason: 0x%04x\n", reason);
+        Serial.printf("BLE disconnected. Reason: 0x%04x\n", reason);
         //NimBLEDevice::startAdvertising();
     }
 
@@ -322,11 +323,11 @@ class MyServerCallbacks: public NimBLEServerCallbacks {
     {
         if(meshcom_settings.bt_code > 0 && meshcom_settings.bt_code <= 999999)
         {
-    		printfdeb("Server PassKeyRequest <%06i>\n", meshcom_settings.bt_code);
+    		Serial.printf("Server PassKeyRequest <%06i>\n", meshcom_settings.bt_code);
 	    	return (uint32_t)meshcom_settings.bt_code;
         }
 
-		printfdeb("Server PassKeyRequest <%06i>\n", PIN);
+		Serial.printf("Server PassKeyRequest <%06i>\n", PIN);
 		return PIN;
 	}
 	/*******************************************************************/
@@ -742,6 +743,14 @@ void esp32setup()
 
     bDisplayVolt = meshcom_settings.node_sset & 0x0001;
     bDisplayOff = meshcom_settings.node_sset & 0x0002;
+    #if defined(BOARD_WIRELESS_PAPER) || defined(BOARD_E213)
+    // WP / E213: Display-Aus-Zustand NICHT ueber Reboots persistieren. Der User-Button-Long-Press
+    // ("--display off") wuerde das Panel sonst dauerhaft aus lassen - und weil E-Ink sein
+    // Bild behaelt, sieht das aus wie "Display haengt am Startschirm" (kein Crash, nur nicht
+    // aktualisiert). Daher beim Boot immer mit Display AN starten: ein Reboot holt die Anzeige
+    // garantiert zurueck. Long-Press schaltet weiterhin zur Laufzeit aus/ein.
+    bDisplayOff = false;
+    #endif
     bPosDisplay = meshcom_settings.node_sset & 0x0004;
     bDEBUG = meshcom_settings.node_sset & 0x0008;
     bButtonCheck = meshcom_settings.node_sset & 0x0010;
@@ -1290,11 +1299,11 @@ void esp32setup()
     #else
     if(bRadio)
     {
-        #if defined(BOARD_WIRELESS_PAPER) || defined(BOARD_E290)
+        #if defined(BOARD_WIRELESS_PAPER) || defined(BOARD_E290) || defined(BOARD_E213)
         if(radio.setTCXO(1.8) != RADIOLIB_ERR_NONE)
             printlndeb(F("[LoRa]...TCXO 1.8V konnte nicht gesetzt werden"));
         else
-            printlndeb(F("[LoRa]...TCXO DIO3 = 1.8V (Wireless Paper)"));
+            printlndeb(F("[LoRa]...TCXO DIO3 = 1.8V (Wireless Paper / E213)"));
         #endif
 
         // set boosted gain
@@ -2486,6 +2495,7 @@ void esp32loop()
             strTime = udpUpdateTimeClient();
 
             updateTimeClient = millis();
+
         }
         else
         {
@@ -3484,6 +3494,7 @@ void esp32loop()
             {
                 unsigned long hb_age = millis() - last_upd_timer;
 
+
                 // Stage 1: diagnostic warning at 35s
                 if (hb_age > (HB_WARN_TIME * 1000) && !hb_warn_logged)
                 {
@@ -3831,6 +3842,7 @@ int checkRX(bool bRadio)
 
     return state;
 }
+
 
 void checkSerialCommand(void)
 {
