@@ -37,6 +37,8 @@
 #define T_CONNECT_PRO 56
 #define HELTEC_WIRELESS_PAPER 57
 #define HELTEC_E213 58
+#define ESP32_LORAPRS_E22 59
+#define ESP32_LORAPRS_RA01 60
 
 // Boards mit dem 2.13"-E-Ink-Panel (E0213A367/SSD1680) UND dem gemeinsamen WP-Display-Pfad:
 // Wireless Paper + Vision Master E213. Beide nutzen identisches Layout, fette 9pt-Schrift,
@@ -207,3 +209,12 @@
 
 // OLED
 #define SSD1306_ADDRESS 0x3C
+
+// --- Persistenter Display-Dreh-Offset (Terminalkommando --rotate 0/90/180/270) --------------
+// g_dispRotOffset (Grad) wird board-uebergreifend ADDITIV auf die Werks-Basisrotation
+// aufaddiert: setRotation((basis + g_dispRotOffset) % 360). 0 = Werksausrichtung. Persistiert
+// als meshcom_settings.node_disp_rot (NVS "node_disrot"), beim Boot in initDisplay() gespiegelt.
+// Definition in esp32_functions.cpp. Nur Wireless Paper + Vision Master E213 (WP_DISP).
+#if defined(WP_DISP)
+extern int g_dispRotOffset;
+#endif
