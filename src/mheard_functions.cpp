@@ -226,6 +226,10 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
 
     int ipos=-1;
     int inext=-1;
+    
+    unsigned long ulmin = getUnixClock();
+    int imin = -1;
+
     for(int iset=0; iset<MAX_MHEARD; iset++)
     {
         if(mheardCalls[iset][0] != 0x00)
@@ -234,6 +238,7 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
             if((mheardEpoch[iset]+(60*60*12)) < getUnixClock())   // mheard last 12 hours
             {
                 mheardCalls[iset][0] = 0x00;
+                inext = iset;   // gerade frei geworden
             }
             else
             {
@@ -244,12 +249,18 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
                     if(inext >= 0)
                         break;
                 }
+                else
+                {
+                    if(mheardEpoch[iset] < ulmin)
+                    {
+                        ulmin = mheardEpoch[iset];
+                    }
+                }
             }
         }
         else
         {
-            if(inext < 0)
-                inext=iset;
+            inext=iset; // diese position ist frei
         }
     }
 
@@ -265,19 +276,29 @@ void updateMheard(struct mheardLine &mheardLine, uint8_t isPhoneReady)
         }
         else
         {
-            ipos=mheardWrite;
-            
-            mheardWrite++;
+            if(imin >= 0)
+            {
+                ipos=imin;
+            }
+            else
+            {
+                ipos=mheardWrite;
+                
+                mheardWrite++;
 
-            if(mheardWrite >= MAX_MHEARD)
-                mheardWrite=0;
+                if(mheardWrite >= MAX_MHEARD)
+                    mheardWrite=0;
+            }
         }
 
         bOld=false;
     }
 
     memset(mheardCalls[ipos], 0x00, sizeof(mheardCalls[ipos]));
-    memcpy(mheardCalls[ipos], mheardLine.mh_callsign.c_str(), sizeof(mheardCalls[ipos]));
+    int icsize=mheardLine.mh_callsign.length();
+    if(icsize > (int)sizeof(mheardCalls[ipos])-1)
+        icsize=sizeof(mheardCalls[ipos])-1;
+    memcpy(mheardCalls[ipos], mheardLine.mh_callsign.c_str(), icsize);
     
     mheardEpoch[ipos] = getUnixClock();
 
@@ -370,7 +391,6 @@ void updateHeyPath(struct mheardLine &mheardLine)
     if(mheardLine.mh_sourcecallsign == meshcom_settings.node_call)
         return;
 
-    // check MHEARD exists
     for(int imh=0; imh<MAX_MHEARD; imh++)
     {
         if(mheardCalls[imh][0] != 0x00)
@@ -390,6 +410,7 @@ void updateHeyPath(struct mheardLine &mheardLine)
                 // check new/old format
                 // new R99; R99;77,7 ...
                 // old R99,99,99;77,7 ... oder R99,77  ... oder R99
+                // old R99,99;.... kein NCount
 
                 // correct old format
                 mheardLine.mh_path_payload.concat(";");
@@ -398,22 +419,40 @@ void updateHeyPath(struct mheardLine &mheardLine)
 
                 if(ipos > 0 && mheardLine.mh_path_payload.startsWith("R"))
                 {
-                    if(bDisplayCont)
+                    // count comma
+                    int icomma = 0;
+                    for(int i=1; i<ipos; i++)
                     {
-                        printdeb(mheardLine.mh_path_payload.substring(1, ipos));
-                        printdeb(" count:");
+                        if(mheardLine.mh_path_payload.charAt(i) == ',')
+                            icomma++;
                     }
 
-                    mheardLine.mh_ncount = mheardLine.mh_path_payload.substring(1, ipos).toInt();
-                    mheardNCount[imh] = mheardLine.mh_ncount;
+                    // gültig
+                    // R99;
+                    // R99,99,99;
 
-                    // REP action
-                    decodeMHeard(mheardBuffer[imh], mheardLine_save);
+                    // ungültig
+                    // R99,99;
+                    
+                    if(icomma == 0 || icomma == 2)
+                    {
+                        if(bDisplayCont)
+                        {
+                            printdeb(mheardLine.mh_path_payload.substring(1, ipos));
+                            printdeb(" count:");
+                        }
 
-                    char cBuffer[sizeof(mheardBuffer[imh])];
-                    snprintf(cBuffer, sizeof(cBuffer), "%s|%s|%c|%i|%u|%i|%i|%.1lf|%i|%i|%i|", mheardLine.mh_date.c_str(), mheardLine.mh_time.c_str(), mheardLine.mh_payload_type, mheardLine_save.mh_hw,
-                    mheardLine_save.mh_mod, mheardLine_save.mh_rssi, mheardLine_save.mh_snr, mheardLine_save.mh_dist, mheardLine.mh_path_len, mheardLine.mh_mesh, mheardLine.mh_ncount);
-                    memcpy(mheardBuffer[imh], cBuffer, sizeof(cBuffer));
+                        mheardLine.mh_ncount = mheardLine.mh_path_payload.substring(1, ipos).toInt();
+                        mheardNCount[imh] = mheardLine.mh_ncount;
+
+                        // REP action
+                        decodeMHeard(mheardBuffer[imh], mheardLine_save);
+
+                        char cBuffer[sizeof(mheardBuffer[imh])];
+                        snprintf(cBuffer, sizeof(cBuffer), "%s|%s|%c|%i|%u|%i|%i|%.1lf|%i|%i|%i|", mheardLine.mh_date.c_str(), mheardLine.mh_time.c_str(), mheardLine.mh_payload_type, mheardLine_save.mh_hw,
+                        mheardLine_save.mh_mod, mheardLine_save.mh_rssi, mheardLine_save.mh_snr, mheardLine_save.mh_dist, mheardLine.mh_path_len, mheardLine.mh_mesh, mheardLine.mh_ncount);
+                        memcpy(mheardBuffer[imh], cBuffer, sizeof(cBuffer));
+                    }
                 }
 
                 if(bDisplayCont)
