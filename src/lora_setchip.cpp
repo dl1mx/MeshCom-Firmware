@@ -5,6 +5,10 @@
 
 #include "lora_setchip.h"
 
+#if defined(EXTERNAL_RADIO)
+#include "esp32/external_radio_glue.h"   // externalRadioConfigChanged() re-sync hook
+#endif
+
 #if defined(BOARD_RAK4630) || defined(USE_HELTEC_T114) || defined(BOARD_T_ECHO)
 #include <nrf52/nrf52_radio.h>
 #endif
@@ -54,12 +58,12 @@
 bool rf_crc = true;
 uint16_t rf_preamble_length = LORA_PREAMBLE_LENGTH;
 
-//0...EU  1...UK, 2...ON, 3...EA, 4...OM, 8...EU8, 10...US, ..... 18...868, 19...915, 20...MAN
-String strCountry[max_country] = {"EU", "UK", "ON", "EA", "LA", "868", "915", "MAN", "EU8", "UK8", "US", "VR2", "none", "none", "none", "none"};
+//0...EU  1...UK, 2...ON, 3...EA, 4...OM, 8...EU8, 10...US, ..... 5...868, 6...915, 7...MAN
+String strCountry[max_country] = {"EU", "UK", "ON", "EA", "LA", "868", "915", "MAN", "EU8", "UK8", "US", "VR2", "435", "436", "442", "PL", "none"};
 
 String getCountry(int iCtry)
 {
-    if(iCtry < 0 || iCtry > 15)
+    if(iCtry < 0 || iCtry >= max_country)
     {
         return "none";
     }
@@ -69,7 +73,7 @@ String getCountry(int iCtry)
 
 int getCountryID(String strCtry)
 {
-    for(int ic=0;ic<16;ic++)
+    for(int ic=0;ic<max_country;ic++)
     {
         if(strCountry[ic] == strCtry)
             return ic;
@@ -272,7 +276,7 @@ void lora_setcountry(int iCtry)
 
             break;
 
-        case 6:  // 906 ... 
+        case 6:  // 915 ... 
 
             #if defined(BOARD_RAK4630) || defined(USE_HELTEC_T114) || defined(BOARD_T_ECHO)
                 meshcom_settings.node_freq = 906875000;
@@ -407,6 +411,74 @@ void lora_setcountry(int iCtry)
 
             break;
 
+        case 12:  // 435 ... 
+            #if defined(BOARD_RAK4630) || defined(USE_HELTEC_T114) || defined(BOARD_T_ECHO)
+                meshcom_settings.node_freq = 435750000;
+                meshcom_settings.node_bw = 1;
+                meshcom_settings.node_cr = 2;
+            #else
+                meshcom_settings.node_freq = 435.750;
+                meshcom_settings.node_bw = 250.0;
+                meshcom_settings.node_cr = 6;
+            #endif
+            meshcom_settings.node_sf = 11;
+
+            meshcom_settings.node_track_freq = LORA_APRS_FREQUENCY;
+            
+            meshcom_settings.node_preamplebits = 8;
+            break;
+        case 13:  // 436 ... 
+            #if defined(BOARD_RAK4630) || defined(USE_HELTEC_T114) || defined(BOARD_T_ECHO)
+                meshcom_settings.node_freq = 436250000;
+                meshcom_settings.node_bw = 1;
+                meshcom_settings.node_cr = 2;
+            #else
+                meshcom_settings.node_freq = 436.250;
+                meshcom_settings.node_bw = 250.0;
+                meshcom_settings.node_cr = 6;
+            #endif
+            meshcom_settings.node_sf = 11;
+
+            meshcom_settings.node_track_freq = LORA_APRS_FREQUENCY;
+            
+            meshcom_settings.node_preamplebits = 8;
+            break;
+        case 14:  // 442 ... 
+            #if defined(BOARD_RAK4630) || defined(USE_HELTEC_T114) || defined(BOARD_T_ECHO)
+                meshcom_settings.node_freq = 442000000;
+                meshcom_settings.node_bw = 1;
+                meshcom_settings.node_cr = 2;
+            #else
+                meshcom_settings.node_freq = 442.000;
+                meshcom_settings.node_bw = 250.0;
+                meshcom_settings.node_cr = 6;
+            #endif
+            meshcom_settings.node_sf = 11;
+
+            meshcom_settings.node_track_freq = LORA_APRS_FREQUENCY;
+            
+            meshcom_settings.node_preamplebits = 8;
+            break;
+
+        case 15:  // PL
+            meshcom_settings.node_freq = RF_FREQUENCY;
+
+            #if defined(BOARD_RAK4630) || defined(USE_HELTEC_T114) || defined(BOARD_T_ECHO)
+                meshcom_settings.node_bw = 1;
+                meshcom_settings.node_cr = 2;
+            #else
+                meshcom_settings.node_bw = 250.0;
+                meshcom_settings.node_cr = 6;
+            #endif
+
+            meshcom_settings.node_sf = LORA_SF;
+
+            meshcom_settings.node_track_freq = 434.855; // LORA_APRS_FREQUENCY for Poland
+
+            meshcom_settings.node_preamplebits = 8;
+
+            break;
+
         default:    // EU
             meshcom_settings.node_freq = RF_FREQUENCY;
 
@@ -505,7 +577,18 @@ bool lora_setchip_meshcom()
     int rf_cr = meshcom_settings.node_cr;
     uint16_t rf_preamble_length = meshcom_settings.node_preamplebits;
     bool rf_crc = true;
+    #if defined(EXTERNAL_RADIO)
+    // External radio: the bridge owns the RF chip. Accept the normal MeshCom
+    // settings WITHOUT touching local RadioLib, then re-sync the bridge. The
+    // bridge validates and applies the new normalized config; readiness is gated
+    // by the exact CONFIG_RESULT echo inside the transport, never claimed here.
+    (void)rf_freq; (void)rf_bw; (void)rf_sf; (void)rf_cr;
+    (void)rf_preamble_length; (void)rf_crc;
+    externalRadioConfigChanged();
+    return true;
+    #else
     return lora_setchip_new(rf_freq, rf_bw, rf_sf, rf_cr, SYNC_WORD_SX127x, rf_preamble_length, rf_crc);
+    #endif
 #endif
 
     return true;
@@ -526,7 +609,7 @@ bool lora_setchip_aprs()
     // not used because APRS using radioInit SYNCWORD ... Radio.SetCustomSyncWord(0x242b);
 
     if(bLORADEBUG)
-        Serial.printf("[LoRa]...RF_FREQUENCY: %.4f kHz\n", LORA_APRS_FREQUENCY/1000000.);
+        Serial.printf("[LoRa]...RF_FREQUENCY: %.4f kHz\n", meshcom_settings.node_track_freq/1000000.);
 
     //  Set the LoRa Frequency
     Radio.SetChannel((uint32_t)LORA_APRS_FREQUENCY);
@@ -598,7 +681,7 @@ bool lora_setchip_aprs()
 
 #else
     // Set LoRaAPRS parameter
-    float rf_freq = LORA_APRS_FREQUENCY;
+    float rf_freq = meshcom_settings.node_track_freq;
     float rf_bw = 125.0;
     int rf_sf = 12;
     int rf_cr = 5;
@@ -613,6 +696,13 @@ bool lora_setchip_aprs()
         rf_cr = 6;
     }
 
+    // "PL" LoRa_APRS
+    if(meshcom_settings.node_country == 15)
+    {
+        rf_sf = 9;
+        rf_cr = 7;
+    }
+
     return lora_setchip_new(rf_freq, rf_bw, rf_sf, rf_cr, 0x12, rf_preamble_length, rf_crc);
 #endif
 
@@ -621,6 +711,14 @@ bool lora_setchip_aprs()
 
 bool lora_setchip_new(float rf_freq, float rf_bw, int rf_sf, int rf_cr, int rf_syncword, uint16_t rf_preamble_length, bool rf_crc)
 {
+
+#if defined(EXTERNAL_RADIO)
+    // External radio mode never drives the local RF chip. Accept as a no-op so any
+    // residual caller cannot touch RadioLib hardware.
+    (void)rf_freq; (void)rf_bw; (void)rf_sf; (void)rf_cr;
+    (void)rf_syncword; (void)rf_preamble_length; (void)rf_crc;
+    return true;
+#endif
 
 #if defined(BOARD_T5_EPAPER)
 //extra source

@@ -2,7 +2,7 @@
 #define SOURCE_VERSION_SUB "p"
 #define SOURCE_VERSION_WEB_SUB "p"
 
-#define FLASH_VERSION 20260608
+#define FLASH_VERSION 20260724
 
 //Hardware Types
 #define TLORA_V2 1
@@ -39,6 +39,7 @@
 #define HELTEC_E213 58
 #define ESP32_LORAPRS_E22 59
 #define ESP32_LORAPRS_RA01 60
+#define T_WATCH_S3 61
 
 // Boards mit dem 2.13"-E-Ink-Panel (E0213A367/SSD1680) UND dem gemeinsamen WP-Display-Pfad:
 // Wireless Paper + Vision Master E213. Beide nutzen identisches Layout, fette 9pt-Schrift,
@@ -69,6 +70,8 @@
 #define POSINFO_INTERVAL 30 * 60           // POSINFO interval in minutes default 30 minutes
 #define HEYINFO_INTERVAL 15 * 60           // HEYINFO interval in minutes default 15 minutes
 #define TELEMETRY_INTERVAL 30 * 60         // TELEMETRY interval in minutes default 30 minutes
+#define PING_INTERVAL 60                   // PING interval in seconds default 60 seconds
+#define PING_MAX 5                         // Maximum number of PING attempts
 #define GPS_REFRESH_INTERVAL 3             // GPS Refresh in seconds
 #define TEMPHUM_INTERVAL 3000              // TEMPHUM interval in milliseconds
 #define DRUCK_INTERVAL 3000                // DRUCK interval in milliseconds
@@ -139,6 +142,13 @@
 #define CSMA_MAX_ATTEMPTS   3       // Ab hier: Rapid-fire CAD bis Kanal frei
 #define CSMA_RAPID_RX_MS    100     // Preamble-Check Fenster im Rapid-fire Modus (ms)
 
+// EXTERNAL_RADIO only: bounded channel-access (bridge CHANNEL_BUSY) attempts per
+// message, counted SEPARATELY from the MeshCom delivery retransmission budget
+// (MAX_RETRANSMIT). A bridge CHANNEL_BUSY = channel access denied, not a consumed
+// delivery retry. Larger than MAX_RETRANSMIT so transient channel congestion does
+// not prematurely drop a message, but still bounded (no unlimited busy retries).
+#define EXT_BUSY_MAX_ATTEMPTS 8
+
 // TX-IRQ Watchdog: Maximale Zeit (ms) fuer einen LoRa-TX-Vorgang bevor Zwangs-Recovery
 // SF11 BW250 CR6 255 Bytes ToA ~6s -> 15s gibt ausreichend Sicherheitsabstand
 #define TX_WATCHDOG_MS      15000
@@ -154,8 +164,14 @@
 
 // Ring Buffer Slot Status (ringBuffer[slot][1])
 #define RING_STATUS_READY     0x00   // Ready to send
-#define RING_STATUS_SENT      0x01   // Sent, waiting for ACK/timer
+#define RING_STATUS_SENT      0x01   // Sent, waiting for ACK/timer (0x01..0x14 = aging counter)
 #define RING_STATUS_DONE      0xFF   // Final, no retransmission
+// 0x80: slot owned by an in-flight external-radio TX awaiting an async bridge
+// TX_RESULT (EXTERNAL_RADIO only). Deliberately outside READY(0x00), the SENT
+// aging window (0x01..0x14) and DONE(0xFF) so normal selection skips it and
+// retransmission maintenance must skip it explicitly. Used only when the optional
+// EXTERNAL_RADIO backend is compiled in; otherwise no slot ever carries it.
+#define RING_STATUS_EXT_PENDING 0x80
 
 // Message Priority Classes (lower = higher priority)
 #define MSG_PRIO_CRITICAL   1   // ACK (0x41) + persoenliche DM

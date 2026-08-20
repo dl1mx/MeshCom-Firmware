@@ -51,6 +51,14 @@ bool checkMesh(struct aprsMessage &aprsmsg)
     if(bDisplayCont)
         printfdeb("[MESH]...<%s>...Payload<%s>\n", bMESH?"true":"false", aprsmsg.msg_payload.c_str());
 
+    // check ping
+    if(aprsmsg.msg_payload.startsWith("ping"))
+    {
+        if(bDisplayCont)
+            printlndeb("[MESH]...ping received, return MESH=false");
+        return false;   // no MESH for own messages
+    }
+
     // check source_call
     if(aprsmsg.msg_source_call == meshcom_settings.node_call)
     {
@@ -99,11 +107,14 @@ void checkVia(struct aprsMessage &aprsmsg)
         {
             if(bGATEWAY)
             {
+                /* 22.07.2026 - zum Test entfernt
                 aprsmsg.msg_destination_path = "HG,";
                 aprsmsg.msg_destination_path.concat(aprsmsg.msg_destination_call);
+                */
             }
             else
             {
+                /* 22.07.2026 - zum Test entfernt
                 char cMH[10];
                 int inct=0;
                 // insert mheard-calls to routing informnation
@@ -130,6 +141,7 @@ void checkVia(struct aprsMessage &aprsmsg)
                     aprsmsg.msg_destination_path.concat(",");
                     aprsmsg.msg_destination_path.concat(aprsmsg.msg_destination_call);
                 }
+                */
             }
         }
     }

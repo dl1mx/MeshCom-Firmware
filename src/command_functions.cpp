@@ -273,7 +273,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
-#if defined(WP_DISP)
+#if defined(WP_DISP) or defined(BOARD_E290)
     if(commandCheck(msg_text+2, (char*)"rotate ") == 0)
     {
         // --rotate 0/90/180/270 : persistenter Display-Dreh-Offset (Grad), board-uebergreifend
@@ -482,6 +482,61 @@ void commandAction(char *umsg_text, bool ble)
         bDisplayCont=true;
 
         meshcom_settings.node_sset |= 0x4000;
+
+        save_settings();
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"setlog off") == 0)
+    {
+        printfdeb("\nsetlog off");
+
+        bDisplayLog=false;
+        memset(LogCallsign, 0x00, sizeof(LogCallsign));
+
+        meshcom_settings.node_sset4 = meshcom_settings.node_sset4 & 0x7FFB;
+
+        save_settings();
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"setlog on") == 0)
+    {
+        printlndeb("\nsetlog on");
+        memset(LogCallsign, 0x00, sizeof(LogCallsign));
+
+        bDisplayLog=true;
+
+        meshcom_settings.node_sset4 |= 0x0004;
+
+        save_settings();
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"setlog ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+9);
+        if(_owner_c[strlen(_owner_c)-1] == 0x0a)
+            _owner_c[strlen(_owner_c)-1] = 0x00;
+        
+        sVar = _owner_c;
+        sVar.trim();
+        sVar.toUpperCase();
+
+        if(!checkRegexCall(sVar))
+        {
+            printfdeb("\n[ERR]..Callsign <%s> not valid\n", sVar.c_str());
+            return;
+        }
+
+        snprintf(LogCallsign, sizeof(LogCallsign), "%s", sVar.c_str());
+
+        bDisplayLog=true;
+
+        meshcom_settings.node_sset4 |= 0x0004;
 
         save_settings();
 
@@ -817,6 +872,10 @@ void commandAction(char *umsg_text, bool ble)
         #if defined(vEXT_CTRL)
             digitalWrite(VEXT_CTRL, LOW);   // HWT needs this for GPS and TFT Screen
             digitalWrite(ADC_CTRL, LOW);
+        #endif
+
+        #if defined(GPS_SWITCH)
+            digitalWrite(GPS_SWITCH, LOW);   // externes GPS im deepsleep ausschalten, Flashwerte aber für wakeup bestehen lassen
         #endif
 
         #if defined(BOARD_HELTEC) || defined(BOARD_HELTEC_V3)
@@ -1390,7 +1449,7 @@ void commandAction(char *umsg_text, bool ble)
     if(commandCheck(msg_text+2, (char*)"track on") == 0)
     {
         bDisplayTrack=true;
-        
+
         track_to_meshcom_timer=0;   // damit auch alle 5 minuten zu MeshCom gesendet wird wenn TRACK ON
 
         meshcom_settings.node_sset |= 0x0020;
@@ -2896,6 +2955,7 @@ void commandAction(char *umsg_text, bool ble)
     }
     else
 #if defined(ENABLE_XML)
+    /* only for testing
     if(commandCheck(msg_text+2, (char*)"softser test0") == 0)
     {
         iNextTelemetry = 0;
@@ -2918,6 +2978,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    */
 #endif
     if(commandCheck(msg_text+2, (char*)"softser baud ") == 0)
     {
@@ -2977,6 +3038,7 @@ void commandAction(char *umsg_text, bool ble)
     }
 #endif
 
+/* for testing only
 #if defined(ENABLE_XML)
     if(commandCheck(msg_text+2, (char*)"softser xml") == 0)
     {
@@ -2985,6 +3047,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
 #endif
+*/
 
     else
     if(commandCheck(msg_text+2, (char*)"passwd ") == 0)
@@ -3287,6 +3350,104 @@ void commandAction(char *umsg_text, bool ble)
         save_settings();
 
         return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"pingcall ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+11);
+        if(_owner_c[strlen(_owner_c)-1] == 0x0a)
+            _owner_c[strlen(_owner_c)-1] = 0x00;
+        
+        sVar = _owner_c;
+        sVar.trim();
+        sVar.toUpperCase();
+
+        if(sVar.compareTo("NONE") == 0)
+        {
+            sVar = "";
+
+            printfdeb("Ping-Call cleared\n");
+        }
+        else
+        {
+            if(!checkRegexCall(sVar))
+            {
+                printfdeb("\n[ERR]..Ping-Callsign <%s> not valid\n", sVar.c_str());
+                return;
+            }
+        }
+
+        snprintf(meshcom_settings.node_pingcall, sizeof(meshcom_settings.node_call), "%s", sVar.c_str());
+
+         if(meshcom_settings.node_pingcall[0] == 0x00)
+            meshcom_settings.node_pingtime = 0;
+        else
+        {
+            if(meshcom_settings.node_pingtime == 0)
+                meshcom_settings.node_pingtime = PING_INTERVAL;
+        }
+
+        save_settings();
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"pingtime ") == 0)
+    {
+        sscanf(msg_text+11, "%d", &meshcom_settings.node_pingtime);
+
+        if(meshcom_settings.node_pingtime < 15 || meshcom_settings.node_pingtime > PING_INTERVAL * 5)
+        {
+            meshcom_settings.node_pingtime = PING_INTERVAL;
+        }
+
+        bReturn = true;
+
+        save_settings();
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"ping start") == 0)
+    {
+        if(meshcom_settings.node_pingmax < 1)
+        {
+            meshcom_settings.node_pingmax = PING_MAX;
+        }
+
+        bReturn = true;
+
+        meshcom_settings.node_pingcount = meshcom_settings.node_pingmax;
+
+        save_settings();
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"ping stop") == 0)
+    {
+        meshcom_settings.node_pingcount = 0;
+
+        bReturn = true;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"pingmax max") == 0)
+    {
+        meshcom_settings.node_pingmax = 100;
+
+        bReturn = true;
+
+        save_settings();
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"pingmax ") == 0)
+    {
+        sscanf(msg_text+10, "%d", &meshcom_settings.node_pingmax);
+
+        if(meshcom_settings.node_pingmax < 1 || meshcom_settings.node_pingmax > PING_MAX)
+        {
+            meshcom_settings.node_pingmax = PING_MAX;
+        }
+
+        bReturn = true;
+
+        save_settings();
     }
     else
 
@@ -4764,8 +4925,8 @@ void commandAction(char *umsg_text, bool ble)
             printfdeb("...DEBUG %s ...LORADEBUG %s ...GPSDEBUG %s/%i ...SOFTSERDEBUG %s\n...WXDEBUG %s ...BLEDEBUG %s\n",
                 (bDEBUG?"on":"off"), (bLORADEBUG?"on":"off"), (iGPSDEBUG?"on":"off"), iGPSDEBUG, (bSOFTSERDEBUG?"on":"off"),(bWXDEBUG?"on":"off"), (bBLEDEBUG?"on":"off"));
             
-            printfdeb("...DisplayInfo %s ...DisplayCont %s ...contrast %i\n",
-                (bDisplayInfo?"on":"off"), (bDisplayCont?"on":"off"), meshcom_settings.node_contrast);
+            printfdeb("...DisplayInfo %s ...DisplayCont %s ...DisplyLog %s ...contrast %i\n",
+                (bDisplayInfo?"on":"off"), (bDisplayCont?"on":"off"), (bDisplayLog?"on":"off"), meshcom_settings.node_contrast);
 
             printfdeb("...EXTUDP %s ...EXT IP %s\n", (bEXTUDP?"on":"off"), meshcom_settings.node_extern);
 
@@ -4788,6 +4949,11 @@ void commandAction(char *umsg_text, bool ble)
             if(bVIA)
             {
                 printfdeb("\n...VIA %s <%s>\n", (bVIA?"on":"off"), meshcom_settings.node_via);
+            }
+
+            if(meshcom_settings.node_pingcall[0] != 0x00 || meshcom_settings.node_pingtime > 0)
+            {
+                printfdeb("\n...PING  CALL %s Time:%i Max:%i Count:%i\n", meshcom_settings.node_pingcall, meshcom_settings.node_pingtime, meshcom_settings.node_pingmax, meshcom_settings.node_pingcount);
             }
 
             #if defined(RELAY_SWITCH)
@@ -4869,10 +5035,10 @@ void commandAction(char *umsg_text, bool ble)
 
             printdeb("...NETWORK Mode:");
             if(meshcom_settings.node_netmode == 0)
-                printfdeb("WiFi");
+                printlndeb("WiFi");
             else
             if(meshcom_settings.node_netmode == 1)
-                printfdeb("ETH");
+                printlndeb("ETH");
 
             printfdeb("...hasIpAddress: %s\n", (meshcom_settings.node_hasIPaddress?"yes":"no"));
             if(meshcom_settings.node_hasIPaddress || meshcom_settings.node_netmode == 1)
@@ -5140,6 +5306,8 @@ void sendGpsJson()
     memset(print_buff, 0, sizeof(print_buff));
 
     serializeJson(pdoc, print_buff, measureJson(pdoc));
+
+    Serial.printf("GPS<%s>\n", print_buff);
 
     json_len = strlen(print_buff);
     if (json_len > MAX_MSG_LEN_PHONE - 2) {

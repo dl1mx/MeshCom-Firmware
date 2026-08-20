@@ -45,6 +45,8 @@ extern bool bLED_DELAY;
 extern bool bTDECKDEBUG;
 extern bool bCHECKMESH;
 
+extern bool bPingSend;
+
 extern bool bPosDisplay;
 extern bool bDisplayOff;
 extern bool bDisplayIsOff;
@@ -52,6 +54,10 @@ extern bool bDisplayVolt;
 extern bool bDisplayInfo;
 extern bool bDisplayVia;
 extern bool bDisplayCont;
+
+extern bool bDisplayLog;
+extern char LogCallsign[10];
+
 extern bool bDisplayRetx;
 extern unsigned long DisplayOffWait;
 extern int DisplayTimeWait;
@@ -376,3 +382,6 @@ extern volatile bool bPendingRadioRx;
 extern struct aprsMessage pendingDisplayMsg;
 extern int16_t pendingDisplayRssi;
 extern int8_t  pendingDisplaySnr;
+
+// special
+extern int g_dispRotOffset;

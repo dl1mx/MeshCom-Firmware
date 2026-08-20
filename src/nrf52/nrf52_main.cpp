@@ -101,6 +101,9 @@ unsigned long retransmit_timer = 0;
 // flag to update NTP Time
 unsigned long updateTimeClient = 0;
 
+// resend Ping Timer
+unsigned long resendPing = 0;
+
 // timers
 uint32_t dhcp_timer = 0;         // dhcp refresh timer
 
@@ -293,6 +296,7 @@ int direction_E_W = 0;  //0--E, 1--W
 
 #if defined(ENABLE_RAK_GPS)
 unsigned int getGPS(void);
+void SetupUBLOX();
 #endif
 
 // TEMP/HUM
@@ -567,6 +571,7 @@ void nrf52setup()
 
     bDEBUGCSV = meshcom_settings.node_sset4 & 0x0001;
     bDEBUGEN = meshcom_settings.node_sset4 & 0x0002;
+    bDisplayLog = meshcom_settings.node_sset4 & 0x0004;
 
     bDisplayInfo = bLORADEBUG;
 
@@ -762,6 +767,9 @@ void nrf52setup()
             Serial.println("GPS: not connected");
 
         delay(100);
+
+        SetupUBLOX();
+
         #endif
     }
 
@@ -1552,6 +1560,8 @@ void nrf52loop()
 
     if(gKeyNum == 2)
     {
+        //TEST Serial.println("gKeyNum == 2");
+
         #if defined(ENABLE_RAK_GPS)
         if(bGPSON)
         {
@@ -2047,6 +2057,7 @@ void nrf52loop()
     }
 
     // Heap Monitor — always active, 60s interval
+    if(!bDisplayLog)
     {
         static unsigned long heapMonTimer = 0;
         if (heapMonTimer == 0)
@@ -2323,6 +2334,24 @@ void nrf52loop()
 
     }
 
+    if (resendPing == 0)
+        resendPing = millis();
+
+    if(meshcom_settings.node_pingtime > 29)
+    {
+        if((resendPing + meshcom_settings.node_pingtime * 1000) < millis())
+        {
+            resendPing = millis();
+
+            if(bDisplayInfo)
+                printfdeb("[PING]...send Ping to %s\n", meshcom_settings.node_pingcall);
+
+            if(meshcom_settings.node_pingcall[0] != 0x00)
+                sendPing(meshcom_settings.node_pingcall);
+        }
+    }
+
+
     #if defined(HAS_TFT_114) or defined(BOARD_T_ECHO)
     }   // else from 
     #endif
@@ -2432,6 +2461,133 @@ void direction_parse(String tmp)
 /**@brief Function for handling a LoRa tx timer timeout event.
  */
 #if defined(ENABLE_RAK_GPS)
+// Hilfsfunktion zum Senden
+void sendUBXCommand(String cmd)
+{
+  #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
+  Serial1.println(cmd);
+  #else
+  Serial1.println(cmd);
+  #endif
+  delay(100); // Kurze Pause für das Modul
+}
+
+uint32_t startTimeout;
+String ver = "";
+
+void WaitPause() {
+  startTimeout = millis() + 1000;
+  #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
+  while ((!Serial1.available()) && (millis() < startTimeout)) { delay(5); } // auf Block von Zeichen warten
+  #else
+  while ((!Serial1.available()) && (millis() < startTimeout)) { delay(5); } // auf Block von Zeichen warten
+  #endif
+  if(iGPSDEBUG >= 2)
+    Serial.printf("[GPS ]...wait");
+  startTimeout = millis() + 50;  // für Serial Sync Zeichenblock lesen und Pause von 50ms abwarten
+  while (millis() < startTimeout) {
+    #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
+    if (Serial1.available()) {
+      Serial1.read();
+    #else
+    if (Serial1.available()) {
+      Serial1.read();
+    #endif
+      startTimeout = millis() + 50;  // retrigger timeout
+    }
+  }
+}
+
+const uint8_t UBX_MON_VER_RAK[] = {  // Size 8, swVersion, hwVersion
+  0xB5, 0x62,             // Header (sync)
+  0x0A, 0x04,             // Class, ID
+  0x00, 0x00,             // Length (2 Bytes, Little Endian)
+  0x0E, 0x34              // CK_A, CK_B
+};
+
+uint8_t ubx_cfg_gnss [] = {// GPS + GALILEO + GLONASS wo / SBAS
+0xB5,0x62,0x06,0x3E, 0x3C, 0x00,
+0x00,0x00,0x20,0x07,
+0x00,0x00,0x10,0x00,0x01,0x00,0x01,0x01,
+0x01,0x00,0x00,0x00,0x00,0x00,0x01,0x01,
+0x02,0x00,0x08,0x00,0x01,0x00,0x01,0x01,
+0x03,0x00,0x00,0x00,0x00,0x00,0x01,0x01,
+0x04,0x00,0x00,0x00,0x00,0x00,0x01,0x01,
+0x05,0x00,0x00,0x00,0x00,0x00,0x01,0x01,
+0x06,0x00,0x10,0x00,0x01,0x00,0x01,0x01,
+0xF5,0x8A};
+
+void sendUBX_MON_VER() {  // Binäres Paket senden
+  
+  if(iGPSDEBUG >= 2)
+    Serial.println("[GPS ]...Sende UBX_MON_VER");
+
+  for (int i = 0; i < sizeof(UBX_MON_VER_RAK); i++)
+  {
+    Serial1.write(UBX_MON_VER_RAK[i]);
+  }
+
+  delay(100); // Kurze Pause für das Modul
+}
+
+void sendUBX_SET_GNSS() {  // Binäres Paket senden
+  
+  if(iGPSDEBUG >= 2)
+    Serial.println("[GPS ]...Sende UBX_SET_GNSS");
+
+  for (int i = 0; i < sizeof(ubx_cfg_gnss); i++)
+  {
+    Serial1.write(ubx_cfg_gnss[i]);
+  }
+
+  delay(100); // Kurze Pause für das Modul
+}
+
+String readUBXbin() {
+  startTimeout = millis() + 500;
+  ver = "";
+    while (millis() < startTimeout) {
+    #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
+    while (Serial1.available()) {
+      int c = Serial1.read();
+    #else
+    while (Serial1.available()) {
+      int c = Serial1.read();
+    #endif
+
+      if ((ver.length() > 500) || (c == 0x0D)) { break; }  //TODO: mehr Zeichen für ganzen Versions-String
+      if (c == 0xB5) { c = 0x75; }
+      if ((c < 0x20) || (c > 0x7E)) { c = 0x2E; }
+      ver = ver + char(c);
+      startTimeout = millis() + 500;  // retrigger timeout
+    }
+  }
+  return ver;
+}
+
+void SetupUBLOX()
+{
+  // 1. Alle Nachrichten (GSV) ausschalten, um Flut an Daten zu reduzieren
+  sendUBXCommand("$PUBX,40,GSV,0,0,0,0,0,0*59");
+  sendUBXCommand("$PUBX,40,VTG,0,0,0,0,0,0*5E");
+  sendUBXCommand("$PUBX,40,GSA,0,0,0,0,0,0*4E");
+  sendUBXCommand("$PUBX,40,GLL,0,0,0,0,0,0*5C");
+  
+  // 2. Nur GGA (Position) und RMC (Zeit/Datum/Speed) aktivieren
+  sendUBXCommand("$PUBX,40,GGA,0,1,0,0,0,0*5B");
+  sendUBXCommand("$PUBX,40,RMC,0,1,0,0,0,0*47");
+
+  WaitPause(); // Pause zwischen Blöcken erreicht
+
+  sendUBX_SET_GNSS();
+
+  sendUBX_MON_VER();
+  ver = readUBXbin();
+  if(iGPSDEBUG >= 2)
+    Serial.printf("[GPS_VER] %s\n", ver.c_str());
+
+}
+
 unsigned int getGPS(void)
 {
     if(iGPSDEBUG > 1)
@@ -2446,7 +2602,7 @@ unsigned int getGPS(void)
       {
         char c = Serial1.read();
         
-        if(iGPSDEBUG > 1)
+        if(iGPSDEBUG > 2)
             Serial.write(c);
 
         if (tinyGPSPlus.encode(c))// Did a new valid sentence come in?
@@ -2463,7 +2619,7 @@ unsigned int getGPS(void)
 
     bool has_gnss_location=false;
 
-    if ((tinyGPSPlus.hdop.value() < 300) && (tinyGPSPlus.satellites.value() > 5))
+    if ((tinyGPSPlus.hdop.value() < 300) && (tinyGPSPlus.satellites.value() > 4))
     {
         has_gnss_location = true;
         posinfo_fix = true;

@@ -59,6 +59,7 @@ bool gpsInitDone = false;
 extern TinyGPSPlus gps;
 #endif
 
+
 bool bnextread=false;
 
 int ifalseping = 0;
@@ -74,6 +75,8 @@ bool bLED_GREEN=false;
 bool bLED_ORANGE=false;
 bool bLED_CLEAR=false;
 bool bLED_DELAY=false;
+
+bool bPingSend=false;
 
 extern unsigned long rebootAuto;
 extern bool g_ble_uart_is_connected;
@@ -103,6 +106,10 @@ bool bDisplayVolt = false;
 bool bDisplayInfo = false;
 bool bDisplayVia = false;
 bool bDisplayCont = false;
+
+bool bDisplayLog = false;
+char LogCallsign[10] = {0};
+
 bool bDisplayRetx = false;
 unsigned long DisplayOffWait = 0;
 bool bDisplayTrack = false;
@@ -1494,6 +1501,7 @@ void sendDisplayTime()
     #endif
 
     char cbatt[10];
+    char cstatus[10];
 
     #if defined (HAS_TFT) || defined(HAS_TFT_114) || defined(HAS_TFT_CONNECT) || defined(BOARD_T_ECHO)
     if(bDisplayVolt)
@@ -1512,12 +1520,23 @@ void sendDisplayTime()
         snprintf(cbatt, sizeof(cbatt), "   USB");
     #endif
 
- #if defined(XPOWERS_CHIP_AXP192) || defined(HAS_EPAPER) || defined(BOARD_TBEAM_1W) || defined(BOARD_T_CONNECT_PRO)
+    #if defined(XPOWERS_CHIP_AXP192) || defined(HAS_EPAPER) || defined(BOARD_TBEAM_1W) || defined(BOARD_T_CONNECT_PRO)
     // [OE3WAS] 2S-Akku nom. 7.4V (LiPo = 5.0 .. 8.4 V)
     // wenn USB aber kein Akku, dann wird eine Spannung ≈>2V gemessen, durch Fehlströme erzeugt
     if(global_batt == 0.0)
         snprintf(cbatt, sizeof(cbatt), "   USB");
- #endif
+    #endif
+
+    if(bGPSON)
+        snprintf(cstatus, sizeof(cstatus), "G     ");
+    else
+        snprintf(cstatus, sizeof(cstatus), "      ");
+
+    if(bDisplayTrack)
+        cstatus[1] = 'T';
+
+    if(!bGPSON && !bDisplayTrack)
+        snprintf(cstatus, sizeof(cstatus),  "%-4.4s%-1.1s ", SOURCE_VERSION, SOURCE_VERSION_SUB);
 
     // nur alle 15 sekunden
     if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45 || bOneButton)
@@ -1527,7 +1546,7 @@ void sendDisplayTime()
         #ifdef BOARD_T_ECHO
         snprintf(msg_text, sizeof(msg_text), "%02i:%02i:%02i   %s", meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
         #else
-        snprintf(msg_text, sizeof(msg_text), "%-4.4s%-1.1s %02i:%02i:%02i%s", SOURCE_VERSION, SOURCE_VERSION_SUB, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
+        snprintf(msg_text, sizeof(msg_text), "%s%02i:%02i:%02i%s", cstatus, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
         #endif
 
         memcpy(pageText[0], msg_text, 20);
@@ -1557,6 +1576,7 @@ void sendDisplayMainline()
     #endif
 
     char cbatt[10];
+    char cstatus[10];
     char nodetype[5];
 
     #if defined (HAS_TFT) || defined(HAS_TFT_114) || defined(HAS_TFT_CONNECT) || defined(BOARD_T_ECHO)
@@ -1576,19 +1596,30 @@ void sendDisplayMainline()
         snprintf(cbatt, sizeof(cbatt), "   USB");
     #endif
 
+    if(bGPSON)
+        snprintf(cstatus, sizeof(cstatus), "G     ");
+    else
+        snprintf(cstatus, sizeof(cstatus), "      ");
+
+    if(bDisplayTrack)
+        cstatus[1] = 'T';
+
+    if(!bGPSON && !bDisplayTrack)
+        snprintf(cstatus, sizeof(cstatus),  "%-4.4s%-1.1s ", SOURCE_VERSION, SOURCE_VERSION_SUB);
+
     #if defined(XPOWERS_CHIP_AXP192) || defined(HAS_EPAPER) || defined(BOARD_TBEAM_1W) || defined(BOARD_T_CONNECT_PRO)
     // [OE3WAS] 2S-Akku nom. 7.4V (LiPo = 5.0 .. 8.4 V)
     // wenn USB aber kein Akku, dann wird eine Spannung ≈>2V gemessen, durch Fehlströme erzeugt
     if(global_batt == 0.0)
-        snprintf(cbatt, sizeof(cbatt), "  USB");
+        snprintf(cbatt, sizeof(cbatt), "   USB");
     #endif
 
     if(meshcom_settings.node_date_hour == 0 && meshcom_settings.node_date_minute == 0 && meshcom_settings.node_date_second == 0)
     {
         #ifdef BOARD_T_ECHO
-        snprintf(msg_text, sizeof(msg_text), "%-1.1s %-4.4s%-1.1s %s", nodetype, SOURCE_VERSION, SOURCE_VERSION_SUB, cbatt);
+        snprintf(msg_text, sizeof(msg_text), "%-1.1s %s%s", nodetype, cstatus, cbatt);
         #else
-        snprintf(msg_text, sizeof(msg_text), "%-1.1s %-4.4s%-1.1s       %s", nodetype, SOURCE_VERSION, SOURCE_VERSION_SUB, cbatt);
+        snprintf(msg_text, sizeof(msg_text), "%-1.1s %s      %s", nodetype, cstatus, cbatt);
         #endif
     }
     else
@@ -1596,7 +1627,7 @@ void sendDisplayMainline()
         #ifdef BOARD_T_ECHO
         snprintf(msg_text, sizeof(msg_text), "%02i:%02i:%02i    %s", meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
         #else
-        snprintf(msg_text, sizeof(msg_text), "%-4.4s%-1.1s %02i:%02i:%02i%s", SOURCE_VERSION, SOURCE_VERSION_SUB, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
+        snprintf(msg_text, sizeof(msg_text), "%s%02i:%02i:%02i%s", cstatus, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
         #endif
     }
 
@@ -1656,6 +1687,8 @@ void wpRefreshClock()
         return;
 
     char cbatt[10];
+    char cstatus[10];
+
     if(bDisplayVolt)
         snprintf(cbatt, sizeof(cbatt), "%5.2fV", global_batt/1000.0);
     else
@@ -1664,8 +1697,19 @@ void wpRefreshClock()
     if(global_batt == 0.0)
         snprintf(cbatt, sizeof(cbatt), "   USB");
 
+    if(bGPSON)
+        snprintf(cstatus, sizeof(cstatus), "G  ");
+    else
+        snprintf(cstatus, sizeof(cstatus), "   ");
+
+    if(bDisplayTrack)
+        cstatus[1] = 'T';
+
+    if(!bGPSON && !bDisplayTrack)
+        snprintf(cstatus, sizeof(cstatus),  "%-4.4s%-1.1s ", SOURCE_VERSION, SOURCE_VERSION_SUB);
+
     char st[40];
-    snprintf(st, sizeof(st), "%-4.4s%-1.1s %02i:%02i:%02i%s", SOURCE_VERSION, SOURCE_VERSION_SUB,
+    snprintf(st, sizeof(st), "%s%02i:%02i:%02i%s", cstatus,
              meshcom_settings.node_date_hour, meshcom_settings.node_date_minute,
              meshcom_settings.node_date_second, cbatt);
 
@@ -2011,7 +2055,8 @@ void mainStartTimeLoop()
                     if(!bDisplayIsOff && meshcom_settings.node_date_second % 10 == 0)
                         wpRefreshClock();
                     #else
-                    sendDisplayTime(); // Time only
+                    if(meshcom_settings.node_pingcall[0] == 0x00 || meshcom_settings.node_pingtime == 0 || meshcom_settings.node_pingcount == 0)
+                        sendDisplayTime(); // Time only
                     #endif
                 }
 
@@ -2039,9 +2084,38 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     // S1 ... A0 switch A0-7 B0-7
     // aa ... ON or OF
 
+    char cset[30];
+    char cdur[30];
+    char cmsg[30];
+
+    if(aprsmsg.msg_payload.startsWith("{ping}") > 0)
+    {
+        return;
+    }
+    else
+    if(aprsmsg.msg_payload.startsWith("{pong}") > 0)
+    {
+        printfdeb("[PONG] from:%s <%s> rssi:%i snr:%i\n", aprsmsg.msg_source_call.c_str(), aprsmsg.msg_payload.substring(14,17).c_str(), rssi, snr);
+
+        snprintf(cmsg, sizeof(cmsg), "PONG %s", aprsmsg.msg_payload.substring(14,17).c_str());
+        snprintf(cset, sizeof(cset), "R:%i S:%i", rssi, snr);
+
+        meshcom_settings.node_pingduration = millis() - meshcom_settings.node_pingduration;
+        float fdur = meshcom_settings.node_pingduration;
+        fdur=fdur/1000;
+        snprintf(cdur, sizeof(cdur), "D:%.3f s", fdur);
+
+        DisplayPong((char*)cmsg, (char*)aprsmsg.msg_source_call.c_str(), (char*)cset, (char*)cdur);
+
+        // text immer meshcom_settings.node_pingtime stehenlassen und Display immer ON
+        DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
+        bDisplayIsOff=false;
+
+        return;
+    }
+    else
     if(aprsmsg.msg_payload.startsWith("{MCP}") || aprsmsg.msg_payload.startsWith("{mcp}"))
     {
-        char cset[30];
         memset(cset, 0x00, sizeof(cset));
 
         snprintf(cset, sizeof(cset), "%s", aprsmsg.msg_payload.c_str());
@@ -2611,15 +2685,9 @@ void sendDisplayPosition(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     // immer deklarieren, nicht nur unter ENABLE_GPS. Sonst bricht ein E-Paper-Board
     // ohne GPS (z.B. Wireless Paper) die Kompilierung.
     float d_dir_to = 0;
-    #if defined(ENABLE_GPS)
     d_dir_to = gps.courseTo(meshcom_settings.node_lat, meshcom_settings.node_lon, lat, lon);
     dir_to = d_dir_to;
-
     dist_to = gps.distanceBetween(lat, lon, meshcom_settings.node_lat, meshcom_settings.node_lon)/1000.0;
-    #else
-    dir_to = 0;
-    dist_to = 0;
-    #endif
 
     sendDisplayMainline();
 
@@ -2805,7 +2873,7 @@ void sendDisplayPosition(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
                         sendDisplay1306(false, false, 3, dzeile[izeile], msg_text);
                         izeile++;
                     #else
-                        snprintf(msg_text, sizeof(msg_text), "ALT:%im   rssi:%i", alt, rssi);
+                        snprintf(msg_text, sizeof(msg_text), "ALT :%4im", alt);
                         msg_text[20]=0x00;
                         sendDisplay1306(false, false, 3, dzeile[izeile], msg_text);
                         izeile++;
@@ -2952,22 +3020,198 @@ void charBuffer_aprs(struct aprsMessage &aprsmsg)
 
 void printBuffer_aprs(char *msgSource, struct aprsMessage &aprsmsg)
 {
-    printfdeb("%s %s: %03i %c x%08X H%02X S%i T%i M%02X %s>%s%c%s HW:%02i MOD:%01X/%01i FCS:%04X FW:%02i:%c LH:%02X\n", getTimeString().c_str(), msgSource, aprsmsg.msg_len, aprsmsg.payload_type, aprsmsg.msg_id, aprsmsg.max_hop,
+    printfdeb("%s %s %03i %c x%08X H%02X S%i T%i M%02X %s>%s%c%s HW:%02i MOD:%01X/%01i FCS:%04X FW:%02i:%c LH:%02X\n", getTimeString().c_str(), msgSource, aprsmsg.msg_len, aprsmsg.payload_type, aprsmsg.msg_id, aprsmsg.max_hop,
         aprsmsg.msg_server, aprsmsg.msg_track, aprsmsg.msg_mesh, aprsmsg.msg_source_path.c_str(), aprsmsg.msg_destination_path.c_str(), aprsmsg.payload_type, aprsmsg.msg_payload.c_str(),
         aprsmsg.msg_source_hw, (aprsmsg.msg_source_mod>>4), (aprsmsg.msg_source_mod & 0xf), aprsmsg.msg_fcs, aprsmsg.msg_source_fw_version, aprsmsg.msg_source_fw_sub_version, aprsmsg.msg_last_hw);
 }
 
-void printBuffer_ack(char *msgSource, uint8_t payload[UDP_TX_BUF_SIZE+10], int8_t size)
+void printBuffer_ack(char *msgSource, uint8_t payload[UDP_TX_BUF_SIZE+10], int16_t size)
 {
     if(size == 7)
-        printfdeb("%s %s: %02X %02X%02X%02X%02X %02X %02X\n", getTimeString().c_str(), msgSource, payload[0], payload[4], payload[3], payload[2], payload[1], payload[5], payload[6]);
+        printfdeb("%s %s 007 %c x%02X%02X%02X%02X H%02X %02X\n", getTimeString().c_str(), msgSource, payload[0], payload[4], payload[3], payload[2], payload[1], payload[5], payload[6]);
     else
-        printfdeb("%s %s: %02X %02X%02X%02X%02X %02X %02X%02X%02X%02X %02X %02X\n", getTimeString().c_str(), msgSource, payload[0], payload[4], payload[3], payload[2], payload[1], payload[5], payload[9], payload[8], payload[7], payload[6], payload[10], payload[11]);
+        printfdeb("%s %s 012 %c x%02X%02X%02X%02X H%02X x%02X%02X%02X%02X %02X %02X\n", getTimeString().c_str(), msgSource, payload[0], payload[4], payload[3], payload[2], payload[1], payload[5], payload[9], payload[8], payload[7], payload[6], payload[10], payload[11]);
 }
 
 
 ///////////////////////////////////////////////////////////////////////////
 // APRS Meldungen
+void DisplayPong(char line1[20], char line2[20], char line3[20], char line4[20])
+{
+    #if (defined(BOARD_E290) || defined(BOARD_WIRELESS_PAPER) || defined(BOARD_E213))
+    // do nothing
+    #elif defined(BOARD_T_ECHO) || defined(BOARD_HELTEC_T114) || defined(BOARD_STICK_V3)
+    // do nothing
+    #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS) || defined(BOARD_TRACKER) || defined (BOARD_T5_EPAPER) || defined(BOARD_T_DECK_PRO) || defined(BOARD_T_CONNECT_PRO)
+    // do nothing
+    #else
+
+    if(u8g2 == NULL)
+        return;
+
+    u8g2->clearDisplay();
+    u8g2->firstPage();
+
+    do
+    {
+        
+        #if defined (BOARD_TRACKER)
+        //TODO
+        #elif defined (BOARD_STICK_V3)
+            u8g2->setFont(u8g2_font_6x10_tf);
+            u8g2->drawStr(36, 42, "MeshCom 4");
+            snprintf(cvers, sizeof(cvers), "%s/%s %s", SOURCE_VERSION, SOURCE_VERSION_SUB, getCountry(meshcom_settings.node_country).c_str());
+            u8g2->drawStr(36, 52, cvers);
+            u8g2->drawStr(36, 62, "icssw.org");
+        #else
+            u8g2->setFont(u8g2_font_10x20_mf);
+            u8g2->drawStr(5, 18, line1);
+            u8g2->drawStr(5, 34, line2);
+            u8g2->drawStr(5, 50, line3);
+            u8g2->setFont(u8g2_font_6x10_mf);
+            u8g2->drawStr(5, 60, line4);
+        #endif
+    } while (u8g2->nextPage());
+
+    #endif
+}
+
+void sendPing(char msg_call[10])
+{
+    // no ping within track mode
+    if(bDisplayTrack)
+        return;
+
+    uint8_t msg_buffer[MAX_MSG_LEN_PHONE];
+
+    struct aprsMessage aprsmsg;
+
+    initAPRS(aprsmsg, ':');
+
+    aprsmsg.msg_len = 0;
+
+    // MSG ID zusammen setzen    
+    aprsmsg.msg_id = ((_GW_ID & 0x3FFFFF) << 10) | (meshcom_settings.node_msgid & 0x3FF);   // MAC-address + 3FF = 1023 max rela only 0-999
+    
+    aprsmsg.msg_source_path = meshcom_settings.node_call;
+    
+    aprsmsg.msg_destination_call = msg_call;
+    aprsmsg.msg_destination_path = msg_call;
+
+    memset(msg_text, 0x00, sizeof(msg_text));
+    snprintf(msg_text, sizeof(msg_text), "{ping}");
+
+    aprsmsg.msg_payload = msg_text;
+    
+    meshcom_settings.node_msgid++;
+    if(meshcom_settings.node_msgid > 999)
+        meshcom_settings.node_msgid=0;
+
+    // Flash rewrite
+    save_settings();
+
+    checkVia(aprsmsg);
+
+    encodeAPRS(msg_buffer, aprsmsg);
+
+    if(bDisplayInfo)
+    {
+        printBuffer_aprs((char*)"NEW-PING", aprsmsg);
+        printfdeb("");
+    }
+
+    // store last message to compare later on
+    insertOwnTx(aprsmsg.msg_id);
+
+    // Master RingBuffer for transmission
+    // local messages send to LoRa TX
+    ringBuffer[iWrite][0] = aprsmsg.msg_len;
+    ringBuffer[iWrite][1] = 0xFF; // retransmission Status ...0xFF no retransmission
+    memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
+
+    addTxRingEntry("phone_msg");
+
+    if(!bPingSend)
+    {
+        char cmsg[30];
+        snprintf(cmsg, sizeof(cmsg), "%i", aprsmsg.msg_id);
+        char cmsg1[30];
+        snprintf(cmsg1, sizeof(cmsg1), "PING %c%c%c", cmsg[7], cmsg[8], cmsg[9]);
+        DisplayPong((char*)cmsg1, (char*)msg_call, (char*)"SENT", (char*)"");
+    }
+
+    // text immer meshcom_settings.node_pingtime stehenlassen und Display immer ON
+    DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
+    bDisplayIsOff=false;
+
+    meshcom_settings.node_pingduration = millis();
+    bPingSend=true;
+}
+
+void PongFail(String msg_call)
+{
+    DisplayPong((char*)"PONG", (char*)msg_call.c_str(), (char*)"FAILED", (char*)"");
+
+    // text immer meshcom_settings.node_pingtime stehenlassen und Display immer ON
+    DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
+    bDisplayIsOff=false;
+}
+
+void SendPong(String msg_call, unsigned int msg_id)
+{
+    // no ping within track mode
+    if(bDisplayTrack)
+        return;
+
+    uint8_t msg_buffer[MAX_MSG_LEN_PHONE];
+
+    struct aprsMessage aprsmsg;
+
+    initAPRS(aprsmsg, ':');
+
+    aprsmsg.msg_len = 0;
+
+    // MSG ID zusammen setzen    
+    aprsmsg.msg_id = ((_GW_ID & 0x3FFFFF) << 10) | (meshcom_settings.node_msgid & 0x3FF);   // MAC-address + 3FF = 1023 max rela only 0-999
+    
+    aprsmsg.msg_source_path = meshcom_settings.node_call;
+    
+    aprsmsg.msg_destination_call = msg_call;
+    aprsmsg.msg_destination_path = msg_call;
+
+    memset(msg_text, 0x00, sizeof(msg_text));
+    snprintf(msg_text, sizeof(msg_text), "{pong}{%03i}", msg_id);
+
+    aprsmsg.msg_payload = msg_text;
+    
+    meshcom_settings.node_msgid++;
+    if(meshcom_settings.node_msgid > 999)
+        meshcom_settings.node_msgid=0;
+
+    // Flash rewrite
+    save_settings();
+
+    checkVia(aprsmsg);
+
+    encodeAPRS(msg_buffer, aprsmsg);
+
+    if(bDisplayInfo)
+    {
+        printBuffer_aprs((char*)"NEW-PONG", aprsmsg);
+        printfdeb("");
+    }
+
+    // store last message to compare later on
+    insertOwnTx(aprsmsg.msg_id);
+
+    // Master RingBuffer for transmission
+    // local messages send to LoRa TX
+    ringBuffer[iWrite][0] = aprsmsg.msg_len;
+    ringBuffer[iWrite][1] = 0xFF; // retransmission Status ...0xFF no retransmission
+    memcpy(ringBuffer[iWrite]+2, msg_buffer, aprsmsg.msg_len);
+
+    addTxRingEntry("phone_msg");
+}
 
 void sendMessage(char *msg_text, int len)
 {
@@ -3004,7 +3248,7 @@ void sendMessage(char *msg_text, int len)
     char msg_text_check[200];
     char msg_text_checked[200];
     int len_check=len;
-    if(len_check > sizeof(msg_text_check)-1)
+    if(len_check > (int)sizeof(msg_text_check)-1)
         len_check = sizeof(msg_text_check)-1;
 
     memset(msg_text_checked, 0x00, sizeof(msg_text_checked));
@@ -3487,7 +3731,7 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
     //strcpy(strconcat, catxt);
     //strcat(strconcat, cname);
 
-    char strconcat[150]={0};
+    char strconcat[100]={0};
     strcpy(strconcat, cbatt);
     strncat(strconcat, calt, sizeof(strconcat)-1);
     strncat(strconcat, cncnt, sizeof(strconcat)-1);
@@ -3510,13 +3754,13 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
     strncat(strconcat, ctele, sizeof(strconcat)-1);
 
     // wenn die concatenation zu lang ist, dann catxt und cname löschen
-    if((strlen(strconcat) + strlen(catxt) + strlen(cname)) > 150)
+    if((strlen(strconcat) + strlen(catxt) + strlen(cname)) > 100)
     {
         catxt[0]=0x00;
     }
 
     // wenn die concatenation zu lang ist, dann catxt und cname löschen
-    if((strlen(strconcat) + strlen(catxt) + strlen(cname)) > 150)
+    if((strlen(strconcat) + strlen(catxt) + strlen(cname)) > 100)
     {
         cname[0]=0x00;
     }
@@ -3555,6 +3799,14 @@ void sendPosition(unsigned long uintervall, double lat, char lat_c, double lon, 
         bsendTele = true;
         bSendViaMesh=true;  // only via MeshCom
         bSendViaAPRS=false;
+    }
+
+    if(intervall == 0xFFFF)
+    {
+        intervall = 0;
+        bsendTele = false;
+        bSendViaMesh=false;  // only via LoRa-APRS
+        bSendViaAPRS=true;
     }
 
     if(lastHeardTime + 15000 < millis() && (intervall == POSINFO_INTERVAL || intervall == 0x9999)) // wenn die letzte gehörte LoRa-Nachricht < 5sec dann auch via MeshCom
@@ -3939,6 +4191,9 @@ void SendAckMessage(String dest_call, unsigned int iAckId)
 // Send Hey-Message
 void sendHey()
 {
+    if(meshcom_settings.node_call[0] != 0x00 && meshcom_settings.node_pingtime > 0)
+        return;
+
     uint8_t msg_buffer[MAX_MSG_LEN_PHONE];
 
     struct aprsMessage aprsmsg;
@@ -4110,11 +4365,25 @@ void sendTelemetry(int ID)
         if(memcmp(meshcom_settings.node_values, "T:", 2) == 0)
         {
             strValue = meshcom_settings.node_values;
-            
-            strTelemetry.concat(",");
-            strTelemetry.concat(strValue.substring(2));
 
-            strTelemetry.concat(",0,0,00000000,");  // + zwei Messwerte
+            String strRealValues = strValue.substring(2);
+
+            strTelemetry.concat(",");
+            strTelemetry.concat(strRealValues);
+
+            // pad with zero-values up to the standard 5 APRS TLM analog slots
+            // (was hardcoded to always add exactly 2 zeros, assuming exactly
+            // 3 real values - now counts the real values so it stays backward
+            // compatible with that case while supporting fewer/more values)
+            int realCount = 1;
+            for(unsigned int ci = 0; ci < strRealValues.length(); ci++)
+                if(strRealValues[ci] == ',')
+                    realCount++;
+
+            for(int pad = realCount; pad < 5; pad++)
+                strTelemetry.concat(",0");
+
+            strTelemetry.concat(",00000000,");
             strTelemetry.concat(meshcom_settings.node_parm_t);
             strTelemetry.concat(",");
             strTelemetry.concat(meshcom_settings.node_parm_id);
@@ -4222,8 +4491,8 @@ void sendTelemetry(int ID)
         snprintf(msg_text, sizeof(msg_text), "%s", strTelemetry.c_str());
 
         iNextTelemetry++;
-        // Alle 10 Werte - PARM, UNIT. EQNS. BITS. neuerlich senden
-        if(iNextTelemetry > 13)
+        // Alle 20 Werte - PARM, UNIT. EQNS. BITS. neuerlich senden
+        if(iNextTelemetry > 23)
             iNextTelemetry=0;
     }
 
@@ -4323,9 +4592,7 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
 
     double distance = 0.;
     
-    #if defined(ENABLE_GPS)
     distance = gps.distanceBetween(posinfo_last_lat, posinfo_last_lon, dlat, dlon);    // meters
-    #endif
     
     //posinfo_distance += distance;
     posinfo_distance = distance; // KBC 25.11.14
@@ -4339,21 +4606,15 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     }
     else
     {
-        #if defined(ENABLE_GPS)
         posinfo_direction = gps.courseTo(posinfo_prev_lat, posinfo_prev_lon, dlat, dlon);    // Grad
-        #else
-        posinfo_direction = 0;
-        #endif
     }
 
     // Use GPS speed if available (more accurate than distance/interval)
     double speed_mps = 0.0;
 
-    #if defined(ENABLE_GPS)
     if(gps.speed.isValid())
         speed_mps = gps.speed.mps();
     else
-    #endif
         speed_mps = distance / gps_refresh_intervall; // Fallback
 
     // Stationary / Drift suppression

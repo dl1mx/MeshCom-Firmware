@@ -132,6 +132,9 @@ Arduino_GFX *gfx = new Arduino_ST7796(
 #include "esp32_functions.h"
 #include "tft_display_functions.h"
 #include "net_console.h"
+#if defined(EXTERNAL_RADIO)
+#include "external_radio_glue.h"
+#endif
 #include "printfdeb_functions.h"
 
 #ifdef BOARD_HELTEC_V4
@@ -479,6 +482,9 @@ unsigned long led_timer = 0;
 // flag to update NTP Time
 unsigned long updateTimeClient = 0;
 
+// resend Ping
+unsigned long resendPing = 0;
+
 #if defined(ESP8266) || defined(ESP32)
   ICACHE_RAM_ATTR
 #endif
@@ -697,9 +703,12 @@ void esp32setup()
     lFreeHeap =  ESP.getFreeHeap();
     lFreePsram = ESP.getFreePsram();
 
-    printfdeb("[HEAP];%s;%lu;%d;%d;(init)\n", getTimeString().c_str(),
-       lFreeHeap, ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
-    printfdeb("[PSRM];%s;%lu\n", getTimeString().c_str(), lFreePsram);
+    if(!bDisplayLog)
+    {
+        printfdeb("[HEAP];%s;%lu;%d;%d;(init)\n", getTimeString().c_str(),
+            lFreeHeap, ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
+        printfdeb("[PSRM];%s;%lu\n", getTimeString().c_str(), lFreePsram);
+    }
     
     check_efuse();
 
@@ -784,6 +793,9 @@ void esp32setup()
     #ifndef DISABLE_NET_CONSOLE
     netConsoleSetPassword(meshcom_settings.node_passwd);
     #endif
+    // NOTE: externalRadioSetup() runs later, AFTER lora_setcountry() has applied
+    // the effective freq/bw/sf/cr/preamble, so the bridge config snapshot is built
+    // from the same effective radio settings the local radio path would use.
     //xxxxxxx   = meshcom_settings.node_sset2 & 0x2000;
     bVIA = meshcom_settings.node_sset2 & 0x4000;
 
@@ -806,6 +818,7 @@ void esp32setup()
 
     bDEBUGCSV = meshcom_settings.node_sset4 & 0x0001;
     bDEBUGEN = meshcom_settings.node_sset4 & 0x0002;
+    bDisplayLog = meshcom_settings.node_sset4 & 0x0004;
 
     if(strlen(meshcom_settings.node_aprsmc) < 4)
     {
@@ -1236,7 +1249,13 @@ void esp32setup()
         #endif
         #endif
 
-        #if defined(BOARD_T_ETH_ELITE)
+        #if defined(EXTERNAL_RADIO)
+        // External radio: the bridge owns the RF chip. Do NOT initialize/begin the
+        // local RadioLib transceiver. bRadio is forced false below so no local
+        // RX/CAD/TX path runs.
+        int state = RADIOLIB_ERR_NONE;
+        (void)state;
+        #elif defined(BOARD_T_ETH_ELITE)
         int state = radio.begin(433.175);
         radio.setDio2AsRfSwitch(true);
         radio.setTCXO(1.8);
@@ -1276,6 +1295,14 @@ void esp32setup()
         bRadio = false; // no detailed setting
     #endif
 
+    #if defined(EXTERNAL_RADIO)
+        // External radio: no local RF chip is initialized or driven. Forcing
+        // bRadio=false makes the local radio config block and the whole local
+        // RX/CAD/TX loop section no-ops; the bridge transport (externalRadioLoop)
+        // owns RX/TX instead.
+        bRadio = false;
+    #endif
+
     //#if not defined(BOARD_T_DECK_PRO)
     // extra source
     // > 4.34w we use EU8 instead of EU
@@ -1287,9 +1314,29 @@ void esp32setup()
     #endif
 
     lora_setcountry(meshcom_settings.node_country);
-    
+
+    #if defined(EXTERNAL_RADIO)
+    // The local-radio path normalizes the -20 "use default" power sentinel to the
+    // board default inside its bRadio block, which is skipped in external mode.
+    // Apply the same default here so the bridge snapshot uses the intended default
+    // power (getPower() then clamps to the valid range) instead of the clamped
+    // sentinel. Mirrors the bRadio-block normalization; RAM-only (no extra flash
+    // write — a later --txpower change persists normally).
+    if(meshcom_settings.node_power == -20)
+        meshcom_settings.node_power = TX_OUTPUT_POWER;
+
+    // Build the bridge RadioConfig snapshot from the EFFECTIVE radio settings:
+    // lora_setcountry() above has just normalized freq/bw/sf/cr/preamble to the
+    // active country. Taking the snapshot here (rather than before lora_setcountry)
+    // ensures the bridge is configured with the same effective values the local
+    // radio path would use, including on first boot / country change / flash clear.
+    // Runtime setting changes are still re-synced via
+    // lora_setchip_meshcom() -> externalRadioConfigChanged().
+    externalRadioSetup();
+    #endif
+
     //#endif
-    
+
     // you can also change the settings at runtime
     // and check if the configuration was changed successfully
     #if defined(BOARD_T5_EPAPER)
@@ -1318,6 +1365,11 @@ void esp32setup()
         printfdeb("[LoRa]...RF_FREQUENCY: %.3f MHz\n", meshcom_settings.node_freq);
         if (radio.setFrequency(meshcom_settings.node_freq) == RADIOLIB_ERR_INVALID_FREQUENCY) {
             printlndeb(F("Selected frequency is invalid for this module!"));
+        }
+        else
+        {
+            if(meshcom_settings.node_freq > 440)
+                printlndeb(F("[LoRa]...SAT Only Frequency out of Band"));
         }
 
         // set bandwidth 
@@ -1727,6 +1779,29 @@ void esp32_write_ble(uint8_t confBuff[300], uint8_t conf_len)
 
 
 
+// Deferred display update from OnRxDone (avoid I2C inside the radio callback).
+// RACE-01 fix: snapshot under spinlock, display call outside. Factored so both
+// the local-radio loop and the external-radio path flush pending RX displays.
+static void flushDeferredDisplayUpdates()
+{
+    portENTER_CRITICAL(&displayMux);
+    bool _pendText = bPendingDisplayText;
+    bool _pendPos = bPendingDisplayPos;
+    struct aprsMessage _msg;
+    int16_t _rssi = 0;
+    int8_t _snr = 0;
+    if(_pendText || _pendPos) {
+        _msg = pendingDisplayMsg;
+        _rssi = pendingDisplayRssi;
+        _snr = pendingDisplaySnr;
+        bPendingDisplayText = false;
+        bPendingDisplayPos = false;
+    }
+    portEXIT_CRITICAL(&displayMux);
+    if(_pendText) sendDisplayText(_msg, _rssi, _snr);
+    if(_pendPos)  sendDisplayPosition(_msg, _rssi, _snr);
+}
+
 void esp32loop()
 {
     #if not defined(BOARD_T_DECK_PRO)
@@ -1924,25 +1999,7 @@ void esp32loop()
         }
 
         // Deferred display update from OnRxDone (avoid I2C inside radio callback)
-        // RACE-01 fix: snapshot under spinlock, display call outside
-        {
-            portENTER_CRITICAL(&displayMux);
-            bool _pendText = bPendingDisplayText;
-            bool _pendPos = bPendingDisplayPos;
-            struct aprsMessage _msg;
-            int16_t _rssi = 0;
-            int8_t _snr = 0;
-            if(_pendText || _pendPos) {
-                _msg = pendingDisplayMsg;
-                _rssi = pendingDisplayRssi;
-                _snr = pendingDisplaySnr;
-                bPendingDisplayText = false;
-                bPendingDisplayPos = false;
-            }
-            portEXIT_CRITICAL(&displayMux);
-            if(_pendText) sendDisplayText(_msg, _rssi, _snr);
-            if(_pendPos)  sendDisplayPosition(_msg, _rssi, _snr);
-        }
+        flushDeferredDisplayUpdates();
 
         // Channel utilization report (every 10s)
         {
@@ -2003,9 +2060,12 @@ void esp32loop()
         if((millis() - stat_hwm_timer) > (unsigned long)(PRIO_HWM_INTERVAL_S * 1000UL))
         {
             stat_hwm_timer = millis();
-            printfdeb("[MC-HWM] uptime=%lus queue_hwm=%d/%d csma_hwm=%d trickle=%lums\n",
-                millis() / 1000, stat_queue_hwm, MAX_RING,
-                stat_csma_hwm_attempts, trickle_interval_ms);
+            if(!bDisplayLog)
+            {
+                printfdeb("[MC-HWM] uptime=%lus queue_hwm=%d/%d csma_hwm=%d trickle=%lums\n",
+                    millis() / 1000, stat_queue_hwm, MAX_RING,
+                    stat_csma_hwm_attempts, trickle_interval_ms);
+            }
         }
 
         // TX-IRQ Watchdog: Wenn bEnableInterruptTransmit zu lange true bleibt
@@ -2622,9 +2682,24 @@ void esp32loop()
     }
 
     #if defined(ENABLE_GPS)
+
+    #if defined(GPS_SWITCH)
+        pinMode(GPS_SWITCH, OUTPUT);
+    #endif
+
     if(bGPSON)
     {
+        #if defined(GPS_SWITCH)
+            digitalWrite(GPS_SWITCH, HIGH);
+        #endif
+
         WZ_GPS_Init();
+    }
+    else
+    {
+        #if defined(GPS_SWITCH)
+            digitalWrite(GPS_SWITCH, LOW);
+        #endif
     }
     #endif
 
@@ -2662,6 +2737,23 @@ void esp32loop()
     #if defined(ENABLE_SOFTSER)
         if(bSOFTSERON)
         {
+            // Reset Node on XML not working
+            #if defined(ENABLE_XML)
+            extern unsigned long lTELE_TIMER;
+            if(lTELE_TIMER == 0)
+            {
+                lTELE_TIMER = millis();
+            }
+
+            // check every 15 minuten to check telemetry via serial interface is ok
+            if ((lTELE_TIMER + (15 * 60 * 1000)) < millis())
+            {
+                printfdeb("[SOFTSER] Reset Node, XML not working\n");
+                delay(1000);
+                ESP.restart();
+            }
+            #endif
+
             // check every 5 seconds to ready next telemetry via serial interface
             if ((softser_refresh_timer + 5000) < millis() && softserFunktion == 0)
             {
@@ -2871,10 +2963,6 @@ void esp32loop()
     if(bDisplayTrack)
     {
         gps_refresh_intervall = 1.0;
-        
-        #if defined(GPS_MODULE_REFRESH_INTERVAL)
-            gps_refresh_intervall = GPS_REFRESH_INTERVAL;
-        #endif
     }
 
     if ((gps_refresh_timer + ((unsigned long)gps_refresh_intervall * 1000)) < millis())
@@ -3067,7 +3155,11 @@ void esp32loop()
 
 
     // Trickle-HEY: adaptive interval (RFC 6206)
-    if (((heyinfo_timer + trickle_interval_ms) < millis()) || (bHeyFirst && bAllStarted))
+    unsigned long extra_hey_time = 0;
+    #if defined(ENABLE_SOFTSER)
+        extra_hey_time = 10 * 60 * 1000; // 10 minutes extra
+    #endif
+    if (((heyinfo_timer + trickle_interval_ms + extra_hey_time) < millis()) || (bHeyFirst && bAllStarted))
     {
         bHeyFirst = false;
 
@@ -3130,7 +3222,8 @@ void esp32loop()
         telemetry_timer = millis();
     }
 
-    mainStartTimeLoop();
+    if(meshcom_settings.node_pingcall[0] == 0x00 || meshcom_settings.node_pingtime == 0 || meshcom_settings.node_pingcount == 0)
+        mainStartTimeLoop();
 
     #if not defined(BOARD_T_DECK_PRO)
     if(DisplayOffWait > 0)
@@ -3146,7 +3239,8 @@ void esp32loop()
                 digitalWrite(PIN_TFT_LEDA_CTL, HIGH);   // TFT OFF
                 #endif
 
-                sendDisplay1306(true, true, 0, 0, (char*)"#C");
+                if(meshcom_settings.node_pingcall[0] == 0x00 || meshcom_settings.node_pingtime == 0 || meshcom_settings.node_pingcount == 0)
+                    sendDisplay1306(true, true, 0, 0, (char*)"#C");
             }
         }
     }
@@ -3186,7 +3280,7 @@ void esp32loop()
                     // no BATT
                     if(global_proz < 0)
                     {
-                        if(bDisplayCont)
+                        if(bDisplayCont && BattWaitCounter > 20)
                             printfdeb("[readBatteryVoltage]...no battery is connected");
                             
                         global_batt = (float)PMU->getVbusVoltage();
@@ -3215,7 +3309,7 @@ void esp32loop()
                 if(bDisplayCont && BattWaitCounter > 20)  // neue Ausgabe erfolgt in batt_functions
                 {
                     #if not defined(BOARD_T_DECK_PRO) and not defined(BOARD_TBEAM_1W)
-                    printfdeb("[readBatteryVoltage] %s ... %.2f V %i0/0 max_batt %.3f V\n", getTimeString().c_str(), global_batt/1000., global_proz, meshcom_settings.node_maxv);
+                    printfdeb("[readBatteryVoltage] %s ... %.2f V %i %% max_batt %.3f V\n", getTimeString().c_str(), global_batt/1000., global_proz, meshcom_settings.node_maxv);
                     #endif
                 }
                 #endif
@@ -3273,16 +3367,19 @@ void esp32loop()
                 lFreeHeap = ESP.getFreeHeap();
                 lFreePsram = ESP.getFreePsram();
 
-                printfdeb("[HEAP];%s;%lu;%d;%d;(mon)\n",
-                    getTimeString().c_str(),
-                    lFreeHeap,
-                    ESP.getMinFreeHeap(),
-                    ESP.getMaxAllocHeap());
-                #if defined(BOARD_HAS_PSRAM)
-                printfdeb("[PSRM];%s;%lu;(mon)\n",
-                    getTimeString().c_str(),
-                    lFreePsram);
-                #endif
+                if(!bDisplayLog)
+                {
+                    printfdeb("[HEAP];%s;%lu;%d;%d;(mon)\n",
+                        getTimeString().c_str(),
+                        lFreeHeap,
+                        ESP.getMinFreeHeap(),
+                        ESP.getMaxAllocHeap());
+                    #if defined(BOARD_HAS_PSRAM)
+                    printfdeb("[PSRM];%s;%lu;(mon)\n",
+                        getTimeString().c_str(),
+                        lFreePsram);
+                    #endif
+                }
             }
 
             heapMonTimer = millis();
@@ -3648,6 +3745,29 @@ void esp32loop()
         }
     }
 
+    if (resendPing == 0)
+        resendPing = millis();
+
+    if(meshcom_settings.node_pingtime > 29 && meshcom_settings.node_pingcall[0] != 0x00 && meshcom_settings.node_pingcount > 0)
+    {
+        if((resendPing + meshcom_settings.node_pingtime * 1000) < millis())
+        {
+            if(bPingSend)
+            {
+                printfdeb("[PONG]...fail from %s\n", meshcom_settings.node_pingcall);
+                PongFail(meshcom_settings.node_pingcall);
+            }
+
+            resendPing = millis();
+
+            printfdeb("[PING]...send Ping to %s <%i>\n", meshcom_settings.node_pingcall, meshcom_settings.node_pingcount);
+
+            sendPing(meshcom_settings.node_pingcall);
+
+            meshcom_settings.node_pingcount--;
+        }
+    }
+
     #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
 
     if ((tdeck_tft_timer + (TDECK_TFT_TIMEOUT * 1000)) < millis())
@@ -3658,6 +3778,31 @@ void esp32loop()
 
     lv_task_handler();
 
+    #endif
+
+    #if defined(EXTERNAL_RADIO)
+    // In external mode bRadio is false, so the local-radio loop section does not
+    // run. Re-create here ONLY the RadioLib-free, message-level maintenance the
+    // external lifecycle needs, at the same 2s cadence as the native path:
+    //
+    //  * retransmission maintenance — ages SENT entries (e.g. those entered by a
+    //    confirmed bridge RF send awaiting a MeshCom ACK), retries or gives up per
+    //    the normal budget, and skips RING_STATUS_EXT_PENDING. It touches only the
+    //    ring (no CAD/TX/RX/RadioLib). A requeued retry becomes a READY slot that
+    //    externalRadioTxStep() submits with a fresh ownership token.
+    if((retransmit_timer + (1000 * 2)) < millis())
+    {
+        updateRetransmissionStatus();
+        retransmit_timer = millis();
+    }
+
+    // Non-blocking poll of the optional external-radio TCP transport, AFTER the
+    // normal Wi-Fi/network-readiness maintenance above. Self-gates on Wi-Fi state.
+    // poll() delivers RX synchronously via glueRxSink -> OnRxDone (main-loop
+    // context) and drives one queued external TX. Flush deferred RX display
+    // updates here (the local-radio loop section that normally does so is off).
+    externalRadioLoop();
+    flushDeferredDisplayUpdates();
     #endif
 
     //
@@ -3863,11 +4008,16 @@ void checkSerialCommand(void)
         if(Serial.available() > 0)
         {
             char rd = (char)Serial.read();
-            printdeb(rd);   // echo to USB + net console via MSerial
-            strText[iTxtPos] = rd;
-            if(iTxtPos < (int)sizeof(strText) - 1)
+            // Drop NUL bytes: UART RX noise (e.g. unpowered USB-UART bridge on battery
+            // supply) delivers 0x00 which strlen() cannot see and wedges the parser.
+            if(rd != 0x00)
             {
-                iTxtPos++;
+                printdeb(rd);   // echo to USB + net console via MSerial
+                strText[iTxtPos] = rd;
+                if(iTxtPos < (int)sizeof(strText) - 1)
+                {
+                    iTxtPos++;
+                }
             }
         }
     }
@@ -3883,7 +4033,7 @@ void checkSerialCommand(void)
             if(netConsoleAvailable()) netConsoleRead();
             if(netConsoleAvailable()) netConsoleRead();
         }
-        else if(rd != '\r')         // strip CR, keep LF
+        else if(rd != '\r' && rd != 0x00)   // strip CR, keep LF; drop NUL (see above)
         {
             printdeb(rd);       // echo back via MSerial (server-side echo)
             strText[iTxtPos] = rd;
@@ -3896,6 +4046,17 @@ void checkSerialCommand(void)
     #endif
 
     iTxtLen = strlen(strText);
+
+    // Self-healing: normally every stored byte is non-NUL, so strlen == iTxtPos.
+    // A stray NUL in the buffer breaks that invariant and would block command
+    // processing forever (early return below never reaches the memset). Discard.
+    if(iTxtLen != iTxtPos)
+    {
+        memset(strText, 0x00, sizeof(strText));
+        iTxtPos = 0;
+        return;
+    }
+
     if(iTxtLen == 0)
         return;
 

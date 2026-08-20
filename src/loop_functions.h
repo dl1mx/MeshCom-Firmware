@@ -43,7 +43,7 @@ void printBuffer(uint8_t *buffer, int len);
 void printAsciiBuffer(uint8_t *buffer, int len);
 void printBuffer_aprs(char *msg_source, struct aprsMessage &aprsMessage);
 void charBuffer_aprs(struct aprsMessage &aprsMessage);
-void printBuffer_ack(char *msgSource, uint8_t payload[UDP_TX_BUF_SIZE+10], int8_t size);
+void printBuffer_ack(char *msgSource, uint8_t payload[UDP_TX_BUF_SIZE+10], int16_t size);
 
 void addBLEOutBuffer(uint8_t *buffer, uint16_t len);
 void addBLEComToOutBuffer(uint8_t *buffer, uint16_t len);
@@ -57,6 +57,11 @@ int checkOwnTx(unsigned int msg_id);
 void insertOwnTx(unsigned int id);
 
 int esp32_isSSD1306(int address);
+
+void DisplayPong(char line1[20], char line2[20], char line3[20], char line4[20]);
+void sendPing(char msg_call[10]);
+void SendPong(String msg_source_call, unsigned int msg_id);
+void PongFail(String msg_source_call);
 
 void sendMessage(char *msg_text, int len);
 String PositionToAPRS(bool bConvPos, bool bWeather, bool bFuss, double lat, char lat_c, double lon, char lon_c, int alt, float press, float hum, float temp, float temp2, float gasres, int qfe, float qnh);
