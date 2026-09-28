@@ -54,6 +54,7 @@ void startDisplay(char line1[20], char line2[20], char line3[20])
         return;
 
     u8g2->clearDisplay();
+    oledInvalidate();
     u8g2->setFont(u8g2_font_6x10_mf);
     u8g2->firstPage();
     do
@@ -141,12 +142,13 @@ extern bool bDEEP_SLEEP;
 
 void boardPWROff()
 {
-    Batterie_Vide_logo();
-    // Arrêt alimentation périphériques 
-    digitalWrite(Power_On_Pin,LOW);
-    //digitalWrite(GreenLed_Pin,LOW);
-    //digitalWrite(RedLed_Pin,HIGH);        
-    bDEEP_SLEEP = true;
+    // Issue 962 (docs/issue-962-deepsleep-verdict.md, section 6.4): real
+    // nRF52 System OFF now lives in nrf52_sleep.cpp and covers everything
+    // this function used to do by hand (Batterie_Vide_logo(), Power_On_Pin
+    // LOW) plus radio sleep, BLE advertising stop, bus teardown and a real
+    // wake-armed sleep instead of the old bDEEP_SLEEP/delay(60000) soft-off.
+    extern void nrf52EnterDeepSleep();
+    nrf52EnterDeepSleep();
 }
 
 void boardInit()

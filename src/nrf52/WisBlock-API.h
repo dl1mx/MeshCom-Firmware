@@ -123,6 +123,10 @@ void init_ble_name(void);
 BLEService init_settings_characteristic(void);
 void restart_advertising(uint16_t timeout);
 void stop_advertising();
+// CONC-17: applies a settings write staged by settings_rx_callback() from the
+// Main Loop task, so a concurrent radio/loop read of meshcom_settings never
+// observes a torn struct. Call once per loop iteration.
+void applyPendingBleSettings(void);
 extern BLECharacteristic g_lora_data;
 extern BLEUart g_ble_uart;
 extern bool g_ble_uart_is_connected;
@@ -608,6 +612,8 @@ struct s_meshcomcompat_settings
 // Flash
 void init_flash(void);
 bool save_settings(void);
+// nRF52 writes the settings file only if its content changed
+#define save_msgid() save_settings()
 void log_settings(void);
 void flash_reset(void);
 extern bool init_flash_done;

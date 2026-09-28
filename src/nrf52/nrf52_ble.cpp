@@ -19,10 +19,10 @@
 #include <command_functions.h>
 
 extern int isPhoneReady;
+extern bool bAckInfo;
 extern bool ble_busy_flag;
 extern uint16_t swap2bytes(uint16_t value);
 extern void commandAction(char *msg_text, int len, bool ble);
-extern void sendMessage(char *buffer, int len);
 extern bool hasMsgFromPhone;
 extern char textbuff_phone [MAX_MSG_LEN_PHONE];
 extern uint8_t txt_msg_len_phone;
@@ -30,6 +30,19 @@ extern bool bInitDisplay;
 extern uint8_t dmac[6];
 extern bool config_to_phone_prepare;
 extern bool conffin_sent;
+
+// FreeRTOS queue holding raw BLE payloads handed from the BLE stack's
+// RX callback (adafruit_ble_task context) to the Main Loop task, which
+// drains it in nrf52loop() (src/nrf52/nrf52_main.cpp). readPhoneCommand()/
+// commandAction()/save_settings() must not run inline in the BLE callback
+// concurrently with the Main Loop; this mirrors the ESP32 bleQueue design
+// (CONC-14). Non-static: nrf52_main.cpp references it via extern.
+struct BleQueueItem {
+	uint8_t data[MAX_MSG_LEN_PHONE];
+	size_t length;
+};
+
+QueueHandle_t bleQueue = NULL;
 
 // Create device name
 char helper_string[256] = {0};
@@ -65,6 +78,10 @@ bool g_ble_uart_is_connected = false;
  */
 void init_ble(void)
 {
+	// Create the BLE RX queue before starting BLE so the RX callback can
+	// enqueue into it as soon as connections are possible (CONC-14).
+	bleQueue = xQueueCreate(5, sizeof(BleQueueItem));
+
 	// Config the peripheral connection with maximum bandwidth
 	// more SRAM required by SoftDevice
 	// Note: All config***() function must be called before begin()
@@ -194,6 +211,7 @@ void stop_advertising()
 	// disconnect
 	g_ble_uart_is_connected = false;
 	isPhoneReady = 0;
+	bAckInfo = false;
 	Bluefruit.setTxPower(0);
 	DEBUG_MSG("BLE", "Disconnected");
 }
@@ -212,6 +230,7 @@ void connect_callback(uint16_t conn_handle)
 	// isPhoneReady and config_to_phone_prepare are set only after
 	// successful app-layer PIN authentication via the hello message.
 	isPhoneReady = 0;
+	bAckInfo = false;
 	config_to_phone_prepare = false;
 	conffin_sent = false;
 	g_ble_uart_is_connected = true;
@@ -229,6 +248,7 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason)
 	(void)reason;
 	g_ble_uart_is_connected = false;
 	isPhoneReady = 0;
+	bAckInfo = false;
 	config_to_phone_prepare = false;
 	conffin_sent = false;
 	Bluefruit.setTxPower(0);
@@ -247,11 +267,12 @@ void bleuart_rx_callback(uint16_t conn_handle)
 	g_task_event_type |= BLE_DATA;
 	xSemaphoreGiveFromISR(g_task_sem, pdFALSE);
 
-	// Forward data from Mobile to our peripheral
-	uint8_t conf_data[MAX_MSG_LEN_PHONE] = {0};
-	g_ble_uart.read(conf_data, MAX_MSG_LEN_PHONE);
-
-	readPhoneCommand(conf_data);
+	// Forward data from Mobile to our peripheral: enqueue for processing
+	// in the Main Loop task instead of calling readPhoneCommand() here,
+	// inline in the BLE stack's callback context (CONC-14).
+	BleQueueItem item = {};
+	item.length = g_ble_uart.read(item.data, MAX_MSG_LEN_PHONE);
+	xQueueSend(bleQueue, &item, 0);  // non-blocking, drop on full queue
 
 	// Disconnect if app-layer auth failed
 	if(ble_disconnect_requested)
@@ -282,6 +303,17 @@ BLEService init_settings_characteristic(void)
 	return lora_service;
 }
 
+// CONC-17: settings_rx_callback() runs in the BLE stack's task context, which
+// can be preempted mid-memcpy by the FreeRTOS timer-service task that drives
+// OnRxDone (priority 2, see C-01/09-concurrency-map.md) — a torn copy of
+// meshcom_settings could put a beacon on the air with a spliced callsign or
+// frequency. The callback stages the incoming struct into this private
+// buffer (no shared state touched) and only sets a flag; applyPendingBleSettings(),
+// called once per Main Loop iteration, does the actual copy into
+// meshcom_settings under a short critical section.
+static s_meshcom_settings s_pendingBleSettings;
+static volatile bool s_bBleSettingsPending = false;
+
 /**
  * Callback if data has been sent from the connected client
  * @param conn_hdl
@@ -295,6 +327,7 @@ BLEService init_settings_characteristic(void)
  */
 void settings_rx_callback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *data, uint16_t len)
 {
+	(void)conn_hdl;
 	API_LOG("SETT", "Settings received");
 
 	delay(1000);
@@ -315,26 +348,10 @@ void settings_rx_callback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *da
 			return;
 		}
 
-		// Save new LoRa settings
-		memcpy((void *)&meshcom_settings, data, sizeof(s_meshcom_settings));
-
-		// Save new settings
-		save_settings();
-
-		// Update settings
-		g_lora_data.write((void *)&meshcom_settings, sizeof(s_meshcom_settings));
-
-		// Inform connected device about new settings
-		g_lora_data.notify((void *)&meshcom_settings, sizeof(s_meshcom_settings));
-
-        /*KBC
-        if (meshcom_settings.resetRequest)
-		{
-			API_LOG("SETT", "Initiate reset");
-			delay(1000);
-			sd_nvic_SystemReset();
-		}
-        */
+		// CONC-17: stage only, apply from the Main Loop (see comment above
+		// s_pendingBleSettings)
+		memcpy((void *)&s_pendingBleSettings, data, sizeof(s_meshcom_settings));
+		s_bBleSettingsPending = true;
 
 		// Notify task about the event
 		if (g_task_sem != NULL)
@@ -344,6 +361,41 @@ void settings_rx_callback(uint16_t conn_hdl, BLECharacteristic *chr, uint8_t *da
 			xSemaphoreGive(g_task_sem);
 		}
 	}
+}
+
+/**
+ * @brief Apply a settings write staged by settings_rx_callback(), if any.
+ * Must be called from the Main Loop task only (CONC-17).
+ */
+void applyPendingBleSettings(void)
+{
+	if (!s_bBleSettingsPending)
+		return;
+	s_bBleSettingsPending = false;
+
+	// Short, non-blocking copy — safe to run with interrupts masked, unlike
+	// the delay()-based patterns fixed under N-16.
+	taskENTER_CRITICAL();
+	memcpy((void *)&meshcom_settings, &s_pendingBleSettings, sizeof(s_meshcom_settings));
+	taskEXIT_CRITICAL();
+
+	// Save new settings
+	save_settings();
+
+	// Update settings
+	g_lora_data.write((void *)&meshcom_settings, sizeof(s_meshcom_settings));
+
+	// Inform connected device about new settings
+	g_lora_data.notify((void *)&meshcom_settings, sizeof(s_meshcom_settings));
+
+	/*KBC
+	if (meshcom_settings.resetRequest)
+	{
+		API_LOG("SETT", "Initiate reset");
+		delay(1000);
+		sd_nvic_SystemReset();
+	}
+	*/
 }
 
 #endif

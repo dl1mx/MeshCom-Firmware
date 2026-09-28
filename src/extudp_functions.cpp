@@ -1,9 +1,20 @@
 #include <Arduino.h>
+#include <atomic>
 
 #include <extudp_functions.h>
 #include <loop_functions.h>
 #include <debugconf.h>
 #include "ArduinoJson.h"
+#include "extern_notice_json.h"
+#include "extern_tele_json.h"
+#include "mcp17_bits.h"
+
+// PT-01 (native_extern): none of the network transport below (SPI/WiFi/
+// Ethernet headers, the UdpExtern socket object, and every function that
+// touches it) is reachable from getExtern()/handleExternTelemetry(), which
+// is all this native build links and tests. Guarding it out keeps the
+// hardware/native code identical to before this file was ever built native.
+#ifndef NATIVE_BUILD
 #include <SPI.h>
 
 // WIFI and Ethernet
@@ -19,14 +30,19 @@
   #include <RAK13800_W5100S.h> // Click to install library: http://librarymanager/All#RAK13800_W5100S
   #include <nrf52/nrf_eth.h>
 #endif
+#endif // !NATIVE_BUILD
 
 bool hasExternIPaddress = false;
 
 String s_extern_node_ip = "";
 
-String strExtOutput;
 String str_ip;
 
+// PT-01: apip, extern_node_ip and UdpExtern below are only touched by the
+// outbound/socket functions guarded out of this native build -- neither
+// getExtern() nor handleExternTelemetry() reference them, and IPAddress
+// isn't available without the network headers guarded out above.
+#ifndef NATIVE_BUILD
 IPAddress apip;
 
 #ifdef BOARD_T_ETH_ELITE
@@ -39,6 +55,7 @@ IPAddress apip;
   IPAddress extern_node_ip;
   EthernetUDP UdpExtern;
 #endif
+#endif // !NATIVE_BUILD
 
 unsigned char incomingExtPacket[UDP_TX_BUF_SIZE];  // buffer for incoming packets
 int packetExtSize=0;
@@ -51,12 +68,17 @@ struct externQueueEntry {
     int16_t  rssi;
     int8_t   snr;
     char     src_type[8];
-    bool     used;
+    std::atomic<bool> used{false};
 };
 static struct externQueueEntry externQueue[MAX_EXTERN_QUEUE];
 static int externQueueWrite = 0;
 
 // Extern JSON UDP
+//
+// PT-01: startExternUDP() only sets up the UdpExtern socket (guarded above)
+// and is not part of the getExtern()/handleExternTelemetry() input path this
+// native build tests -- guarded out with it.
+#ifndef NATIVE_BUILD
 void startExternUDP()
 {
   #ifdef BOARD_T_ETH_ELITE
@@ -114,6 +136,9 @@ void startExternUDP()
   if(WiFi.hostByName(meshcom_settings.node_extern, apip) == 1)
   {
     Serial.printf("[EXT] URL:%s to IP:%s\n", meshcom_settings.node_extern, apip.toString().c_str());
+    // str_ip feeds the "now sending to IP" line below; it was only set in
+    // the literal-IP branch, so the DNS branch printed an empty address.
+    str_ip = apip.toString();
   }
   else
   #endif
@@ -133,6 +158,7 @@ void startExternUDP()
 
   sendExternHeartbeat();
 }
+#endif // !NATIVE_BUILD
 
 
 
@@ -221,7 +247,14 @@ void getExtern(unsigned char incoming[], int len)
       return;
   #endif
 
-    char val[160+1] = {0};
+  // PT-01 finding 5: the frame below is ":{" + dst + "}" + msg. dst is
+  // allowed up to 9 characters and msg up to 150, so the true maximum is
+  // 2 + 9 + 1 + 150 + NUL = 163 bytes. The old char[161] with a hard-coded
+  // snprintf() bound of 160 silently dropped the last 3 characters at both
+  // maxima. sendMessage() takes an explicit length and clamps at 199, and
+  // the frame body limit further downstream is UDP_TX_BUF_SIZE (255), so
+  // the full 162-character frame passes unchanged.
+  char val[2 + 9 + 1 + 150 + 1] = {0};
   struct aprsMessage aprsmsg;
 
   // Decode
@@ -233,7 +266,12 @@ void getExtern(unsigned char incoming[], int len)
 
   aprsmsg.msg_source_path="HOME";
   aprsmsg.msg_destination_path="*";
-  aprsmsg.msg_payload="none";
+  // PT-01 finding 4: msg_payload used to be pre-set to the literal "none" as
+  // an internal "nothing set yet" marker, which a later `== "none"` check
+  // then read back -- so a legitimate message whose text is exactly "none"
+  // was dropped. Presence is decided by the JSON itself below (a missing key
+  // yields a null variant), not by a magic payload value.
+  aprsmsg.msg_payload="";
 
   //Serial.printf("len:%i icomming:%s vgldst:%s vglmsg:%s\n", len, incoming, vgldst, vglmsg);
 
@@ -258,8 +296,23 @@ void getExtern(unsigned char incoming[], int len)
 // FIX — Null-Checks einfügen:
   const char* dst = inputJson["dst"];
   const char* msg = inputJson["msg"];
+  // The presence test (PT-01 finding 4): a key that is absent -- or holds
+  // anything but a string -- yields a null variant, hence a null pointer
+  // here. Presence is decided here and nowhere else; every value that does
+  // arrive, the string "none" included, is real payload.
   if(!dst || !msg) {
     Serial.println("[EXT] missing dst/msg");
+    return;
+  }
+  // PT-01 finding 6: an embedded \u0000 decodes to a real NUL byte inside
+  // the JSON string, but everything below reads the value as a C string --
+  // the strlen() checks, the Arduino String assignment and snprintf("%s")
+  // all stop at that byte, and the frame would ship silently shortened. A NUL
+  // cannot survive this pipeline, so reject the datagram like any other
+  // malformed input instead of truncating it in silence.
+  if(inputJson["dst"].as<JsonString>().size() != strlen(dst) ||
+     inputJson["msg"].as<JsonString>().size() != strlen(msg)) {
+    Serial.println("[EXT] NUL in payload");
     return;
   }
   if(strlen(dst) < 1 || strlen(dst) > 9 || strlen(msg) < 1 || strlen(msg) > 150) {
@@ -271,17 +324,30 @@ void getExtern(unsigned char incoming[], int len)
   
   //Serial.printf("aprsmsg.msg_destination_path:%s aprsmsg.msg_payload:%s\n", aprsmsg.msg_destination_path, aprsmsg.msg_payload);
 
-  if(aprsmsg.msg_payload == "none")
-  {
-    Serial.println("wrong JSON to send message");
-    return;
-  }
-  
-  snprintf(val,160, ":{%s}%s", aprsmsg.msg_destination_path.c_str(), aprsmsg.msg_payload.c_str());
+  // val is sized for the largest frame the checks above can let through, and
+  // snprintf() is bounded by that size -- no truncation is possible here any
+  // more (PT-01 finding 5).
+  snprintf(val, sizeof(val), ":{%s}%s", aprsmsg.msg_destination_path.c_str(), aprsmsg.msg_payload.c_str());
 
-  sendMessage(val, strlen(val));
+  // BP-01: tag the origin so a QRS/QRT/QTA goes back on this socket and
+  // nowhere else. Cleared right after -- everything that does not set this
+  // (relay, ACK, beacon) is never refused.
+  // NATIVE_BUILD: setMsgOrigin() lives in loop_functions.cpp, which the
+  // getExtern() host test does not link (build_src_filter, env:native_extern).
+  // The tag has no effect on a parser test either way.
+#ifndef NATIVE_BUILD
+  setMsgOrigin(ORIGIN_EXTUDP);
+#endif
+  (void)sendMessage(val, strlen(val));
+#ifndef NATIVE_BUILD
+  setMsgOrigin(ORIGIN_NONE);
+#endif
 }
 
+// PT-01: getExternUDP() only reads the UdpExtern socket (guarded above) and
+// hands the datagram to getExtern() below -- not part of what this native
+// build tests, guarded out with the socket it depends on.
+#ifndef NATIVE_BUILD
 void getExternUDP()
 {
   #ifdef ESP32
@@ -295,6 +361,32 @@ void getExternUDP()
   if(!hasExternIPaddress)
     return;
 
+#ifdef MC_TEST_HOOKS
+  // N-20-Soak-Instrumentierung (compile-gated, Produktionsbuilds unberuehrt):
+  // sequenznummerierter Takt an den EXTUDP-Peer alle 500 ms. Eine Luecke in
+  // seq zeigt von aussen praezise, WANN der Sendepfad stockte; der Abgleich
+  // mit der Serial-Echo-Probe unterscheidet "Netz weg, Loop lebt" von
+  // "Loop-Task haengt". Bewusst im normalen Loop-Kontext gesendet -- der
+  // Takt IST die Last auf genau dem Socket-Pfad, den der Kabel-Flap trifft.
+  {
+    static uint32_t hb_seq = 0;
+    static unsigned long hb_last = 0;
+    if((unsigned long)(millis() - hb_last) >= 500)
+    {
+      hb_last = millis();
+      char hb[80];
+      int hlen = snprintf(hb, sizeof(hb), "{\"type\":\"hb\",\"seq\":%lu,\"ms\":%lu}",
+                          (unsigned long)hb_seq++, (unsigned long)millis());
+      if(hlen > 0)
+      {
+        UdpExtern.beginPacket(apip, EXTERN_PORT);
+        UdpExtern.write((const uint8_t *)hb, (size_t)hlen);
+        UdpExtern.endPacket();
+      }
+    }
+  }
+#endif
+
   int len=0;
 
   if(bEXTUDP && (int)strlen(meshcom_settings.node_extern) > 7)
@@ -304,7 +396,25 @@ void getExternUDP()
     
     if (packetExtSize > 0)
     {
-      len = UdpExtern.read(incomingExtPacket, UDP_TX_BUF_SIZE);
+      len = UdpExtern.read(incomingExtPacket, UDP_TX_BUF_SIZE - 1);
+
+      // UDP-02 (docs/bench-extudp-regression.md §6): we read at most
+      // UDP_TX_BUF_SIZE-1 = 254 bytes, so a datagram of 255 bytes or more
+      // leaves a remainder in the socket. On arduino-esp32 that is fatal:
+      // WiFiUDP::parsePacket() returns 0 while an unread rx_buffer is still
+      // held, and the buffer is freed only once it has been read to the end
+      // -- one oversized datagram therefore kills EXTUDP receive until the
+      // next reboot, silently, while sending keeps working. Dropping the
+      // remainder keeps the socket usable; the part we did read is still
+      // handed to getExtern(), which rejects it like any other malformed
+      // input. WiFiUDP::flush() discards the held buffer; EthernetUDP
+      // (RAK/W5100S) never wedges in the first place -- its parsePacket()
+      // discards the remainder itself -- and its flush() is a no-op there.
+      if (packetExtSize > len)
+      {
+        UdpExtern.flush();
+        Serial.printf("[EXT] oversized datagram drained: %d of %d bytes read\n", len, packetExtSize);
+      }
     }
   }
 
@@ -314,11 +424,31 @@ void getExternUDP()
 
     getExtern(incomingExtPacket, len);
 
+    // UDP-01 (BACKLOG #3.8l) / TM-43: fork-only stack instrument. The inbound
+    // path getExternUDP() -> getExtern() (char val[163] + JsonDocument on the
+    // stack) -> sendMessage() -> sendExtern() is the DEEPEST EXTUDP path and
+    // the only one N-22 never measured; on nRF52 it runs in the 4 KB loop task
+    // (LOOP_STACK_SZ, Adafruit core). Printed right after the call returns, so
+    // the watermark still carries the low-water mark of that call. Raw
+    // Serial.printf on purpose: printfdeb() is gated on --debug and DEBUG_MSG
+    // compiles away entirely (memory debug-msg-compiles-away).
+    // Unit note: nRF52/FreeRTOS returns WORDS (x4 = bytes), ESP32 returns bytes.
+    Serial.printf("[EXT];rx;len;%d;stack_hwm;%u;ms;%lu\n", len,
+                  (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned long)millis());
   }
 }
+#endif // !NATIVE_BUILD
 
+// PT-01: sendExtern() (and everything below it -- queueExtern(),
+// flushExternQueue(), sendExternHeartbeat(), resetExternUDP())
+// is the outbound path to the EXTUDP peer: it decodes an APRS frame off the
+// mesh and re-serializes it as JSON onto UdpExtern (guarded above). None of
+// it is reachable from getExtern()/handleExternTelemetry(), the inbound
+// parser this native build tests, so it is guarded out with the socket.
+#ifndef NATIVE_BUILD
 void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen, int16_t rssi, int8_t snr)
 {
+  (void)bUDP;
   #ifdef ESP32
     if(bWIFIAP)
       return;
@@ -340,8 +470,22 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen,
     return;
   }
 
-  char c_json[500] = {0};
-  char c_tjson[500] = {0};
+  // Both platforms keep these two buffers in BSS, not on the stack. nRF52 has
+  // done so since 1951aa7d (4 KB loop-task stack). On ESP32 the chain
+  // esp32loop -> getExternUDP -> getExtern -> sendMessage -> sendExtern ->
+  // decodeAPRS -> printfdeb -> MeshSerial/lwIP measured 8464 B with the
+  // buffers on the stack (-fstack-usage plus the Xtensa entry prologues,
+  // Heltec V3) against the 8192 B framework default, so one ext-UDP "msg"
+  // datagram with a foreign destination reset the node deterministically.
+  // In BSS the frame loses the 1000 B of the two buffers.
+  //
+  // Static buffers are safe: every sendExtern() caller runs in the loop task.
+  // OnRxDone() never calls sendExtern() directly, only queueExtern(), and
+  // flushExternQueue() drains that queue from loop().
+  static char c_json[500];
+  static char c_tjson[500];
+  memset(c_json, 0, sizeof(c_json));
+  memset(c_tjson, 0, sizeof(c_tjson));
 
   char escape_symbol[3];
   char escape_group[3];
@@ -388,7 +532,6 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen,
     sniprintf(_long_c, sizeof(_long_c), "%c", aprspos.lon_c);
 
     JsonDocument cJson;
-    int json_len = 0;
 
     // build the json with Arduino JSON
     cJson["src_type"] = src_type;
@@ -424,73 +567,84 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen,
 
     // clear the buffer
     memset(c_json, 0x00, sizeof(c_json));
-    // serialize the json
-    json_len = measureJson(cJson);
-    serializeJson(cJson, c_json, json_len + 1);
+    // JSN-01: bound by the buffer, not by measureJson() -- a document longer
+    // than c_json overflowed it (BND-03 pattern). serializeJson() stops at
+    // bufsize-1 and null-terminates; see src/ble_json_frame.h for the BLE
+    // counterpart of this same fix.
+    serializeJson(cJson, c_json, sizeof(c_json));
 
 
-    JsonDocument ctJson;
-    int tjson_len = 0;
-
-    // Telemtrie
+    // Telemetrie -- TLM-04: built in extern_tele_json.h, native-testable.
     if(strcmp(src_type, "node") == 0)
     {
-      // build the json with Arduino JSON
-      ctJson["src_type"] = src_type;
-      ctJson["type"] = "tele";
-      ctJson["src"] = aprsmsg.msg_source_path.c_str();
-      ctJson["temp1"] = meshcom_settings.node_temp;
-      ctJson["temp2"] = meshcom_settings.node_temp2;
-      ctJson["hum"] = meshcom_settings.node_hum;
-      ctJson["qfe"] = meshcom_settings.node_press;
-      ctJson["qnh"] = meshcom_settings.node_press_asl;
-      ctJson["gas"] = meshcom_settings.node_gas_res;
-      ctJson["co2"] = meshcom_settings.node_co2;
+      // din: the node's own MCP23017 port A inputs (same string as the
+      // beacon's /D=), "" when the chip is absent -> key omitted.
+      char cdin[MCP17_BITS_LEN + 1] = "";
+      if(bMCP23017)
+          mcp17PortABits(meshcom_settings.node_mcp17in, meshcom_settings.node_mcp17io, cdin);
 
-      // clear the buffer
-      // serialize the json
-      tjson_len = measureJson(ctJson);
-      serializeJson(ctJson, c_tjson, tjson_len + 1);
-
+      externTeleJsonNode(c_tjson, sizeof(c_tjson),
+                         aprsmsg.msg_source_path.c_str(),
+                         meshcom_settings.node_temp, meshcom_settings.node_temp2,
+                         meshcom_settings.node_hum,
+                         meshcom_settings.node_press, meshcom_settings.node_press_asl,
+                         meshcom_settings.node_gas_res, meshcom_settings.node_co2,
+                         cdin);
     }
     if(strcmp(src_type, "lora") == 0)
     {
-      // build the json with Arduino JSON
-      ctJson["src_type"] = src_type;
-      ctJson["type"] = "tele";
-      ctJson["src"] = aprsmsg.msg_source_path.c_str();
-      ctJson["batt"] = aprspos.bat;
-      ctJson["temp1"] = aprspos.temp;
-      ctJson["temp2"] = aprspos.temp2;
-      ctJson["hum"] = aprspos.hum;
-      ctJson["qfe"] = aprspos.qfe;
-      ctJson["qnh"] = aprspos.qnh;
-      ctJson["gas"] = aprspos.gasres;
-      ctJson["co2"] = aprspos.co2;
-
-      // clear the buffer
-      // serialize the json
-      tjson_len = measureJson(ctJson);
-      serializeJson(ctJson, c_tjson, tjson_len + 1);
-
+      // qfe = /P= (station pressure), not /F= (pressure altitude in metres).
+      externTeleJsonLora(c_tjson, sizeof(c_tjson),
+                         aprsmsg.msg_source_path.c_str(), aprspos.bat,
+                         aprspos.temp, aprspos.temp2, aprspos.hum,
+                         aprspos.press, aprspos.qnh, aprspos.qfe,
+                         aprspos.gasres, aprspos.co2,
+                         aprspos.din);
     }
   }
   else
   // Text
   if(msg_type_b_lora == 0x3A)
   {
+    // PM-01 (BACKLOG.md "NoPMOther"): EXTUDP-only filter. Every TEXT frame
+    // that crosses this node -- received over LoRa (src_type "lora"), relayed
+    // by the central server (src_type "udp"), or sent by this node itself
+    // (src_type "node") -- funnels through here, which makes this the single
+    // choke point for what the EXTUDP peer (MCProxy, the webapp, ...) gets to
+    // see. A direct message that is neither addressed to nor sent by this
+    // node is none of that peer's business once the operator opts in.
+    // Broadcast ("*") and group traffic are never a DM and always pass,
+    // regardless of the setting -- CheckGroup() mirrors the numeric-only
+    // group check lora_functions.cpp/udp_functions.cpp use for the same
+    // distinction. Bit 0x8000 of node_sset3 is free; polarity is 0 = off
+    // (today's behaviour, every deployed node already reads 0) so the
+    // existing fleet forwards exactly as before, 1 = suppress -- an operator
+    // opts in with "--nopmother on".
+    bool bIsGroupOrAll = (aprsmsg.msg_destination_call == "*") ||
+                         (CheckGroup(aprsmsg.msg_destination_call) > 0);
+    bool bForOwnOrFromOwn = (aprsmsg.msg_destination_call == meshcom_settings.node_call) ||
+                            (aprsmsg.msg_source_call == meshcom_settings.node_call);
+
+    if((meshcom_settings.node_sset3 & 0x8000) && !bIsGroupOrAll && !bForOwnOrFromOwn)
+    {
+      Serial.printf("[EXT] pm dropped (NoPMOther): src;%s;dst;%s\n",
+                    aprsmsg.msg_source_call.c_str(), aprsmsg.msg_destination_call.c_str());
+      return;
+    }
+
     // no telemetry
     if(aprsmsg.msg_destination_path != "100001")
     {
       JsonDocument cJson;
-      int json_len = 0;
 
       // build the json with Arduino JSON
       cJson["src_type"] = src_type;
       cJson["type"] = "msg";
       cJson["src"] = aprsmsg.msg_source_path.c_str();
       cJson["dst"] = aprsmsg.msg_destination_path.c_str();
-      cJson["msg"] = strEsc(aprsmsg.msg_payload).c_str();
+      // JSN-01: assign raw -- ArduinoJson escapes JSON strings on
+      // serializeJson() already; a separate escaper here double-escaped.
+      cJson["msg"] = aprsmsg.msg_payload.c_str();
       cJson["msg_id"] = _msgId;
       
       // add firmware version if not a node
@@ -509,9 +663,8 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen,
 
       // clear the buffer
       memset(c_json, 0x00, sizeof(c_json));
-      // serialize the json
-      json_len = measureJson(cJson);
-      serializeJson(cJson, c_json, json_len + 1);
+      // JSN-01: bound by the buffer, not by measureJson().
+      serializeJson(cJson, c_json, sizeof(c_json));
 
       }
   }
@@ -577,18 +730,28 @@ void sendExtern(bool bUDP, char *src_type, uint8_t buffer[500], uint16_t buflen,
     Serial.printf("%s\n", c_json);
     Serial.printf("%s\n", c_tjson);
   }
+
+  // UDP-01 / TM-43, outbound counterpart of the [EXT];rx line above: this is
+  // the path N-22 measured (watermark 0 at its deepest point before the fix
+  // moved c_json/c_tjson into BSS on nRF52). Same line format, same units.
+  Serial.printf("[EXT];tx;len;%u;stack_hwm;%u;ms;%lu\n", (unsigned)strlen(c_json),
+                (unsigned)uxTaskGetStackHighWaterMark(NULL), (unsigned long)millis());
 }
 
 void queueExtern(char *src_type, uint8_t buffer[500], uint16_t buflen, int16_t rssi, int8_t snr)
 {
     struct externQueueEntry *entry = &externQueue[externQueueWrite];
-    if(buflen > 500) buflen = 500;
+    if(buflen > sizeof(entry->buffer)) {
+        Serial.printf("[EXT] queueExtern: buflen %u > %u, dropped\n",
+                      (unsigned)buflen, (unsigned)sizeof(entry->buffer));
+        return;
+    }
     memcpy(entry->buffer, buffer, buflen);
     entry->buflen = buflen;
     entry->rssi = rssi;
     entry->snr = snr;
     snprintf(entry->src_type, sizeof(entry->src_type), "%s", src_type);
-    entry->used = true;
+    entry->used.store(true, std::memory_order_release);
     externQueueWrite = (externQueueWrite + 1) % MAX_EXTERN_QUEUE;
 }
 
@@ -596,11 +759,11 @@ void flushExternQueue()
 {
     for(int i = 0; i < MAX_EXTERN_QUEUE; i++)
     {
-        if(externQueue[i].used)
+        if(externQueue[i].used.load(std::memory_order_acquire))
         {
             sendExtern(true, externQueue[i].src_type, externQueue[i].buffer,
                        externQueue[i].buflen, externQueue[i].rssi, externQueue[i].snr);
-            externQueue[i].used = false;
+            externQueue[i].used.store(false, std::memory_order_relaxed);
         }
     }
 }
@@ -608,6 +771,65 @@ void flushExternQueue()
 void  sendExternHeartbeat()
 {
 
+}
+
+// BP-07 (Welle 1, E5): msg_id has to come from the same counter every BP
+// frame draws from, or two frames landing in the same millisecond collide in
+// the chat app's dedup filter -- see the comment at bpNextMsgId()'s
+// definition in loop_functions.cpp. Declared in loop_functions_extern.h
+// (pulled in transitively via extudp_functions.h), not locally: this
+// function's own signature below must not change either, so the id is
+// drawn from inside the function rather than threaded in as a parameter.
+
+// BP-01 (BACKLOG) / TM-37: the EXTUDP reply path for a back-pressure notice.
+//
+// A message that came in through getExtern() gets its QRS/QRT/QTA/QRV back on
+// the same socket -- never over the air. The JSON shape lives in
+// extern_notice_json.h, where the native suite pins it
+// (test/test_extern_notice_json); msg_id comes from bpNextMsgId() (E5),
+// matching the BLE notice framing in loop_functions.cpp.
+//
+// BP-06: dst is the destination of the message that triggered the notice
+// (group, DM call, or "*"), forwarded through from bp_origin_dst /
+// bp_episode_dst in loop_functions.cpp -- see externNoticeJson() for why a
+// DM dst is still safe here.
+void sendExternNotice(const char *text, const char *dst)
+{
+  #ifdef ESP32
+    if(bWIFIAP)
+      return;
+  #endif
+
+  if(!bEXTUDP)
+    return;
+
+  if(!hasExternIPaddress)
+    return;
+
+  // BP-07: 300 -> 400. The nack text alone (bp_notice_frame.h,
+  // BP_NACK_TEXT_MAX) can run to 138 bytes ("QRT NOT SENT - " + 120 bytes +
+  // "..."); together with the JSON skeleton at the longest possible
+  // callsign/dst that left only 21 bytes of headroom at 300 -- see the
+  // length budget table in docs/bp-l1-l4-impl-plan.md. Same N-22 pattern as
+  // sendExtern() directly above: ESP32 stack (8 KB loop-task stack, already
+  // carries 2x500 there), nRF52 static BSS (4 KB loop-task stack).
+#ifdef ESP32
+  char c_json[400] = {0};
+#else
+  static char c_json[400];
+  memset(c_json, 0, sizeof(c_json));
+#endif
+  size_t json_len = externNoticeJson(c_json, sizeof(c_json),
+                                     meshcom_settings.node_call,
+                                     shortVERSION(), SOURCE_VERSION_SUB,
+                                     bpNextMsgId(), text, dst);
+
+  if(json_len == 0)
+    return;
+
+  UdpExtern.beginPacket(apip, EXTERN_PORT);
+  UdpExtern.write((const uint8_t *)c_json, json_len);
+  UdpExtern.endPacket();
 }
 
 void resetExternUDP()
@@ -627,18 +849,9 @@ void resetExternUDP()
   }
 }
 
-String strEsc(String strInput)
-{
-  strExtOutput = "";
-  for(int ip=0; ip<(int)strInput.length(); ip++)
-  {
-    if(strInput.charAt(ip) == '"' || strInput.charAt(ip) == '\\')
-    {
-      strExtOutput.concat('\\');
-    }
-
-    strExtOutput.concat(strInput.charAt(ip));
-  }
-
-  return strExtOutput;
-}
+// JSN-01: strEsc() used to live here and hand-escaped '"'/'\\' before handing
+// the string to ArduinoJson, which escapes JSON strings itself on
+// serializeJson() -- the result was double-escaped ("\\\"" for a literal
+// quote). Removed; see the single former call site in sendExtern() above,
+// which now assigns the raw string straight into the JsonDocument.
+#endif // !NATIVE_BUILD

@@ -1799,9 +1799,25 @@ static void lora_mode_send()
 
     Serial.printf("%s %i", sendtxt, len);
 
-    sendMessage(sendtxt, len);
+    // BP-01: origin GUI -- a QRS/QRT/QTA/QRV is written into the on-screen
+    // message view (TDeck_pro_lora_disp()), where received texts appear.
+    setMsgOrigin(ORIGIN_GUI);
+    int bp_rc = sendMessage(sendtxt, len);
+    setMsgOrigin(ORIGIN_NONE);
 
-    scr_mgr_switch(SCREEN1_1_ID, false); // exit send screen 
+    // BP-07/BP-09 interaction: TDeck_pro_lora_disp() (called from the
+    // ORIGIN_GUI arm of bpEmitNotice()/bpDeliver() for a refusal, same as for
+    // a normal receive) writes its "QRT/QTA NOT SENT" receipt into
+    // lora_lab_buf, which lives on SCREEN1_1_ID -- the exact screen this
+    // switch used to be gated away from. Gating it on BP_SEND_OK left a
+    // refused send with no visible feedback: the operator stays on the send
+    // screen (SCREEN7_ID) and the receipt is written to a screen they never
+    // navigate to. So the switch must stay unconditional. This screen never
+    // clears dm_keypad/input_keypad on send to begin with (unlike the
+    // T-Deck's text_input), so no separate gating is needed to preserve the
+    // typed text on REFUSED/DROPPED/INVALID -- it simply stays in the field
+    // and the operator can retry after the QRV.
+    scr_mgr_switch(SCREEN1_1_ID, false); // exit send screen
 }
 
 static void lora_mode_send_event(lv_event_t * e)
@@ -2132,7 +2148,7 @@ void ui_track_disp(bool bSend)
             {
                 snprintf(ctrack, sizeof(ctrack), "TRACK:on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nDIST :%.0lf m\nDIR  :old %.0lf\nDIR  :new %.0lf\nRATE :%4lisec\nNEXT :%isec",
                 (posinfo_fix ? "fix" : "nofix"), 
-                posinfo_hdop, 
+                (int)fposinfo_hdop, 
                 cDatum, 
                 cZeit, 
                 meshcom_settings.node_lat, 
@@ -2149,7 +2165,7 @@ void ui_track_disp(bool bSend)
             {
                 snprintf(ctrack, sizeof(ctrack), "GPS  :on %s %i\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i\nSAT  :%u\nDIR  :%.0lf\nRATE :%4lisec\nNEXT :%isec",
                 (posinfo_fix ? "fix" : "nofix"), 
-                posinfo_hdop, 
+                (int)fposinfo_hdop, 
                 cDatum, 
                 cZeit, 
                 meshcom_settings.node_lat, 
@@ -2187,7 +2203,7 @@ void ui_track_disp(bool bSend)
         snprintf(ctrack, sizeof(ctrack), "%s %s %i\n%s\nDATE :%s\nTIME :%s\nLAT  :%08.4lf %c\nLON  :%08.4lf %c\nALT  :%i m\nAGE  :%u\nSAT  :%u",
             ctypegps,
             (posinfo_fix ? "fix" : "nofix"),
-            posinfo_hdop,
+            (int)fposinfo_hdop,
             ctypetrack,
             cDatum,
             cZeit,
@@ -2322,6 +2338,13 @@ void btn_event_handler_save(lv_event_t * e)
         if(!checkRegexCall(sCall))
         {
             Serial.printf("\n[ERR]..Callsign <%s> not valid\n", sCall.c_str());
+            return;
+        }
+
+        // SSID auf die kanonische Form ziehen, wie bei --setcall.
+        if(!normalizeOwnCall(sCall))
+        {
+            Serial.printf("\n[ERR]..Callsign <%s> too long with SSID\n", sCall.c_str());
             return;
         }
 

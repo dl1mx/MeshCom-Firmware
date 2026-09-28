@@ -14,10 +14,16 @@
 #include <Arduino.h>
 #include <configuration.h>
 
+extern String strMaps[MAX_MAP];
+
+#include <Arduino.h>
+#include <configuration.h>
+
 extern bool clicked;
 extern bool bInputSelected;
 extern bool bTouchDected;
 extern bool bSDDected;
+extern SemaphoreHandle_t xSemaphore;   // SPI2-Bus (TFT, SD): disp_flush() und Audio-Task
 extern unsigned long tdeck_tft_timer;
 extern String strMaps[MAX_MAP];
 extern uint16_t posrow;

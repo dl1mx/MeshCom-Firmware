@@ -1,6 +1,7 @@
 #include "configuration.h"
 #include "loop_functions.h"
 #include "loop_functions_extern.h"
+#include "gps_functions.h"
 
 #if defined (ENABLE_BMX280)
 
@@ -123,31 +124,39 @@ void setupBMX280(bool bNewStart)
 		bBMPON=false;
 		bBMEON=false;
 		bmx_found=false;
-		return; 
+		return;
 	}
 
   	if(bBMPON)
 	{
-		#ifdef BOARD_TBEAM_V3
+		#if MC_I2C_NEEDS_BUS_RESET
 			Wire.end();
 			Wire.begin(I2C_SDA, I2C_SCL);
 		#else
 			Wire.endTransmission(true);
 		#endif
 
-		bmx_i2c_address = I2C_ADDRESS_BMP;
+		#ifdef BMP280_I2C_ADDRESS
+			bmx_i2c_address = BMP280_I2C_ADDRESS;
+		#else
+			bmx_i2c_address = I2C_ADDRESS_BMP;
+		#endif
 	}
   	else
     	if(bBMEON)
 		{
-			#ifdef BOARD_TBEAM_V3
+			#if MC_I2C_NEEDS_BUS_RESET
 				Wire.end();
 				Wire.begin(I2C_SDA, I2C_SCL);
 			#else
 				Wire.endTransmission(true);
 			#endif
 
-			bmx_i2c_address = I2C_ADDRESS_BME;
+			#ifdef BME280_I2C_ADDRESS
+				bmx_i2c_address = BME280_I2C_ADDRESS;
+			#else
+				bmx_i2c_address = I2C_ADDRESS_BME;
+			#endif
 		}
     	else
       		return;
@@ -163,10 +172,10 @@ void setupBMX280(bool bNewStart)
 	bmx_found = false;
 
 	fTemp = 0.0;
-	fPress = 0.0;	
+	fPress = 0.0;
 	fHum = 0.0;
-		
-	#if defined(BOARD_TBEAM_V3) || (BOARD_E22_S3)
+
+	#if MC_I2C_NEEDS_BUS_RESET
 		Wire.end();
 		Wire.begin(I2C_SDA, I2C_SCL);
 	#endif
@@ -184,7 +193,7 @@ void setupBMX280(bool bNewStart)
 
 	//by default sensing is disabled and must be enabled by setting a non-zero
 	//oversampling setting.
-	//set an oversampling setting for pressure and temperature measurements. 
+	//set an oversampling setting for pressure and temperature measurements.
 	bmx280.writeOversamplingPressure(BMx280MI::OSRS_P_x16);
 	bmx280.writeOversamplingTemperature(BMx280MI::OSRS_T_x16);
 
@@ -192,12 +201,10 @@ void setupBMX280(bool bNewStart)
 	if (bmx280.isBME280())
 		bmx280.writeOversamplingHumidity(BMx280MI::OSRS_H_x16);
 
-	
-	if(bBMEON)
-    	Serial.printf("[INIT]...BME280 startet\n");
-
-	if(bBMPON)
-    	Serial.printf("[INIT]...BMP280 startet\n");
+	if(bmx280.isBME280())
+		Serial.printf("[INIT]...BME280 started\n");
+	else
+		Serial.printf("[INIT]...BMP280 started\n");
 
 	bmx_found = true;
 }
@@ -210,7 +217,7 @@ bool loopBMX280(void)
 	if(!bmx_found)
 		return false;
 
-	#if defined(BOARD_TBEAM_V3) || (BOARD_E22_S3)
+	#if MC_I2C_NEEDS_BUS_RESET
 		Wire.end();
 		Wire.begin(I2C_SDA, I2C_SCL);
 	#endif
@@ -298,16 +305,33 @@ float getHum()
 	return fHum;
 }
 
-int getPressALT()
+float getPressALTf()
 {
+	// GPS-08: Selbst-Latch statt Persistierung. Ein Struct-Feld wuerde
+	// FLASH_STRUCT_VERSION kippen und damit die Settings der ganzen Flotte
+	// zuruecksetzen -- und ein alter Druck nach langem Stromlos-Sein waere
+	// schlimmer als gar keiner. fBaseAltidude wird ohnehin binnen eines
+	// 60s-WX-Ticks von baroBaseRelatch() (GPS-Filter-Konvergenz) oder von
+	// getPressASL() (Nodes ohne GPS) gesetzt -- hier wird nur der dazu
+	// passende Druck nachgezogen. --setpress bleibt der manuelle Override.
+	if(fBasePress == 0.0f && fBaseAltidude != 0.0f && fPress != 0.0f)
+		fBasePress = fPress;
+
 	if(fPress == 0.0 || fBasePress == 0.0)
-		return 0;
-		
+		return 0.0f;
+
 	double x=(double)fPress/(double)fBasePress;
 	x=(double)-7990*log(x);
 	x = x + fBaseAltidude;
 
-	return (int)lround(x);
+	return (float)x;
+}
+
+int getPressALT()
+{
+	// GPS-09: float-Praezision ist fuer die GPS-05b-Fusion da;
+	// node_press_alt bleibt bewusst int (siehe bug doc §9).
+	return (int)lround(getPressALTf());
 }
 
 float getPressASL(int current_alt)
@@ -317,7 +341,7 @@ float getPressASL(int current_alt)
 	//fBasePress = meshcom_settings.node_press;
 	
 	// 
-	if(fBaseAltidude == 0)
+	if(fBaseAltidude == 0 && baroBaseLatchAllowed())
 		fBaseAltidude = (float)current_alt;
 
 	return fPress / powf(1 - ((0.0065 * fBaseAltidude) /

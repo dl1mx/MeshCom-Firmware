@@ -10,11 +10,18 @@
 #include <mheard_functions.h>
 #include <loop_functions.h>
 #include <loop_functions_extern.h>
+#include <byte_fifo.h>
 #include <time.h>
 #include <lora_setchip.h>
 #include <rtc_functions.h>
 #include <time_functions.h>
 #include <spectral_scan.h>
+#include <maxhop.h>         // CS-02: drop-down values for the text hop limit
+#include <config_json.h>   // CS-03: config download/upload as one JSON object
+#include <ArduinoJson.h>    // JSN-01: call_function()/setparam()/getparam() JSON escaping
+#include <txring_functions.h> // WQ-01: LoRa queue panel -- txRingPrioCounts()
+#include <setlog_lines.h>      // WQ-01: LoRa queue panel -- setlogDedupWindowMin()
+#include "track_warning.h"    // TRK-01: Warnhinweis-Text neben dem Track-Switch
 
 #include "web_UIComponents.h"
 #include "web_setup.h"
@@ -56,6 +63,11 @@ bool bMDNSOK=true;
  */
 void startWebserver()
 {
+    // esp32loop() calls this every pass while iWlanWait == 0; without an IP
+    // the debug line came out ~125 times per second (TM-21). Log the state
+    // once, again only after it changed.
+    static bool s_noIpLogged = false;
+
     if (bweb_server_running)
         return;
     #ifdef HAS_ETHERNET
@@ -63,10 +75,11 @@ void startWebserver()
         {
             if (strlen(meshcom_settings.node_ip) < 7 && !bWIFIAP)
             {
-                if(bDEBUG)
+                if(bDEBUG && !s_noIpLogged)
                 {
                     Serial.print("[WEB]...no ip set :");
                     Serial.println(meshcom_settings.node_ip);
+                    s_noIpLogged = true;
                 }
 
                 stopWebserver();
@@ -76,16 +89,19 @@ void startWebserver()
     #else
         if (strlen(meshcom_settings.node_ip) < 7 && !bWIFIAP)
         {
-            if(bDEBUG)
+            if(bDEBUG && !s_noIpLogged)
             {
                 Serial.print("[WEB]...no ip set :");
                 Serial.println(meshcom_settings.node_ip);
+                s_noIpLogged = true;
             }
 
             stopWebserver();
             return;
         }
     #endif
+
+    s_noIpLogged = false;               // IP is set now; log again if it goes away
 
 #ifdef ESP32
     // Check if WiFi is actually connected or AP is active before trying to start MDNS
@@ -237,7 +253,7 @@ void web_client_html(CommonWebClient web_client)
         for (int iwid = 0; iwid < 10; iwid++)
         {
             // check passwort Time expired 4h
-            if((ulong)(web_ip_passwd_time[iwid] + (1000 * 60 * 60 * 4)) < millis())
+            if((uint32_t)(millis() - (uint32_t)web_ip_passwd_time[iwid]) >= (1000U * 60 * 60 * 4))
             {
                 web_ip_passwd_time[iwid] = 0;
                 memset(web_ip[iwid], 0x00, sizeof(web_ip[iwid]));
@@ -308,20 +324,246 @@ void web_client_html(CommonWebClient web_client)
 
 /**
  * ###########################################################################################################################
+ * CS-03: config download / upload
+ *
+ * One buffer serves both directions -- the export never runs while an upload
+ * body is being read. The worst-case export (every string field filled to its
+ * limit) measures about 3.1 kB, so CONFIG_JSON_MAX is roughly a factor of two
+ * of headroom and at the same time the hard cap on what an upload may send.
+ *
+ * On the heap, NOT in BSS: 6 kB of static buffer overflows dram0_0_seg on the
+ * plain ESP32 (E22-DevKitC links with ~4 kB to spare). It is allocated for the
+ * duration of one /config.json or POST /config request and released again --
+ * both are rare, operator-triggered requests.
+ */
+static char *web_cfg_buf = NULL;
+
+static bool web_cfg_alloc(void)
+{
+    if (web_cfg_buf == NULL)
+        web_cfg_buf = (char *)malloc(CONFIG_JSON_MAX + 1);
+
+    if (web_cfg_buf != NULL)
+        web_cfg_buf[0] = '\0';
+
+    return web_cfg_buf != NULL;
+}
+
+static void web_cfg_free(void)
+{
+    if (web_cfg_buf != NULL)
+    {
+        free(web_cfg_buf);
+        web_cfg_buf = NULL;
+    }
+}
+
+/**
+ * Reads the request BODY.
+ *
+ * work_webpage() has only ever read the request HEADER -- it stops at the
+ * blank line and answers. A file upload is the first thing here that carries
+ * a body, so this is the reader for it: bounded by the Content-Length the
+ * caller picked out of the header, hard-capped at CONFIG_JSON_MAX, and given
+ * up on after WEB_TIMEOUT_TIME without a byte so a lying Content-Length
+ * cannot pin the loop.
+ *
+ * @return bytes read into web_cfg_buf (NUL-terminated), or negative:
+ *         -1 no/!invalid Content-Length, -2 too large, -3 short read.
+ */
+static int web_read_body(long content_length)
+{
+    web_cfg_buf[0] = '\0';
+
+    if (content_length <= 0)
+        return -1;
+
+    if (content_length > (long)CONFIG_JSON_MAX)
+        return -2;
+
+    long          got = 0;
+    unsigned long last = millis();
+
+    while (got < content_length && (millis() - last) <= WEB_TIMEOUT_TIME)
+    {
+        yield();
+
+        if (web_client.available())
+        {
+            int c = web_client.read();
+            if (c < 0)
+                break;
+
+            web_cfg_buf[got++] = (char)c;
+            last = millis();
+        }
+        else if (!web_client.connected())
+        {
+            break;
+        }
+    }
+
+    web_cfg_buf[got] = '\0';
+
+    return (got == content_length) ? (int)got : -3;
+}
+
+/**
+ * GET /config.json -- the whole configuration as a downloadable file.
+ *
+ * Sends its own header instead of send_http_header(): only this response
+ * carries a Content-Disposition, which is what turns a browser navigation
+ * into a download instead of a page full of JSON.
+ */
+static void sub_config_download(void)
+{
+    if (!web_cfg_alloc())
+    {
+        send_http_header(422, RESPONSE_TYPE_JSON);
+        web_client.println("{\"error\":\"out of memory\"}");
+        return;
+    }
+
+    size_t n = configExportJson(web_cfg_buf, CONFIG_JSON_MAX);
+
+    if (n == 0)
+    {
+        web_cfg_free();
+        send_http_header(422, RESPONSE_TYPE_JSON);
+        web_client.println("{\"error\":\"config export did not fit the buffer\"}");
+        return;
+    }
+
+    /* the callsign goes into a filename -- keep it to characters that cannot
+     * break out of the quoted header value or of a directory */
+    char fname[16];
+    size_t fi = 0;
+    for (const char *p = meshcom_settings.node_call; *p && fi < sizeof(fname) - 1; p++)
+    {
+        char c = *p;
+        if ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c == '-')
+            fname[fi++] = c;
+    }
+    fname[fi] = '\0';
+    if (fi == 0)
+        snprintf(fname, sizeof(fname), "node");
+
+    web_client.printf("HTTP/1.1 200 OK \n");
+    web_client.println("Content-type:application/json");
+    web_client.printf("Content-Disposition: attachment; filename=\"meshcom-%s.json\"\n", fname);
+    web_client.printf("Content-Length: %u\n", (unsigned int)n);
+    web_client.println("Access-Control-Allow-Origin: *");
+    web_client.println("Connection: close");
+    web_client.println("Cache-Control: no-cache, no-store, must-revalidate");
+    web_client.println("Pragma: no-cache");
+    web_client.println("Expires: 0");
+    web_client.println();
+
+    web_client.print(web_cfg_buf);
+
+    web_cfg_free();
+}
+
+/**
+ * POST /config -- restore a configuration file and reboot once.
+ *
+ * Nothing is written unless configImportJson() accepted every value; on
+ * failure the answer is a 400 with the reason and NVRAM is untouched. On
+ * success the response is flushed and the connection closed BEFORE the reset,
+ * otherwise the browser never sees the answer. Reboot pattern copied from
+ * commandAction()'s --cleanflash/--reboot (command_functions.cpp).
+ */
+static void sub_config_upload(long content_length)
+{
+    char err[160] = {0};
+
+    if (!web_cfg_alloc())
+    {
+        send_http_header(400, RESPONSE_TYPE_TEXT);
+        web_client.printf("<p>upload rejected: out of memory</p>");
+        return;
+    }
+
+    int n = web_read_body(content_length);
+
+    if (n < 0)
+    {
+        web_cfg_free();
+        send_http_header(400, RESPONSE_TYPE_TEXT);
+        web_client.printf("<p>upload rejected: %s</p>",
+                          (n == -2) ? "file too large" : (n == -1) ? "no Content-Length" : "incomplete upload");
+        /* own marker: these codes are the body reader's, not configImportJson()'s */
+        Serial.printf("[CONFIG];upload;rc;%d;len;%ld\n", n, content_length);
+        return;
+    }
+
+    int rc = configImportJson(web_cfg_buf, (size_t)n, err, sizeof(err));
+
+    web_cfg_free();
+
+    if (rc != 0)
+    {
+        send_http_header(400, RESPONSE_TYPE_TEXT);
+        web_client.printf("<p>config import failed: %s</p>", err);
+        return;
+    }
+
+    save_settings();
+
+    send_http_header(200, RESPONSE_TYPE_TEXT);
+    web_client.printf("<html><body><h3>config imported</h3><p>%s</p><p>the node reboots now.</p></body></html>", err);
+    web_client.flush();
+    web_client.stop();
+
+    Serial.printf("[CONFIG];reboot;after;import\n");
+
+    delay(2000);
+
+    #ifdef ESP32
+        ESP.restart();
+    #endif
+
+    #if defined NRF52_SERIES
+        NVIC_SystemReset();     // resets the device
+    #endif
+}
+
+/**
+ * ###########################################################################################################################
  * Handle Web requests and call the matching sub function
  */
 String work_webpage(bool bget_password, int webid)
 {
-    static char web_header_collect[1024];        // BSS statt Heap
-    static uint16_t web_header_collect_len = 0;
-    // ...
-    web_header_collect_len = 0;
-    web_header_collect[0] = '\0';
+    // RAM-Rueckgewinn (2026-09-21): der 1-kB-Sammelpuffer web_header_collect
+    // lag als statisches Feld im DRAM und wurde am Ende ohnehin in den String
+    // kopiert. Jetzt sammelt der String selbst, mit einmaligem reserve() je
+    // Aufruf. Dieselbe Obergrenze wie vorher (WEB_HEADER_MAX: hoechstens
+    // 1023 Zeichen, exakt wie die alte Schranke sizeof(puffer)-1), nur dass
+    // sie nicht mehr im Linkerbild steht.
+    //
+    // Das ist eine Verschiebung aus dem statischen Bild in den Heap, kein
+    // Byte weniger zur Laufzeit; sie entlastet die Linkregion, die auf den
+    // klassischen ESP32 knapp ist.
+    //
+    // Nicht behaupten, die 1 kB wuerden einmalig geholt und dann behalten:
+    // der /?nodepassword-Zweig weiter unten weist web_header das Ergebnis
+    // von substring() zu. Das ist eine Move-Zuweisung von einem Temporary,
+    // der globale String uebernimmt also dessen kleinen Puffer und gibt die
+    // 1 kB frei -- die naechste Anfrage holt sie erneut. Ein malloc/free je
+    // Login, mehr nicht; der Rest der Funktion arbeitet ohnehin mit Strings.
+    static const uint16_t WEB_HEADER_MAX = 1023;
+    web_header.reserve(WEB_HEADER_MAX + 1);
+    web_header = "";
 
     web_currentTime = millis();
     web_previousTime = web_currentTime;
     String password_message = "";
     String web_currentLine = ""; // make a String to hold incoming data from the client
+
+    // CS-03: an upload needs its body length, and the header may well be
+    // longer than WEB_HEADER_MAX. Picked off the line as it completes,
+    // so it does not depend on that 1 kB window.
+    long web_content_length = -1;
 
     if (bDEBUG)
     {
@@ -343,11 +585,8 @@ String work_webpage(bool bget_password, int webid)
             if (bDEBUG)
                 Serial.write(c); // print it out the serial monitor
 
-            if (web_header_collect_len < sizeof(web_header_collect) - 1)
-            {
-                web_header_collect[web_header_collect_len++] = c;
-                web_header_collect[web_header_collect_len] = '\0';
-            }
+            if (web_header.length() < WEB_HEADER_MAX)
+                web_header += c;
 
             if (c == '\n')
             {
@@ -356,8 +595,6 @@ String work_webpage(bool bget_password, int webid)
                 // that's the end of the client HTTP request, so send a response:
                 if (web_currentLine.length() == 0)
                 {
-                    web_header = web_header_collect;
-                    
                     // Serial.println(web_header);
 
                     // user sends authentication
@@ -426,6 +663,16 @@ String work_webpage(bool bget_password, int webid)
                         { // user requested to get a parameter
                             // ### !!function will generate a HTML header itself
                             getparam(web_header);
+                        }
+                        else if (web_header.indexOf("/config.json") >= 0)
+                        { // CS-03: download the configuration as a file
+                            // ### !!function will generate a HTML header itself
+                            sub_config_download();
+                        }
+                        else if (web_header.indexOf("POST /config") >= 0)
+                        { // CS-03: restore a configuration file, then reboot
+                            // ### !!function will generate a HTML header itself
+                            sub_config_upload(web_content_length);
                         }
                         else if (web_header.indexOf("/?page=setup") >= 0)
                         { // user requested the position page
@@ -497,6 +744,14 @@ String work_webpage(bool bget_password, int webid)
                 }
                 else
                 { // if you got a newline, then clear currentLine
+                    if (web_content_length < 0)
+                    {
+                        String hdr_name = web_currentLine;
+                        hdr_name.toLowerCase();
+                        if (hdr_name.startsWith("content-length:"))
+                            web_content_length = web_currentLine.substring(15).toInt();
+                    }
+
                     web_currentLine = "";
                 }
             }
@@ -612,19 +867,185 @@ void deliver_scaffold(bool bget_password)
     // this function is used for login and logout
     web_client.println("function login(pwd){var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){window.location.reload(true);}};xhttp.open(\"GET\",\"?nodepassword=\"+pwd,true);xhttp.send();}\n");
     // this function is used to load content depending on the navigation button pressed
-    web_client.println("function loadPage(page,sender,useSpinner) {cpage=page;csender=sender;if(useSpinner){document.getElementById(\"content_layer\").innerHTML=\"<span class=\\\"loader\\\"></span>\"};var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){document.getElementById(\"content_layer\").innerHTML=this.responseText;}};xhttp.open(\"GET\",\"?page=\"+page,true);xhttp.send();Array.from(document.querySelectorAll('.nav_button.nbactive ')).forEach((el) => el.classList.remove('nbactive')); sender.classList.add('nbactive');}\n");
+    web_client.println("function loadPage(page,sender,useSpinner) {cpage=page;csender=sender;if(useSpinner){document.getElementById(\"content_layer\").innerHTML=\"<span class=\\\"loader\\\"></span>\"};var xhttp = new XMLHttpRequest(); xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){document.getElementById(\"content_layer\").innerHTML=this.responseText;mcRenderQueue();if(page=='messages' && document.getElementById('messages_panel'))mcRenderHistory();}};xhttp.open(\"GET\",\"?page=\"+page,true);xhttp.send();Array.from(document.querySelectorAll('.nav_button.nbactive ')).forEach((el) => el.classList.remove('nbactive')); sender.classList.add('nbactive');}\n");
     // this function is used to send a message from the browser via node to the mesh
-    web_client.println("function sendMessage() {var xhttp=new XMLHttpRequest();xhttp.open(\"GET\",\"/?sendmessage&tocall=\"+document.getElementById(\"sendcall\").value+\"&message=\"+encodeURI(document.getElementById(\"messagetext\").value),true);xhttp.send();document.getElementById(\"sendcall\").value=\"\"; document.getElementById(\"messagetext\").value=\"\";}\n");
+    //
+    // BP-09: the input fields used to be cleared unconditionally, right after
+    // xhttp.send() and without ever looking at the answer -- so a message the
+    // node refused (QRT) or dropped (QTA) took the operator's typed text with
+    // it, exactly the loss BP-09 fixes on the T-Deck and T-Deck Pro. The clear
+    // now waits for the response and only fires on "sendmessage ok"; every
+    // other outcome (refused / dropped / invalid / failed) leaves the text in
+    // place so it can be resent after the QRV. updateCharsLeft() is called
+    // from the handler because the onclick chain has long since run its own
+    // call by the time the answer arrives.
+    //
+    // The destination survives the send when it is a group number: the tab
+    // bar puts the selected group into #sendcall, and clearing it after every
+    // send silently turned the next quick message into a broadcast to '*'
+    // (DJ8MEH, 2026-09-11). A DM call sign is still cleared as before.
+    web_client.println("function sendMessage() {var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200 && this.responseText.indexOf(\"sendmessage ok\")>=0){var sc=document.getElementById(\"sendcall\");if(!/^[0-9]+$/.test(sc.value))sc.value=\"\"; document.getElementById(\"messagetext\").value=\"\"; updateCharsLeft();}};xhttp.open(\"GET\",\"/?sendmessage&tocall=\"+encodeURIComponent(document.getElementById(\"sendcall\").value)+\"&message=\"+encodeURIComponent(document.getElementById(\"messagetext\").value),true);xhttp.send();}\n");
     // this functions is counting and displaying the amount of chars left that the user can use to write a message
     web_client.println("function updateCharsLeft() {let maxlength=149;if(document.getElementById(\"sendcall\").value.length>0) {maxlength-=(document.getElementById(\"sendcall\").value.length)+2;}let msglength=document.getElementById(\"messagetext\").value.length;if(msglength>maxlength){document.getElementById(\"messagetext\").value=document.getElementById(\"messagetext\").value.substring(0,maxlength);msglength=maxlength;}document.getElementById(\"indicator_charsleft\").innerHTML=maxlength-msglength;}\n");
+    // MC-msg-history: the phone ring (phoneRing, RING_BYTES_PHONE bytes) is
+    // shared with positions and acks, so a handful of new messages can push
+    // an old message out of the node's own ring within minutes. The browser tab
+    // keeps every message it has seen for the life of the page in
+    // mcHistory/mcSeen (capped at MC_HIST_MAX, oldest dropped first) so
+    // switching Info -> Messages -> Info -> Messages does not lose messages
+    // that scrolled out of the node's ring. This is browser memory only --
+    // node RAM is unchanged, and persisting the history to localStorage is
+    // deferred (not implemented in this round).
+    web_client.println("var mcSeen={};");
+    web_client.println("var mcHistory=[];");
+    web_client.println("var MC_HIST_MAX=200;");
+    // MC-msg-tabs: this and the rest of the mcTab* functions live in the
+    // scaffold rather than sub_page_messages() because sub-pages are
+    // injected via innerHTML and their own <script> tags never run.
+    web_client.println("var mcTabSel='all';");
+    web_client.println("try{var mcTabStored=localStorage.getItem('mcTab');if(mcTabStored!=null)mcTabSel=mcTabStored;}catch(e){}");
+    // MC-msg-badges: unread-state model. mcReadIds is a session-only set of
+    // message ids the operator has definitely seen -- it survives while
+    // mcHistory holds the entry, but not a browser restart. mcWm holds, per
+    // tab key, a unix-time watermark below which everything on that tab
+    // counts as read; it is the only read-state that is persisted
+    // (localStorage 'mcWm'), because persisting the exact id set across days
+    // of ring turnover would grow without bound. A message is unread for a
+    // tab key when it is inbound (an own message-send is never unread), it
+    // matches that key's dst filter, its id has not been marked read this
+    // session, and its ts is strictly greater than that key's watermark --
+    // equal timestamps fall back to the id set, since an unsynced node clock
+    // can hand two independent messages the same second. Viewing "All"
+    // raises every tab's watermark to the newest message seen, because
+    // looking at the merged stream is defined as having read everything in
+    // it, not only the "all" tab itself.
+    web_client.println("var mcReadIds={};");
+    web_client.println("var mcWm={};");
+    web_client.println("try{var mcWmStored=localStorage.getItem('mcWm');if(mcWmStored!=null)mcWm=JSON.parse(mcWmStored);}catch(e){}if(typeof mcWm!=='object' || mcWm===null)mcWm={};");
+    web_client.println("function mcSaveWm(){try{localStorage.setItem('mcWm',JSON.stringify(mcWm));}catch(e){}}");
+    web_client.println("function mcTabMatchKey(key,dst){if(key=='all')return true;if(key=='*')return dst=='*';if(key=='dm')return dst!='*' && !/^[0-9]+$/.test(dst);return dst==key;}");
+    web_client.println("function mcTabMatch(dst){return mcTabMatchKey(mcTabSel,dst);}");
+    web_client.println("function mcUnreadCount(key){var wm=mcWm[key]||0;var n=0;for(var i=0;i<mcHistory.length;i++){var m=mcHistory[i];if(m.rx && mcTabMatchKey(key,m.dst) && !mcReadIds[m.id] && m.ts>wm)n++;}return n;}");
+    // seeds the watermark of any tab key that has never had one (first visit
+    // to this browser, or a group number just added in setup) to the newest
+    // ts already known, so first load never shows a wall of unread badges
+    web_client.println("function mcSeedWm(){var btns=document.querySelectorAll('#mctabs .mctab');if(btns.length==0)return;var maxTs=0;for(var i=0;i<mcHistory.length;i++){if(mcHistory[i].ts>maxTs)maxTs=mcHistory[i].ts;}var changed=false;for(var j=0;j<btns.length;j++){var key=btns[j].getAttribute('data-tab');if(!(key in mcWm)){mcWm[key]=maxTs;changed=true;}}if(changed)mcSaveWm();}");
+    // marks every history entry on the currently selected tab as read; viewing
+    // 'all' counts as having read every tab, so its watermark propagates to
+    // every configured tab key, not only 'all' itself
+    web_client.println("function mcMarkRead(){if(document.visibilityState==='hidden')return;var maxTs=0;var changed=false;for(var i=0;i<mcHistory.length;i++){var m=mcHistory[i];if(mcTabMatchKey(mcTabSel,m.dst)){if(!mcReadIds[m.id]){mcReadIds[m.id]=true;changed=true;}if(m.ts>maxTs)maxTs=m.ts;}}if(maxTs>(mcWm[mcTabSel]||0)){mcWm[mcTabSel]=maxTs;changed=true;}if(mcTabSel=='all'){var btns=document.querySelectorAll('#mctabs .mctab');for(var j=0;j<btns.length;j++){var key=btns[j].getAttribute('data-tab');if(maxTs>(mcWm[key]||0)){mcWm[key]=maxTs;changed=true;}}}if(changed)mcSaveWm();}");
+    // the tab bar is re-rendered by the server on every loadPage('messages'),
+    // so badges are painted here on every call, never once at page load
+    web_client.println("function mcApplyTab(){var panel=document.getElementById('messages_panel');if(!panel)return;var els=panel.querySelectorAll('.message[data-dst]');for(var i=0;i<els.length;i++){els[i].hidden=!mcTabMatch(els[i].getAttribute('data-dst'));}mcSeedWm();mcMarkRead();var btns=document.querySelectorAll('#mctabs .mctab');for(var j=0;j<btns.length;j++){var key=btns[j].getAttribute('data-tab');btns[j].classList.toggle('mctab-on',key==mcTabSel);var label=key=='all'?'All':(key=='dm'?'DM':key);var cnt=mcUnreadCount(key);btns[j].innerHTML=label+(cnt>0?' <span class=\"mcbadge\">'+cnt+'</span>':'');btns[j].classList.toggle('mctab-new',cnt>0);}}");
+    web_client.println("function mcTab(btn){mcTabSel=btn.getAttribute('data-tab');try{localStorage.setItem('mcTab',mcTabSel);}catch(e){}var sc=document.getElementById('sendcall');if(sc){if(/^[0-9]+$/.test(mcTabSel))sc.value=mcTabSel;else if(mcTabSel=='*')sc.value='';}if(typeof updateCharsLeft==='function' && sc)updateCharsLeft();mcApplyTab();}");
+    // messages that arrive while the tab is hidden must not count as read
+    // until the operator actually comes back to look at them
+    web_client.println("document.addEventListener('visibilitychange',function(){if(cpage=='messages')mcApplyTab();});");
+    web_client.println("function mcHistIndex(id){for(var i=0;i<mcHistory.length;i++){if(mcHistory[i].id==id)return i;}return -1;}");
+    web_client.println("function mcMergeEntry(el){var id=el.getAttribute('data-id');var html=el.outerHTML;var dst=el.getAttribute('data-dst')||'';var ts=parseInt(el.getAttribute('data-ts'))||0;var rx=el.classList.contains('message-received');var idx=mcHistIndex(id);if(idx<0){mcHistory.push({id:id,html:html,dst:dst,ts:ts,rx:rx});mcSeen[id]=true;if(mcHistory.length>MC_HIST_MAX){var dropped=mcHistory.shift();delete mcSeen[dropped.id];}}else{mcHistory[idx].html=html;mcHistory[idx].dst=dst;mcHistory[idx].ts=ts;mcHistory[idx].rx=rx;}}");
+    web_client.println("function mcRemovePlaceholder(panel){var kids=panel.children;for(var i=kids.length-1;i>=0;i--){if(kids[i].tagName=='P')panel.removeChild(kids[i]);}}");
     // this function is an ayncronous loader that is used to update the received messages without re-loading the whole page, it will re-call itself after a timeout as long as the message-page is displayed
-    web_client.println("function updateMessages() {var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){if(document.getElementById(\"messages_panel\")!=null)document.getElementById(\"messages_panel\").innerHTML=decodeURIComponent(this.responseText);}};setTimeout(function(){xhttp.open(\"GET\",\"/?getmessages\",true);xhttp.send();},1000);}\n");
+    // it merges the response into mcHistory/mcSeen instead of overwriting the panel outright, so a message already on screen keeps its DOM position when only its ack mark changed
+    web_client.println("function mcProcessMessages(text,panel){var tmpl=document.createElement('template');tmpl.innerHTML=text;var els=tmpl.content.querySelectorAll('.message[data-id]');for(var i=0;i<els.length;i++){var el=els[i];var id=el.getAttribute('data-id');var existed=mcSeen.hasOwnProperty(id);mcMergeEntry(el);if(existed){var old=panel.querySelector('.message[data-id=\"'+id+'\"]');if(old)old.replaceWith(el);}else{panel.appendChild(el);}}mcRemovePlaceholder(panel);if(mcHistory.length==0)panel.innerHTML='<p>No messages available.</p>';if(typeof mcApplyTab==='function')mcApplyTab();}");
+    web_client.println("function updateMessages() {var xhttp=new XMLHttpRequest();xhttp.onreadystatechange=function(){if(this.readyState==4 && this.status==200){var panel=document.getElementById('messages_panel');if(panel!=null)mcProcessMessages(decodeURIComponent(this.responseText),panel);}};setTimeout(function(){xhttp.open('GET','/?getmessages',true);xhttp.send();},1000);}\n");
+    // rebuilds #messages_panel from mcHistory when the messages page is (re-)injected by loadPage(); first merges the server-rendered entries already sitting in the panel into mcHistory (same dedupe as mcProcessMessages) so nothing the server just sent is lost, then renders the full remembered history in order
+    web_client.println("function mcRenderHistory(){var panel=document.getElementById('messages_panel');if(!panel)return;var els=panel.querySelectorAll('.message[data-id]');for(var i=0;i<els.length;i++){mcMergeEntry(els[i]);}var html='';for(var j=0;j<mcHistory.length;j++){html+=mcHistory[j].html;}panel.innerHTML=html.length>0?html:'<p>No messages available.</p>';if(typeof mcApplyTab==='function')mcApplyTab();}");
     //  this function sends a parameter:value request to the backend
-    web_client.println("function setvalue(param,value,refresh) {fetch(\"/setparam/?\"+param+\"=\"+value).then(function(response){return response.json();}).then(function(jsonResponse){if(jsonResponse['returncode']==1)alert(\"Value could not be set.\");if(jsonResponse['returncode']==2)alert(\"Parameter unknown to node.\");if(jsonResponse['returncode']>0){loadPage(cpage,csender,false)}if(refresh)loadPage(cpage,csender,false);});}\n");
+    // TRK-01: bei Erfolg (returncode==0, die Seite wird hier NICHT neu geladen) den Warnhinweis
+    // "<id>_warn" live ein-/ausblenden -- generisch ueber param, damit kuenftige Switches denselben Mechanismus erben
+    web_client.println("function setvalue(param,value,refresh) {fetch(\"/setparam/?\"+param+\"=\"+encodeURIComponent(value)).then(function(response){return response.json();}).then(function(jsonResponse){if(jsonResponse['returncode']==1)alert(\"Value could not be set.\");if(jsonResponse['returncode']==2)alert(\"Parameter unknown to node.\");if(jsonResponse['returncode']==0){var w=document.getElementById(param+\"_warn\");if(w)w.style.display=(value==\"on\")?\"\":\"none\";}if(jsonResponse['returncode']>0){loadPage(cpage,csender,false)}if(refresh)loadPage(cpage,csender,false);});}\n");
     // this function invokes a function call to the backend passing the function name and an optional parameter (e.g. sendpos)
     web_client.println("function callfunction(functionname,functionparameter){fetch(\"/callfunction/?\"+functionname+\"=\"+functionparameter).then(function(response){return response.json();}).then(function (jsonResponse) {/*Nothing todo yet.*/})}\n");
+    // CS-03: config restore. Lives here and not in the setup page, because the
+    // sub-pages are injected with innerHTML -- a <script> inside them never runs.
+    web_client.println("function uploadconfig(){var e=document.getElementById(\"cfgfile\");if(!e||e.files.length==0){alert(\"choose a config file first\");return;}if(!confirm(\"Restore this configuration and reboot the node?\"))return;var r=new FileReader();r.onload=function(){fetch(\"/config\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},body:r.result}).then(function(x){return x.text().then(function(t){var m=t.replace(/<[^>]*>/g,\" \").trim();if(x.ok){alert(\"config imported: \"+m);}else{alert(\"import failed: \"+m);}});}).catch(function(err){alert(\"upload failed: \"+err);});};r.readAsText(e.files[0]);}\n");
+
     // This function is used to toggle a css class so setup cars can collapse / expand
     web_client.println("function togglecard(element){element.parentElement.classList.toggle(\"cardopen\");}");
+
+    // WQ-01: LoRa Queue panel on the rxlog page. rxlog is fetched by loadPage()
+    // and injected with innerHTML, which never runs a <script> tag it carries,
+    // so the rendering logic has to live here in the scaffold instead and be
+    // invoked from loadPage() after each fragment swap (that covers both the
+    // initial page load and the 10s autorefresh). The fragment itself only
+    // emits an empty #mcq div carrying data-* attributes; all markup below is
+    // built from those. JS strings use single quotes and HTML attribute
+    // values are written unquoted (none of them ever contain a space) so
+    // nothing here needs quote-escaping in the C string literals.
+    web_client.println("var mcQueueOpen=true;");
+    web_client.println("function mcQueueToggle(btn){mcQueueOpen=!mcQueueOpen;var b=document.getElementById('mcq');if(b)b.hidden=!mcQueueOpen;if(btn)btn.textContent=mcQueueOpen?'hide':'show';}");
+    web_client.println("function mcRenderQueue(){");
+    web_client.println("var d=document.getElementById('mcq');");
+    web_client.println("if(!d)return;");
+    web_client.println("var p=[0,0,0,0,0,0];");
+    web_client.println("for(var i=1;i<=5;i++){p[i]=parseInt(d.getAttribute('data-p'+i))||0;}");
+    web_client.println("var ring=parseInt(d.getAttribute('data-ring'))||0;");
+    web_client.println("var used=parseInt(d.getAttribute('data-p0'))||0;");
+    web_client.println("var bp=parseInt(d.getAttribute('data-bp'))||0;");
+    web_client.println("var bpname=d.getAttribute('data-bpname')||'';");
+    web_client.println("var qrs=parseInt(d.getAttribute('data-qrs'))||0;");
+    web_client.println("var qrsf=parseInt(d.getAttribute('data-qrsf'))||qrs;");
+    web_client.println("var qrt=parseInt(d.getAttribute('data-qrt'))||0;");
+    web_client.println("var win=parseInt(d.getAttribute('data-win'))||0;");
+    web_client.println("var rx=parseInt(d.getAttribute('data-rx'))||0;");
+    web_client.println("var tx=parseInt(d.getAttribute('data-tx'))||0;");
+    web_client.println("var intv=parseInt(d.getAttribute('data-int'))||300;");
+    web_client.println("var newid=parseInt(d.getAttribute('data-newid'))||0;");
+    web_client.println("var dup=parseInt(d.getAttribute('data-dup'))||0;");
+    web_client.println("var dwin=parseInt(d.getAttribute('data-dwin'))||0;");
+    web_client.println("var age=parseInt(d.getAttribute('data-age'))||0;");
+    web_client.println("var empty=ring-used;");
+    web_client.println("if(empty<0)empty=0;");
+    web_client.println("var qrsPct=ring>0?(qrs/ring*100):0;");
+    web_client.println("var qrsfPct=ring>0?(qrsf/ring*100):0;");
+    web_client.println("var qrtPct=ring>0?(qrt/ring*100):0;");
+    web_client.println("var colors=['#A2182F','#E07B39','#3B7DD8','#6FA96F','#9E9E9E'];");
+    web_client.println("var names=['crit','high','normal','low','bg'];");
+    web_client.println("var html='';");
+    web_client.println("html+='<div class=font-bold>TX ring</div>';");
+    web_client.println("html+='<div class=mcq-barwrap><div class=mcq-bar>';");
+    web_client.println("for(var pr=1;pr<=5;pr++){for(var c=0;c<p[pr];c++){html+='<div class=mcq-cell style=background:'+colors[pr-1]+'></div>';}}");
+    web_client.println("for(var c2=0;c2<empty;c2++){html+='<div class=mcq-cell-empty></div>';}");
+    web_client.println("html+='</div>';");
+    web_client.println("html+='<div class=mcq-tick-faint style=left:'+qrsPct+'%></div>';");
+    web_client.println("html+='<div class=mcq-tick style=left:'+qrsfPct+'%></div>';");
+    web_client.println("html+='<div class=mcq-tick style=left:'+qrtPct+'%></div>';");
+    web_client.println("html+='</div>';");
+    web_client.println("html+='<div class=mcq-ticklabels>';");
+    web_client.println("html+='<span class=font-small style=position:absolute;left:'+qrsfPct+'%;transform:translateX(-50%)>QRS</span>';");
+    web_client.println("html+='<span class=font-small style=position:absolute;left:'+qrtPct+'%;transform:translateX(-50%)>QRT</span>';");
+    web_client.println("html+='</div>';");
+    web_client.println("html+='<div class=mcq-legend>'+used+'/'+ring+' queued&nbsp;|&nbsp;';");
+    web_client.println("for(var pr2=1;pr2<=5;pr2++){html+='<span class=mcq-swatch style=background:'+colors[pr2-1]+'></span>'+names[pr2-1]+' '+p[pr2]+' ';}");
+    web_client.println("html+='</div>';");
+    web_client.println("var bpcolor=(bp==0)?'#3B9E4F':((bp==1)?'#E07B39':'#A2182F');");
+    web_client.println("html+='<div class=font-bold>Back-pressure: <span style=color:'+bpcolor+'>'+bpname+'</span></div>';");
+    web_client.println("html+='<div class=font-small>(QRS forecast at&nbsp;'+qrsf+' for your next msgs, line&nbsp;&ge;'+qrs+', QRT at&nbsp;&ge;'+qrt+' of '+ring+')</div>';");
+    web_client.println("if(win==0){");
+    web_client.println("html+='<div class=font-bold>Dedup window: n/a (no completed 5-min window yet)</div>';");
+    web_client.println("}else if(dwin==0){");
+    web_client.println("html+='<div class=font-bold>Dedup window: n/a (no new ids in the last window)</div>';");
+    web_client.println("}else{");
+    web_client.println("var dwc=(dwin<40||dwin>48)?'#E07B39':'inherit';");
+    web_client.println("html+='<div class=font-bold>Dedup window:&nbsp;&asymp;<span style=color:'+dwc+'>'+dwin+'</span> min</div>';");
+    web_client.println("html+='<div class=font-small>('+newid+' new ids, '+dup+' dups in last '+Math.round(intv/60)+' min; safe corridor 40-48 min)</div>';");
+    web_client.println("}");
+    web_client.println("html+='<div class=font-bold>Channel utilisation (last 5 min)</div>';");
+    web_client.println("if(win==0){");
+    web_client.println("html+='<div class=font-small>n/a</div>';");
+    web_client.println("}else{");
+    web_client.println("var rxPct=rx/(intv*1000)*100;if(rxPct>100)rxPct=100;");
+    web_client.println("var txPct=tx/(intv*1000)*100;if(txPct>100)txPct=100;");
+    web_client.println("var totPct=(rx+tx)/(intv*1000)*100;if(totPct>100)totPct=100;");
+    web_client.println("html+='<div class=mcq-util-row><span class=mcq-util-label>rx '+rxPct.toFixed(1)+'%</span><div class=mcq-util-track><div style=height:100%;width:'+rxPct+'%;background:#3B7DD8></div></div></div>';");
+    web_client.println("html+='<div class=mcq-util-row><span class=mcq-util-label>tx '+txPct.toFixed(1)+'%</span><div class=mcq-util-track><div style=height:100%;width:'+txPct+'%;background:#A2182F></div></div></div>';");
+    web_client.println("html+='<div class=font-small>total '+totPct.toFixed(1)+'% ('+age+' s ago)</div>';");
+    web_client.println("}");
+    web_client.println("d.innerHTML=html;");
+    web_client.println("var btn=document.getElementById('mcqtogglebtn');");
+    web_client.println("d.hidden=!mcQueueOpen;");
+    web_client.println("if(btn)btn.textContent=mcQueueOpen?'hide':'show';");
+    web_client.println("}");
 
     web_client.println("</script>\n\n");
 
@@ -716,6 +1137,28 @@ void deliver_scaffold(bool bget_password)
     web_client.println(".collapsablecard>div {max-height:0px;-webkit-transition:opacity .15s .0s,max-height .25s .10s;transition:opacity .15s .0s,max-height .25s .10s,margin .0s .50s;	opacity:0.0;overflow:hidden;margin:0px;}\n");
     web_client.println(".cardopen>div {-webkit-transition:opacity .15s .10s,max-height .25s .0s;transition:opacity .15s .10s,max-height .25s .0s;max-height:1000px;opacity:1;margin:7px;}\n");
     web_client.println(".cardopen>span:first-of-type {display:none;}\n");
+
+    // content definitions -> WQ-01 LoRa Queue panel (rxlog page)
+    web_client.println(".mcq-toggle {position:absolute;right:8px;top:-1px;transform:translateY(-50%);z-index:10;border:solid 1px var(--mcgray);background:#fff;border-radius:5px;padding:1px 8px;cursor:pointer;}\n");
+    web_client.println(".mcq-barwrap {position:relative;}\n");
+    web_client.println(".mcq-bar {display:flex;flex-direction:row;gap:1px;height:14px;margin:4px 0 2px 0;}\n");
+    web_client.println(".mcq-cell {flex:1;height:14px;}\n");
+    web_client.println(".mcq-cell-empty {flex:1;height:14px;background:#ECECEC;border:1px solid #d0d0d0;box-sizing:border-box;}\n");
+    web_client.println(".mcq-tick {position:absolute;top:0;bottom:0;width:1px;background:#000;opacity:0.5;}\n");
+    web_client.println(".mcq-tick-faint {position:absolute;top:0;bottom:0;width:1px;background:#000;opacity:0.15;}\n");
+    web_client.println(".mcq-ticklabels {position:relative;height:12px;font-size:x-small;margin:0 0 8px 0;}\n");
+    web_client.println(".mcq-legend {font-size:x-small;margin:0 0 8px 0;}\n");
+    web_client.println(".mcq-swatch {display:inline-block;width:8px;height:8px;margin:0 3px 0 6px;border-radius:2px;vertical-align:middle;}\n");
+    web_client.println(".mcq-util-row {display:flex;align-items:center;gap:6px;margin:2px 0;}\n");
+    web_client.println(".mcq-util-label {display:inline-block;min-width:60px;}\n");
+    web_client.println(".mcq-util-track {flex:1;height:10px;background:#ECECEC;border-radius:4px;overflow:hidden;}\n");
+
+    // content definitions -> message-page tab bar
+    web_client.println("#mctabs {margin:6px 0;}\n");
+    web_client.println("#content_inner .mctab {display:inline-flex;align-items:center;border:solid 1px var(--mcgray);background-color:var(--mcbg);border-radius:5px;padding:2px 8px;margin-right:4px;cursor:pointer;}\n");
+    web_client.println("#content_inner .mctab-new {background-color:var(--mclightgreen);}\n");
+    web_client.println("#content_inner .mctab-on {background-color:var(--mclightblue);}\n");
+    web_client.println(".mcbadge {font-size:x-small;font-weight:bold;margin-left:4px;}\n");
 
     web_client.println("</style>\n\n");
 
@@ -821,19 +1264,103 @@ static int increment_mod(int i, int n) {
 
 /**
  * ###########################################################################################################################
+ * escapes a string for safe inclusion in HTML output (WEB-03a: mesh-derived strings such as
+ * message payloads, callsigns and paths are attacker-controlled and must not reach innerHTML raw)
+ */
+static String htmlEscape(const String &input)
+{
+    String out;
+    out.reserve(input.length());
+    for (unsigned int i = 0; i < input.length(); i++)
+    {
+        char c = input.charAt(i);
+        switch (c)
+        {
+            case '&':  out += "&amp;";  break;
+            case '<':  out += "&lt;";   break;
+            case '>':  out += "&gt;";   break;
+            case '"':  out += "&quot;"; break;
+            case '\'': out += "&#39;";  break;
+            default:   out += c;        break;
+        }
+    }
+    return out;
+}
+
+/**
+ * ###########################################################################################################################
+ * resolves the NTP server the node actually uses (WEB-01): own override if set, else the same
+ * default selection udp_functions.cpp:1495-1536 applies when connecting. No clean read-only
+ * extern exposes that resolved choice, so the selection is duplicated here (read-only mirror).
+ */
+static String getEffectiveNtpServer()
+{
+    if (strlen(meshcom_settings.node_ownntp) >= 7)
+        return String(meshcom_settings.node_ownntp);
+
+    IPAddress webNtpIp;
+    webNtpIp.fromString(meshcom_settings.node_ip);
+
+    bool bHamnet = (webNtpIp[0] == 44 || meshcom_settings.node_hamnet_only == 1);
+
+    if (bHamnet)
+        return (webNtpIp[1] == 143) ? "44.143.0.9 (default)" : "44.148.224.123 (default)";
+    else
+        return "pool.ntp.org (default)";
+}
+
+/**
+ * ###########################################################################################################################
  * delivers the rxlog-page to be injected into the scaffold
  */
 void sub_page_rxlog()
 {
-    int iRead = RAWLoRaRead;
+    // Start at the write slot: once the ring has wrapped it holds the oldest
+    // line (addRingPointer() keeps the read pointer one slot ahead of it).
+    int iRead = RAWLoRaWrite;
     _create_meshcom_subheader("RX Log");
+
+    // WQ-01: LoRa Queue panel. This fragment only carries data-* attributes;
+    // mcRenderQueue() (scaffold JS, see deliver_scaffold()) turns them into
+    // the bars/text, because a <script> tag injected via innerHTML never
+    // runs. stat_last_window_ms == 0 means no 5-min window has completed
+    // since boot -- data-win covers that for the JS side.
+    uint8_t mcqPrio[6] = {0};
+    txRingPrioCounts(mcqPrio);
+    uint32_t mcqDedupWin = setlogDedupWindowMin(stat_last_window.newid, PRIO_STAT_INTERVAL_S, MAX_DEDUP_RING);
+    uint32_t mcqAgeS = 0;
+    if (stat_last_window_ms != 0)
+    {
+        mcqAgeS = (millis() - stat_last_window_ms) / 1000UL;
+    }
+
+    // WQ-01: the card lives inside #content_inner so it shares the 4 % left
+    // margin of the log lines; fixed 600 px wide (max-width:100% keeps it on
+    // a phone screen), it does not scale with the page.
     web_client.println("<div id=\"content_inner\" class=\"logoutput\">");
+    web_client.println("<div class=\"cardlayout\" style=\"width:600px;max-width:100%;box-sizing:border-box;\">");
+    web_client.println("<label class=\"cardlabel\">LoRa Queue</label>");
+    web_client.println("<button id=\"mcqtogglebtn\" class=\"mcq-toggle\" onclick=\"mcQueueToggle(this)\">hide</button>");
+    web_client.printf("<div id=\"mcq\" data-ring=\"%u\" data-p0=\"%u\" data-p1=\"%u\" data-p2=\"%u\" data-p3=\"%u\"\n",
+                       (unsigned int)MAX_RING, (unsigned int)mcqPrio[0], (unsigned int)mcqPrio[1], (unsigned int)mcqPrio[2], (unsigned int)mcqPrio[3]);
+    web_client.printf(" data-p4=\"%u\" data-p5=\"%u\" data-bp=\"%d\" data-bpname=\"%s\" data-qrs=\"%d\" data-qrsf=\"%d\" data-qrt=\"%d\"\n",
+                       (unsigned int)mcqPrio[4], (unsigned int)mcqPrio[5], bpCurrentState(), bpStateName(), bpQrsThreshold(), bpQrsForecast((int)mcqPrio[0]), bpRefuseThreshold());
+    web_client.printf(" data-win=\"%d\" data-rx=\"%lu\" data-tx=\"%lu\" data-int=\"%d\" data-newid=\"%lu\"\n",
+                       (stat_last_window_ms != 0) ? 1 : 0, (unsigned long)stat_last_window.rx_ms, (unsigned long)stat_last_window.tx_ms,
+                       (int)PRIO_STAT_INTERVAL_S, (unsigned long)stat_last_window.newid);
+    web_client.printf(" data-dup=\"%lu\" data-dedup=\"%u\" data-dwin=\"%lu\" data-age=\"%lu\"></div>\n",
+                       (unsigned long)stat_last_window.dup, (unsigned int)MAX_DEDUP_RING, (unsigned long)mcqDedupWin, (unsigned long)mcqAgeS);
+    web_client.println("</div>");
+
     web_client.println("<div style=\"overflow:scroll;\">");
     do
     {
-        web_client.printf("<p class=\"font-small no-wrap\"><%i>%s</nobr></td></tr>\n", iRead, ringbufferRAWLoraRX[iRead]);
+        // WQ-01: normal text size (was font-small) -- the page uses three sizes only:
+        // title, normal (log lines, panel text), small (legend, notes, tick labels).
+        if (ringbufferRAWLoraRX[iRead][0] != 0x00)
+            web_client.printf("<p class=\"no-wrap\"><%i>%s</p>\n", iRead, ringbufferRAWLoraRX[iRead]);
         iRead = increment_mod(iRead, MAX_LOG);
-    } while (RAWLoRaRead != iRead);
+    } while (RAWLoRaWrite != iRead);
     web_client.println("</div></div>");
     web_client.println(); // The HTTP response ends with another blank line
 }
@@ -896,7 +1423,7 @@ void sub_page_position()
     web_client.printf("<tr><td>Latitude</td><td>%.4lf %c</td></tr>\n", meshcom_settings.node_lat, meshcom_settings.node_lat_c);
     web_client.printf("<tr><td>Longitude</td><td>%.4lf %c</td></tr>\n", meshcom_settings.node_lon, meshcom_settings.node_lon_c);
     web_client.printf("<tr><td>Altitude</td><td>%i</td></tr>\n", meshcom_settings.node_alt);
-    web_client.printf("<tr><td>Satellites</td><td>%i - %s - HDOP %i</td></tr>\n", (int)posinfo_satcount, (posinfo_fix ? "fix" : "nofix"), posinfo_hdop);
+    web_client.printf("<tr><td>Satellites</td><td>%i - %s - HDOP %i</td></tr>\n", (int)posinfo_satcount, (posinfo_fix ? "fix" : "nofix"), (int)fposinfo_hdop);
     web_client.printf("<tr><td>Rate</td><td>%i</td></tr>\n", (int)posinfo_interval);
     web_client.printf("<tr><td>Next</td><td>%i sec</td></tr>\n", (int)(((posinfo_timer + (posinfo_interval * 1000)) - millis()) / 1000));
     web_client.printf("<tr><td>Distance</td><td>%.0lf m</td></tr>\n", posinfo_distance);
@@ -928,7 +1455,7 @@ void sub_page_mheard()
     {
         if (mheardCalls[iset][0] != 0x00)
         {
-            if ((mheardEpoch[iset] + 60 * 60 * 3) > getUnixClock()) // 3h {
+            if (mheardFreshMs(iset, 3UL * 60UL * 60UL * 1000UL)) // 3h (NC-02: monoton, nicht Wanduhr)
                 isShowing = true;
             decodeMHeard(mheardBuffer[iset], mheardLine);
             web_client.printf("<div class=\"cardlayout\">\n");
@@ -983,7 +1510,7 @@ void sub_page_path()
     {
         if (mheardPathCalls[iset][0] != 0x00)
         {
-            if ((mheardPathEpoch[iset] + 60 * 60 * 3) > getUnixClock())
+            if (mheardPathFreshMs(iset, 3UL * 60UL * 60UL * 1000UL)) // 3h (NC-02: monoton, nicht Wanduhr)
             { // 3h
                 isShowing = true;
                 unsigned long lt = mheardPathEpoch[iset] + (long)(meshcom_settings.node_utcoff * 3600.0);
@@ -1011,6 +1538,21 @@ void sub_page_messages()
 {
     _create_meshcom_subheader("Messages");
     web_client.println("<div id=\"content_inner\">");
+
+    // tab bar filtering the panel below by data-dst; mcTab()/mcApplyTab() in
+    // the scaffold do the actual filtering (sub-page <script> never runs)
+    web_client.println("<div id=\"mctabs\">");
+    web_client.println("<button class=\"mctab mctab-on\" data-tab=\"all\" onclick=\"mcTab(this)\">All</button>");
+    web_client.println("<button class=\"mctab\" data-tab=\"*\" onclick=\"mcTab(this)\">*</button>");
+    for (int i = 0; i < (int)sizeof(meshcom_settings.node_gcb) / (int)sizeof(meshcom_settings.node_gcb[0]); i++)
+    {
+        if (meshcom_settings.node_gcb[i] > 0 && meshcom_settings.node_gcb[i] < 100000)
+        {
+            web_client.printf("<button class=\"mctab\" data-tab=\"%i\" onclick=\"mcTab(this)\">%i</button>\n", meshcom_settings.node_gcb[i], meshcom_settings.node_gcb[i]);
+        }
+    }
+    web_client.println("<button class=\"mctab\" data-tab=\"dm\" onclick=\"mcTab(this)\">DM</button>");
+    web_client.println("</div>");
 
     // this is where the asynchronous received messages will be displayed
     web_client.println("<div id=\"messages_panel\" class=\"mw-600\">");
@@ -1074,6 +1616,25 @@ void sub_page_setup()
     web_client.println("<button onclick=\"setvalue('setctry', document.getElementById('country').value,false)\"><i class=\"btncheckmark\"></i></button>");
 
     _create_setup_textinput_element("txpower", "TX Power", String(meshcom_settings.node_power), "15", "txpower", 2, false, false);                    // create Textinput-Element including Label and Button
+
+    // CS-02: Max-Hop als Drop-down. Angeboten werden 4/3/2; hat --maxhop einen
+    // Wert ausserhalb dieser Liste gesetzt (1, 5, 6), steht er zusaetzlich drin,
+    // damit die Seite den echten Zustand zeigt statt ihn stillschweigend zu
+    // aendern. Die Liste baut maxhop.h, dieselbe Quelle wie die serielle Pruefung.
+    {
+        int hops[MAXHOP_OPTION_MAX];
+        int nhops = maxHopOptionList(meshcom_settings.max_hop_text, hops, MAXHOP_OPTION_MAX);
+
+        web_client.println("<label for=\"maxhop\">Max Hop</label>");
+        web_client.println("<select id=\"maxhop\" name=\"maxhop\">");
+        for (int ih = 0; ih < nhops; ih++)
+        {
+            web_client.printf("\t<option value=\"%i\" %s>%i</option>\n", hops[ih], (hops[ih] == meshcom_settings.max_hop_text) ? "selected" : "", hops[ih]);
+        }
+        web_client.println("</select>");
+        web_client.println("<button onclick=\"setvalue('maxhop', document.getElementById('maxhop').value,false)\"><i class=\"btncheckmark\"></i></button>");
+    }
+
     _create_setup_textinput_element("utcoffset", "UTC Offset", String(meshcom_settings.node_utcoff, 1).c_str(), "1.0", "utcoffset", 4, false, false); // create Textinput-Element including Label and Button
     _create_setup_textinput_element("maxv", "max. Voltage", String(meshcom_settings.node_maxv, 3), "4.125", "maxv", 5, false, false);                 // create Textinput-Element including Label and Button
 
@@ -1124,6 +1685,12 @@ void sub_page_setup()
     #ifndef BOARD_RAK4630
     _create_setup_switch_element("netconsole", "net console", "enable net console (port 2323, HMAC auth)", bNETCONSOLE); // create Switch-Element inclucing Label and Description
     #endif
+    #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+    _create_setup_switch_element("kiss", "KISS/TCP", "enable KISS interface (port 8001)", bKISS);
+    _create_setup_switch_element("kisstx", "KISS TX", "allow transmit from KISS clients", bKISSTX);
+    _create_setup_switch_element("kissmeta", "KISS RxMeta", "send RSSI/SNR frames (KISS port 1)", bKISSMETA);
+    _create_setup_switch_element("kissauth", "KISS Auth", "require HMAC auth on port 8001 (uses --passwd)", bKISSAUTH);
+    #endif
     _create_setup_switch_element("gateway", "Gateway", "enable gateway", bGATEWAY);   // create Switch-Element inclucing Label and Description
 
     web_client.println("</div></div>");
@@ -1142,7 +1709,7 @@ void sub_page_setup()
     web_client.println("</div><div class=\"grid grid2\">");
 
     _create_setup_switch_element("gps", "GPS", "enable GPS", bGPSON);                                  // create Switch-Element inclucing Label and Description
-    _create_setup_switch_element("track", "Track", "enable display of SmartBeaconing", bDisplayTrack); // create Switch-Element inclucing Label and Description
+    _create_setup_switch_element("track", "Track", "enable display of SmartBeaconing", bDisplayTrack, TRACK_WARNING_TEXT, bDisplayTrack); // create Switch-Element inclucing Label and Description; TRK-01: Warnhinweis neben dem Switch
 
     web_client.println("</div></div>");
 
@@ -1251,7 +1818,27 @@ void sub_page_setup()
 
     _create_setup_switch_element("nomsgall", "No MSG All", "do not show messages send to all", bNoMSGtoALL); // create Switch-Element inclucing Label and Description
 
-    web_client.println("</div></div></div>");
+    web_client.println("</div></div>");
+
+    // Config Backup / Restore Section (CS-03)
+    // The download is a plain navigation to /config.json -- the response
+    // carries a Content-Disposition, so the browser saves it instead of
+    // rendering it. uploadconfig() lives in the scaffold's script block
+    // (this page is injected with innerHTML, an inline <script> would not run).
+    web_client.println("<div class=\"cardlayout collapsablecard\">");
+    web_client.println("<label class=\"cardlabel\">Config Backup / Restore</label>");
+    web_client.println("<span>Open this to save the whole node configuration to a file, or to restore it.</span>\n");
+    web_client.println("<button class=\"cardtoggle\" onclick=\"togglecard(this);\"><i></i></button>\n");
+    web_client.println("<div class=\"grid grid2\">");
+    web_client.println("<span><b>The file contains secrets in clear text</b> &ndash; the WiFi password, the web password and the BT code. Keep it like a password store.</span><i></i>");
+    web_client.println("<span>Download the configuration as JSON</span>");
+    web_client.println("<button onclick=\"window.location='/config.json';\">download</button>");
+    web_client.println("<span>Restore a configuration file. The node checks the layout version and the checksum, applies all values at once and then reboots.</span><i></i>");
+    web_client.println("<input type=\"file\" id=\"cfgfile\" accept=\".json,application/json\">");
+    web_client.println("<button onclick=\"uploadconfig();\">restore</button>");
+    web_client.println("</div></div>");
+
+    web_client.println("</div>");
     web_client.println(); // The HTTP response ends with another blank line
 }
 
@@ -1259,42 +1846,54 @@ void sub_page_setup()
  * ###########################################################################################################################
  * This will only deliver the preformatted messages to be loaded asyncronous into the WebUI scaffold
  */
+// bf_iter_begin()/bf_iter_next() (src/byte_fifo.h) walk the phone ring from
+// the oldest surviving frame to the newest, including frames sendToPhone()
+// has already popped -- exactly the "history" the old index scan from the
+// write cursor relied on (Upstream origin 87c6c200). If a writer evicts
+// frames mid-walk, the iterator stops there (byte_fifo.h): the page shows
+// what it still has instead of reading stale or re-wrapped memory.
 void sub_content_messages()
 {
-    int iRead = toPhoneRead;
-    if (bDEBUG)
-        Serial.printf("toPhoneWrite:%i toPhoneRead:%i\n", toPhoneWrite, toPhoneRead);
+    int rendered = 0;
 
-    if (toPhoneWrite == 0)
-    {
-        web_client.printf("<p>No messages available.</p>");
-    }
+    bf_iter_t it;
+    bf_iter_begin(&phoneRing, &it);
 
-    while (toPhoneWrite != iRead)
+    uint8_t frameBuf[MAX_MSG_LEN_PHONE];
+    uint8_t blelen;
+
+    while ((blelen = bf_iter_next(&phoneRing, &it, frameBuf, sizeof(frameBuf))) != 0)
     {
+        // bf_iter_next() liefert wie bf_peek() die volle Frame-Laenge, auch
+        // wenn sizeof(frameBuf) weniger kopiert hat. bf_push() laesst
+        // hoechstens 255 Byte zu (byte_fifo.cpp:59), frameBuf ist groesser --
+        // eine Laufzeitklemme kann also nie greifen; die Zusicherung haelt
+        // die Annahme fest.
+        static_assert(sizeof(frameBuf) >= 255,
+                      "frameBuf muss jeden bf_push()-Frame (max 255 B) fassen");
+
         if (bDEBUG)
-            Serial.printf("iRead:%i [1]:%02X\n", iRead, BLEtoPhoneBuff[iRead][1]);
+            Serial.printf("frame type:%02X\n", frameBuf[0]);
 
         uint8_t toPhoneBuff[MAX_MSG_LEN_PHONE] = {0}; // we need to insert the first byte text msg flag
-        uint8_t blelen = BLEtoPhoneBuff[iRead][0];    // MAXIMUM PACKET Length over BLE is 245 (MTU=247 bytes), two get lost, otherwise we need to split it up!
 
-        if (BLEtoPhoneBuff[iRead][1] == 0x91)
+        if (frameBuf[0] == 0x91)
         { // Mheard
-          // memcpy(toPhoneBuff, BLEtoPhoneBuff[iRead]+1, blelen-1);
+          // memcpy(toPhoneBuff, frameBuf, blelen-1);
         }
-        else if (BLEtoPhoneBuff[iRead][1] == 0x44)
+        else if (frameBuf[0] == 0x44)
         { // Data Message (JSON)
-          // memcpy(toPhoneBuff, BLEtoPhoneBuff[iRead]+1, blelen);
+          // memcpy(toPhoneBuff, frameBuf, blelen);
         }
-        else
+        else if (blelen >= 4 && (size_t)(blelen - 4) <= sizeof(toPhoneBuff))
         { // Text Message and Position
             uint8_t tbuffer[5];
             unsigned long unix_time = 0;
             char timestamp[21];
             String ccheck = "";
 
-            memcpy(toPhoneBuff, BLEtoPhoneBuff[iRead] + 1, blelen - 4);
-            memcpy(tbuffer, BLEtoPhoneBuff[iRead] + 1 + (blelen - 4), 4);
+            memcpy(toPhoneBuff, frameBuf, blelen - 4);
+            memcpy(tbuffer, frameBuf + (blelen - 4), 4);
             unix_time = (tbuffer[0] << 24) | (tbuffer[1] << 16) | (tbuffer[2] << 8) | tbuffer[3];
             time_t unix_t = (time_t)(unix_time + (long)(meshcom_settings.node_utcoff * 60 * 60));
             struct tm *oldt = gmtime(&unix_t);
@@ -1319,7 +1918,10 @@ void sub_content_messages()
             // Textmessage
             if (msg_type_b_lora == 0x3A)
             {
-                if (aprsmsg.msg_payload.indexOf(":ack") < 1)
+                // {CET} time beacons sit in the ring for the phone app's clock
+                // sync; they are not operator traffic and would light the tab
+                // badges on every beacon, so the web list skips them
+                if (aprsmsg.msg_payload.indexOf(":ack") < 1 && !aprsmsg.msg_payload.startsWith("{CET}"))
                 {
                     String msgtxt = aprsmsg.msg_payload;
                     if (bDEBUG)
@@ -1328,39 +1930,67 @@ void sub_content_messages()
                     if (msgtxt.indexOf('{') > 0)
                         msgtxt = aprsmsg.msg_payload.substring(0, msgtxt.indexOf('{'));
 
-                    // messages by others
+                    // WEB-03a: mesh-derived strings (payload, path, callsigns) are attacker-controlled -- escape before HTML output
+                    String msgtxt_esc = htmlEscape(msgtxt);
+                    String msg_source_path_esc = htmlEscape(aprsmsg.msg_source_path);
+                    String msg_destination_path_esc = htmlEscape(aprsmsg.msg_destination_path);
+
+                    // own messages (source == us): the browser's DM tab keys on the destination call
                     if (is_equ(meshcom_settings.node_call, aprsmsg.msg_source_call.c_str()))
                     {
-                        web_client.printf("<div class=\"message message-send\"><div>");
+                        String dst_esc = htmlEscape(aprsmsg.msg_destination_call);
+
+                        web_client.printf("<div class=\"message message-send\" data-id=\"%u\" data-dst=\"%s\" data-ts=\"%lu\"><div>", aprsmsg.msg_id, dst_esc.c_str(), unix_time);
 
                         web_client.printf("<p class=\"font-small font-bold\">%s", ccheck.c_str());
-                        web_client.printf("<a target=\"_blank\" href=\"https://aprs.fi/?call=%s\">%s</a>", aprsmsg.msg_source_path.c_str(), aprsmsg.msg_source_path.c_str());
-                        web_client.printf("%s%s</p>", (char *)">", aprsmsg.msg_destination_path.c_str());
+                        web_client.printf("<a target=\"_blank\" href=\"https://aprs.fi/?call=%s\">%s</a>", msg_source_path_esc.c_str(), msg_source_path_esc.c_str());
+                        web_client.printf("%s%s</p>", (char *)">", msg_destination_path_esc.c_str());
 
                         web_client.printf("<p class=\"font-small font-bold\">%s</p>", timestamp);
-                        web_client.printf("<p class=\"font-normal\">%s</p>", msgtxt.c_str());
+                        web_client.printf("<p class=\"font-normal\">%s</p>", msgtxt_esc.c_str());
                         web_client.printf("</div></div>");
                     }
-                    // own messages
+                    // messages by others: "*" and group numbers key on the destination call as-is,
+                    // a DM to us keys on the source call so the DM tab shows both directions
                     else
                     {
-                        web_client.printf("<div class=\"message message-received\"><div>");
+                        bool isGroupDst = is_equ(aprsmsg.msg_destination_call.c_str(), "*");
+                        if (!isGroupDst && aprsmsg.msg_destination_call.length() > 0)
+                        {
+                            isGroupDst = true;
+                            for (unsigned int ci = 0; ci < aprsmsg.msg_destination_call.length(); ci++)
+                            {
+                                if (!isDigit(aprsmsg.msg_destination_call.charAt(ci)))
+                                {
+                                    isGroupDst = false;
+                                    break;
+                                }
+                            }
+                        }
+                        String dst_esc = htmlEscape(isGroupDst ? aprsmsg.msg_destination_call : aprsmsg.msg_source_call);
+
+                        web_client.printf("<div class=\"message message-received\" data-id=\"%u\" data-dst=\"%s\" data-ts=\"%lu\"><div>", aprsmsg.msg_id, dst_esc.c_str(), unix_time);
 
                         web_client.printf("<p class=\"font-small font-bold\">%s", ccheck.c_str());
-                        web_client.printf("<a target=\"_blank\" href=\"https://aprs.fi/?call=%s\">%s</a>", aprsmsg.msg_source_path.c_str(), aprsmsg.msg_source_path.c_str());
-                        web_client.printf("%s%s</p>", (char *)">", aprsmsg.msg_destination_path.c_str());
+                        web_client.printf("<a target=\"_blank\" href=\"https://aprs.fi/?call=%s\">%s</a>", msg_source_path_esc.c_str(), msg_source_path_esc.c_str());
+                        web_client.printf("%s%s</p>", (char *)">", msg_destination_path_esc.c_str());
 
                         web_client.printf("<p class=\"font-small font-bold\">%s</p>", timestamp);
-                        web_client.printf("<p class=\"font-normal\">%s</p>", msgtxt.c_str());
+                        web_client.printf("<p class=\"font-normal\">%s</p>", msgtxt_esc.c_str());
                         web_client.printf("</div></div>");
                     }
+
+                    rendered++;
                 }
             }
         }
-        iRead++;
-        if (iRead >= MAX_RING)
-            iRead = 0;
     }
+
+    if (rendered == 0)
+    {
+        web_client.printf("<p>No messages available.</p>");
+    }
+
     web_client.println(); // The HTTP response ends with another blank line
 }
 
@@ -1495,10 +2125,21 @@ void sub_page_info()
     web_client.printf("<tr><td>Call</td><td>%s</td></tr>\n", meshcom_settings.node_call);
     web_client.printf("<tr><td>Hardware</td><td>%s</td></tr>\n", getHardwareLong(BOARD_HARDWARE).c_str());
     web_client.printf("<tr><td>UTC offset</td><td>%.1f [%s]</td></tr>\n", meshcom_settings.node_utcoff, cTimeSource);
-    web_client.printf("<tr><td>Battery</td><td>%.3fV (%d%%) max %.3fV</td></tr>\n", global_batt / 1000.0, global_proz, meshcom_settings.node_maxv);
+    // BAT-01: global_batt==0.0 is the established "no reading" convention (grounded pin, or
+    // the ADC-path no-battery detection in batt_functions.cpp) -- same check the on-device
+    // displays already use, see loop_functions.cpp.
+    if(global_batt == 0.0)
+        web_client.printf("<tr><td>Battery</td><td>USB (no battery)</td></tr>\n");
+    else
+        web_client.printf("<tr><td>Battery</td><td>%.3fV (%d%%) max %.3fV</td></tr>\n", global_batt / 1000.0, global_proz, meshcom_settings.node_maxv);
     web_client.printf("<tr><td>Settings</td><td>");
     web_client.printf("Gateway: %s<br>", (bGATEWAY ? "on" : "off"));
-    web_client.printf("Analog: %s<br>", (bAnalogCheck ? "on" : "off"));
+    if (!bAnalogCheck)
+        web_client.printf("Analog: off<br>");
+    else if (meshcom_settings.node_analog_pin <= 0 || meshcom_settings.node_analog_pin >= 99)
+        web_client.printf("Analog: on (GPIO not set, measurement paused)<br>");
+    else
+        web_client.printf("Analog: on (GPIO %i)<br>", meshcom_settings.node_analog_pin);
     web_client.printf("Mesh: %s<br>", (bMESH ? "on" : "off"));
     web_client.printf("Routing: %s<br>", (bVIA ? "on" : "off"));
     web_client.printf("Button: %s<br>", (bButtonCheck ? "on" : "off"));
@@ -1530,7 +2171,11 @@ void sub_page_info()
         if (bWIFIAP)
             web_client.printf("<tr><td>WiFi SSID</td><td>%s</td></tr>\n", cBLEName);
         else
+        {
             web_client.printf("<tr><td>WiFi SSID</td><td>%s</td></tr>\n", meshcom_settings.node_ssid);
+            // WEB-02: shows which AP the node associated with when several APs share the same SSID (mesh sets)
+            web_client.printf("<tr><td>WiFi BSSID</td><td>%s</td></tr>\n", WiFi.BSSIDstr().c_str());
+        }
 
         web_client.printf("<tr><td>WiFi AP</td><td>%s</td></tr>\n", (bWIFIAP ? "yes" : "no"));
         web_client.printf("<tr><td>WiFi RSSI</td><td>%i</td></tr>\n", WiFi.RSSI()); 
@@ -1554,7 +2199,7 @@ void sub_page_info()
         {
             web_client.printf("<tr><td>GW address</td><td>%s</td></tr>\n", meshcom_settings.node_gw);
             web_client.printf("<tr><td>DNS address</td><td>%s</td></tr>\n", meshcom_settings.node_dns);
-            web_client.printf("<tr><td>NTP address</td><td>%s</td></tr>\n", meshcom_settings.node_ownntp);
+            web_client.printf("<tr><td>NTP address</td><td>%s</td></tr>\n", getEffectiveNtpServer().c_str());
         }
     
     }
@@ -1572,7 +2217,10 @@ void sub_page_info()
     if (bAnalogCheck)
     {
         web_client.println("<tr><td>Analog</td><td>");
-        web_client.printf("ANALOG GPIO: %i<br>>", meshcom_settings.node_analog_pin);
+        if (meshcom_settings.node_analog_pin <= 0 || meshcom_settings.node_analog_pin >= 99)
+            web_client.printf("ANALOG GPIO: not set (measurement paused)<br>");
+        else
+            web_client.printf("ANALOG GPIO: %i<br>", meshcom_settings.node_analog_pin);
         web_client.printf("Factor: %.4fV<br>", meshcom_settings.node_analog_faktor);
         web_client.printf("Value: %.2fV<br>", fAnalogValue);
         web_client.printf("</td></tr>\n");
@@ -1707,6 +2355,9 @@ void send_http_header(uint16_t http_status_code, uint8_t content_type)
     case 200:
         status_text = "OK";
         break; // use this when ever a request was successful
+    case 400:
+        status_text = "Bad Request";
+        break; // use this when a request body was rejected (CS-03 config upload)
     case 401:
         status_text = "Unauthorized";
         break; // use this when ever a request was successful
@@ -1784,10 +2435,17 @@ void _create_setup_textinput_element(const char id[], const char labelText[], St
  * @param labelText the text in the label
  * @param descriptionText the smaller text in brackets
  * @param checked TRUE, if the switch should be displayed as activated
+ * @param warnText TRK-01: optionaler Warnhinweis-Text neben dem Switch; nullptr = kein Hinweis
+ * @param warnVisible TRK-01: TRUE, wenn der Warnhinweis beim Seitenaufbau sichtbar sein soll
  */
-void _create_setup_switch_element(const char id[], const char labelText[], const char descriptionText[], bool checked)
+void _create_setup_switch_element(const char id[], const char labelText[], const char descriptionText[], bool checked, const char warnText[], bool warnVisible)
 {
-    web_client.printf("<label for=\"%s\">%s <span class=\"font-small\">(%s)</span></label>\n", id, labelText, descriptionText);
+    web_client.printf("<label for=\"%s\">%s <span class=\"font-small\">(%s)</span>", id, labelText, descriptionText);
+    if (warnText != nullptr)
+    { // TRK-01: zweiter Span mit der id "<id>_warn", damit setvalue() ihn live umschalten kann
+        web_client.printf("<span id=\"%s_warn\" class=\"font-small\" style=\"color:var(--mcred)%s\"> %s</span>", id, warnVisible ? "" : ";display:none", warnText);
+    }
+    web_client.println("</label>");
     web_client.printf("<input type=\"checkbox\" role=\"switch\" id=\"%s\" %s onchange=\"setvalue(this.id,this.checked?'on':'off',false)\"/>\n", id, checked ? "checked" : "");
 }
 
@@ -1817,6 +2475,14 @@ void send_message(String web_header)
 
         tocall.toUpperCase();
 
+        // BP-09: default outcome string, overridden below by the actual
+        // sendMessage() result. The page's own sendMessage() JS (further
+        // below, search for "onreadystatechange") tests this response for
+        // "sendmessage ok" and only clears the input fields on a match, so
+        // a refused or dropped message leaves the operator's text on screen.
+        // Keep the four strings and that test in sync.
+        const char *bp_result_text = "sendmessage ok";
+
         if (message.length() > 0)
         {
             if (tocall.length() > 0)
@@ -1840,14 +2506,24 @@ void send_message(String web_header)
             if (iml > 0)
             {
                 hasMsgFromPhone = true;
-                sendMessage(message_text, iml);
+                setMsgOrigin(ORIGIN_WEB);   // BP-01: notice goes back to the web GUI
+                int bp_rc = sendMessage(message_text, iml);
+                setMsgOrigin(ORIGIN_NONE);
                 hasMsgFromPhone = false;
                 // Serial.print("Message send: ");
                 // Serial.println(message_text);
+
+                switch (bp_rc)
+                {
+                    case BP_SEND_REFUSED: bp_result_text = "sendmessage refused"; break;
+                    case BP_SEND_DROPPED: bp_result_text = "sendmessage dropped"; break;
+                    case BP_SEND_INVALID: bp_result_text = "sendmessage invalid"; break;
+                    default:              bp_result_text = "sendmessage ok";      break;
+                }
             }
         }
 
-        web_client.println("sendmessage ok");
+        web_client.println(bp_result_text);
     }
     else
     {
@@ -1880,8 +2556,16 @@ void call_function(String web_header)
 
     webFunctionCall(&functionData); // try to execute that command
 
-    send_http_header(functionData.returnCode == WF_RETURNCODE_OKAY ? 200 : 422, RESPONSE_TYPE_JSON);                                              // send header, either 200 if command was executed or 422 if not
-    web_client.printf("{\"%s\":\"%s\"}\n\n", functionData.functionName.c_str(), functionData.returnCode == WF_RETURNCODE_OKAY ? "ok" : "failed"); // send JSON status response containting {"functionName":"ok|failed"}
+    send_http_header(functionData.returnCode == WF_RETURNCODE_OKAY ? 200 : 422, RESPONSE_TYPE_JSON); // send header, either 200 if command was executed or 422 if not
+
+    // JSN-01: functionName is percent-decoded, attacker-controlled query input
+    // and used to land here unescaped via a raw %s -- a '"' or '\' in it broke
+    // the response. Build through a JsonDocument instead: ArduinoJson escapes
+    // both the key and the value on serialise.
+    JsonDocument doc;
+    doc[functionData.functionName] = (functionData.returnCode == WF_RETURNCODE_OKAY) ? "ok" : "failed"; // {"functionName":"ok|failed"}
+    serializeJson(doc, web_client);
+    web_client.println();
 }
 
 /**
@@ -1914,8 +2598,16 @@ void setparam(String web_header)
         send_http_header(200, RESPONSE_TYPE_JSON);
     else
         send_http_header(422, RESPONSE_TYPE_JSON);
-    // build a json object literal and return it. Example:  {"returncode":1, "setcall":"AB1CDE-12"}    rembemer: keys have to be strings
-    web_client.printf("{\"returncode\":%i, \"%s\":\"%s\"}\n", setupData.returnCode, setupData.paramName.c_str(), setupData.returnValue.c_str());
+
+    // JSN-01: paramName/returnValue are unescaped user input (SSID, password,
+    // node_atxt free text, the static IP fields, ...) landing here via a raw
+    // %s -- a '"' broke the response. Build via ArduinoJson so both key and
+    // value are escaped on serialise. Example: {"returncode":1,"setcall":"AB1CDE-12"}
+    JsonDocument doc;
+    doc["returncode"] = setupData.returnCode;
+    doc[setupData.paramName] = setupData.returnValue;
+    serializeJson(doc, web_client);
+    web_client.println();
 }
 
 /**
@@ -1925,10 +2617,24 @@ void setparam(String web_header)
  */
 void getparam(String web_header)
 {
-    web_header = web_header.substring(web_header.indexOf("/setparam/?") + 11, web_header.indexOf(" HTTP/1.1"));
+    // CS-04, zwei Fehler in zwei Zeilen -- beide auf DK5EN-98 nachgestellt:
+    //
+    //  1. Gesucht wurde "/setparam/?" statt "/getparam/?". indexOf() liefert
+    //     dann -1, und substring(-1+11 = 10, ...) schneidet den Namen aus der
+    //     falschen Stelle des Headers: aus "GET /getparam/?gateway HTTP/1.1"
+    //     wurde der Parametername "ram/?gateway" -> immer returncode 2.
+    //  2. Bei vorhandenem "=" wurde substring(indexOf("=")) genommen, also der
+    //     Teil AB dem Gleichheitszeichen. Der Kommentar sagt das Gegenteil
+    //     ("We only do need the parameter Name"): "/getparam/?gateway=" ergab
+    //     den Namen "=". Richtig ist substring(0, indexOf("=")).
+    //
+    // Damit war JEDES Lesen ueber die Web-API defekt, waehrend /setparam/
+    // funktionierte -- die Web-GUI faellt es nicht auf, weil sie ihre Werte aus
+    // den gerenderten Seiten nimmt, nicht ueber /getparam/.
+    web_header = web_header.substring(web_header.indexOf("/getparam/?") + 11, web_header.indexOf(" HTTP/1.1"));
     if (web_header.indexOf("=") > 0)
     {
-        web_header = web_header.substring(web_header.indexOf("=")); // maybe there is an unintended "=" or anything more. We only do need the parameter Name.
+        web_header = web_header.substring(0, web_header.indexOf("=")); // maybe there is an unintended "=" or anything more. We only do need the parameter Name.
     }
 
     web_header.trim();
@@ -1953,6 +2659,12 @@ void getparam(String web_header)
         send_http_header(200, RESPONSE_TYPE_JSON);
     else
         send_http_header(422, RESPONSE_TYPE_JSON);
-    // build a json object literal and return it. Example:  {"returncode":1, "setcall":"AB1CDE-12"}    rembemer: keys have to be strings
-    web_client.printf("{\"returncode\":%i, \"%s\":\"%s\"}\n", setupData.returnCode, setupData.paramName.c_str(), setupData.returnValue.c_str());
+
+    // JSN-01: same fix as setparam() above -- build via ArduinoJson instead
+    // of an unescaped %s. Example: {"returncode":1,"setcall":"AB1CDE-12"}
+    JsonDocument doc;
+    doc["returncode"] = setupData.returnCode;
+    doc[setupData.paramName] = setupData.returnValue;
+    serializeJson(doc, web_client);
+    web_client.println();
 }

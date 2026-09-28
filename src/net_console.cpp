@@ -41,6 +41,10 @@
 static auto& s_hwSerial = Serial;
 
 #include "net_console.h"
+#include <configuration.h>        // board defines (HAS_ETHERNET)
+#if defined(HAS_ETHERNET)
+#include <esp32/esp32_flash.h>   // meshcom_settings (Ethernet mode check)
+#endif
 // From here: Serial == MSerial
 
 // ── Password ──────────────────────────────────────────────────────────────────
@@ -168,31 +172,23 @@ static void authTask(void* arg)
 
         if (readOk)
         {
-            Serial.printf("[CON ]...s_password:<%s> lng:%i resoBuf:<%s>\n", s_password, strlen(s_password), respBuf);
+            Serial.printf("[CON ]...s_password:<***> lng:%i resoBuf:<***>\n", strlen(s_password));
 
-            // KBC check without SHA256
-            if(memcmp(respBuf, s_password, strlen(s_password)) != 0)
+            // 4. Compute expected HMAC-SHA256(password, nonce)
+            uint8_t expected[32];
+            const mbedtls_md_info_t* md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
+            if (md && mbedtls_md_hmac(md,
+                                    (const uint8_t*)s_password, strlen(s_password),
+                                    nonce, sizeof(nonce), expected) == 0)
             {
-                // 4. Compute expected HMAC-SHA256(password, nonce)
-                uint8_t expected[32];
-                const mbedtls_md_info_t* md = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-                if (md && mbedtls_md_hmac(md,
-                                        (const uint8_t*)s_password, strlen(s_password),
-                                        nonce, sizeof(nonce), expected) == 0)
+                // 5. Hex-decode response, constant-time compare
+                uint8_t received[32];
+                if (strlen(respBuf) == 64 &&
+                    hex_to_bytes(respBuf, 64, received, 32) &&
+                    ct_equal(expected, received, 32))
                 {
-                    // 5. Hex-decode response, constant-time compare
-                    uint8_t received[32];
-                    if (strlen(respBuf) == 64 &&
-                        hex_to_bytes(respBuf, 64, received, 32) &&
-                        ct_equal(expected, received, 32))
-                    {
-                        authOk = true;
-                    }
+                    authOk = true;
                 }
-            }
-            else
-            {
-                authOk = true;
             }
         }
     }
@@ -230,7 +226,46 @@ static void authTask(void* arg)
 
 
 // ── MeshSerialClass ───────────────────────────────────────────────────────────
-void MeshSerialClass::begin(unsigned long baud) { s_hwSerial.begin(baud); }
+void MeshSerialClass::begin(unsigned long baud)
+{
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+    // CDC-02 (2026-09-06, DK5EN-14): HWCDC::begin() (arduino-esp32 2.0.14,
+    // HWCDC.cpp:171-197) creates the 256 B TX ring buffer and enables the
+    // SERIAL_IN_EMPTY ISR; setTxBufferSize() (HWCDC.cpp:228-241) frees that
+    // buffer and briefly leaves tx_ring_buf NULL while allocating the new
+    // one. The ISR (HWCDC.cpp:92) dereferences tx_ring_buf with no NULL
+    // check, so calling setTxBufferSize() after begin() races a host
+    // port-open against the ISR and hits "assert failed:
+    // xRingbufferReceiveUpToFromISR ringbuf.c:1269". Sizing the buffer
+    // before the first begin() is race-free, since no ISR exists yet. The
+    // once-flag guards against T5-ePaper/T-Deck Pro, where begin() runs
+    // twice per boot (esp32_main.cpp and again via idf_setup()/
+    // initTDeck_pro()) -- the second call must not resize a live buffer.
+    static bool s_txBufSized = false;
+    if (!s_txBufSized)
+    {
+        s_hwSerial.setTxBufferSize(4096);
+        s_txBufSized = true;
+    }
+#endif
+    s_hwSerial.begin(baud);
+#if ARDUINO_USB_CDC_ON_BOOT && ARDUINO_USB_MODE
+    // CDC-01 (2026-09-05, DK5EN-14): on the S3 boards s_hwSerial is the
+    // native USB-JTAG/CDC (HWCDC). arduino-esp32 2.0.14 raises its TX
+    // timeout from 0 to 100 ms on the first successful host read and never
+    // lowers it again, so once the cable is pulled or the terminal closed,
+    // every print that does not fit the 256 B ring buffer blocks the main
+    // loop for 100 ms -- [BALL] per cursor step, GPS lines every 3 s, [LOG]
+    // lines -- and the trackball cursor and the touch input freeze in that
+    // rhythm. Asking for 0 explicitly is honoured by the core
+    // (tx_timeout_change_request) and means "drop when full, never block".
+    // The larger TX ring keeps bench logs intact under a connected host:
+    // bursts (--redrawlog) that used to wait 100 ms for room now need the
+    // room to exist. Bench proof: tdeck_harness.py --scenario cdc_backpressure.
+    // (buffer sized above, before begin() -- see CDC-02.)
+    s_hwSerial.setTxTimeoutMs(0);
+#endif
+}
 int  MeshSerialClass::available()               { return s_hwSerial.available(); }
 int  MeshSerialClass::read()                    { return s_hwSerial.read(); }
 int  MeshSerialClass::peek()                    { return s_hwSerial.peek(); }
@@ -289,14 +324,19 @@ void stopNetConsole()
 {
     if (!s_started) return;
     s_started        = false;
-    s_mutex          = xSemaphoreCreateMutex();
     s_server_pending = false;   // open socket on next loopNetConsole() call
 
     // stop
     if(s_listen_fd >= 0)
-        ::close(s_listen_fd); s_listen_fd = -1;
+    {
+        ::close(s_listen_fd);
+    }
+    s_listen_fd = -1;
 
-    teardownClient();
+    if (s_mutex && xSemaphoreTake(s_mutex, portMAX_DELAY) == pdTRUE)
+    {
+        teardownClient();
+    }
 
     s_hwSerial.println("[CON ]...HMAC console stopped.");
 }
@@ -309,7 +349,15 @@ void loopNetConsole()
     // und damit einen Panic/Reboot. Daher hier frueh aussteigen, solange kein WiFi verbunden
     // ist. s_server_pending bleibt erhalten, sodass der Listening-Socket geoeffnet wird, sobald
     // die WiFi-Verbindung steht. (Ohne IP kann die Netconsole ohnehin nicht arbeiten.)
-    if (WiFi.status() != WL_CONNECTED)
+    bool networkReady = (WiFi.status() == WL_CONNECTED);
+
+    #if defined(HAS_ETHERNET)
+    // Ethernet mode: WiFi never connects, the IP comes from the Ethernet interface.
+    networkReady = networkReady ||
+                   (meshcom_settings.node_netmode == 1 && meshcom_settings.node_hasIPaddress);
+    #endif
+
+    if (!networkReady)
         return;
 
     // Open listening socket on first call (triggered by startNetConsole)

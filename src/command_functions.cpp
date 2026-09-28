@@ -1,12 +1,16 @@
 //2025-09-16 23:036
 #include "command_functions.h"
+#include "capture_functions.h"
 #include "loop_functions.h"
 #include "loop_functions_extern.h"
 #include "printfdeb_functions.h"
+#include "instrument.h"     // TEMPORARY -- measurement scaffolding, see src/instrument.h
 #include "batt_functions.h"
 #include "mheard_functions.h"
 #include "udp_functions.h"
 #include "extudp_functions.h"
+#include "ntp_async.h"
+#include "ble_json_frame.h"
 #include "i2c_scanner.h"
 #include "ArduinoJson.h"
 #include "configuration.h"
@@ -14,14 +18,19 @@
 #include "lora_setchip.h"
 #include "spectral_scan.h"
 #include "rtc_functions.h"
+#include "maxhop.h"
+#include "settings_sanitize.h" // #1132: resolve_tx_power sentinel normalization
+#include "track_warning.h" // TRK-01: Warnhinweis bei aktivem Track
 #ifdef ESP32
 #include "net_console.h"
+#include "kiss_functions.h"
 #endif
 #include "tinyxml_functions.h"
 #include "clock.h"
 
 #ifdef ESP32
 #include "esp32/esp32_functions.h"
+#include "esp32/esp32_sleep.h"
 #endif
 
 // Sensors
@@ -70,10 +79,14 @@ unsigned long rebootAuto = 0;
 // libs for T-Deck view refresh
 #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
 #include <t-deck/lv_obj_functions.h>
+#include <t-deck/tdeck_debug.h>
+#include <SD.h>
+#include <esp32/esp32_audio.h>
 #ifdef HEAP_TEST
 #include <SPIFFS.h>
 #endif
 #endif
+#include "test_inject.h"
 
 #if defined(BOARD_T5_EPAPER)
 #include <t5-epaper/t5epaper_extern.h>
@@ -94,6 +107,54 @@ bool bRxFromPhone = false;
 
 size_t json_len = 0;
 
+// JSN-01: shared sender for the BLE "register" builders below (TM/W/IO/I/SE/
+// S1/SW/S2/G/SN/AN/SA/CONFFIN). All thirteen call sites used to
+// serializeJson(doc, print_buff, measureJson(doc)) -- bounding the write by
+// the *document*, not by sizeof(print_buff), so a document longer than the
+// 350-byte scratch buffer overflowed it (the same BND-03 pattern
+// src/ble_json_frame.h exists to prevent). The result was then clamped to
+// MAX_MSG_LEN_PHONE-2 raw bytes, which can cut a multi-byte value mid-string
+// and hand the phone JSON it cannot parse
+// (docs/issue-ble-i-register-mtu-20260828.md).
+//
+// Fix: bleJsonFrameFailSoft() (src/ble_json_frame.h) bounds the ArduinoJson
+// write by the frame buffer itself (never overflows), and -- if the
+// *document* still does not fit the phone's real budget (BLE_JSON_PAYLOAD_MAX
+// -- see configuration_global.h for why that is the effective limit, not
+// MAX_MSG_LEN_PHONE-2) -- drops trailing optional fields and re-measures
+// instead of truncating serialised bytes.
+static void sendBleJsonRegister(JsonDocument &doc)
+{
+    memset(msg_buffer, 0, sizeof(msg_buffer));
+    msg_buffer[0] = 0x44;
+    uint16_t len = bleJsonFrameFailSoft(doc, msg_buffer, sizeof(msg_buffer), BLE_JSON_PAYLOAD_MAX);
+    if (len > 1)
+        addBLEComToOutBuffer(msg_buffer, len);
+}
+
+// build date/time of this firmware as "YYYYMMDD-HHMMSS"
+// __DATE__ = "Sep 25 2026" (day with leading space if < 10), __TIME__ = "11:06:03"
+static void getBuildDate(char *buf, size_t len)
+{
+    static const char months[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    const char *build_date = __DATE__;
+    const char *build_time = __TIME__;
+
+    int month = 0;
+    for (int i = 0; i < 12; i++)
+    {
+        if (strncmp(build_date, months + i * 3, 3) == 0)
+        {
+            month = i + 1;
+            break;
+        }
+    }
+
+    snprintf(buf, len, "%04d%02d%02d-%c%c%c%c%c%c",
+        atoi(build_date + 7), month, atoi(build_date + 4),
+        build_time[0], build_time[1], build_time[3], build_time[4], build_time[6], build_time[7]);
+}
+
 int casecmp(const char *s1, const char *s2)
 {
 	while (*s1 != 0 && tolower(*s1) == tolower(*s2))
@@ -109,6 +170,13 @@ int casecmp(const char *s1, const char *s2)
 		? -1
 		: (tolower(*s1) - tolower(*s2));
 }
+
+// CS-01: maxhop.h is Arduino-free (native test), configuration_global.h is not --
+// so the default is written down twice. It must not drift.
+static_assert(MAXHOP_TEXT_FALLBACK == MAX_HOP_TEXT_DEFAULT,
+              "maxhop.h MAXHOP_TEXT_FALLBACK and configuration_global.h MAX_HOP_TEXT_DEFAULT differ");
+static_assert(MAXHOP_TEXT_MAX < MAX_HOP_LIMIT,
+              "the serial --maxhop range must stay inside the on-air hop limit");
 
 int commandCheck(char *msg, char *command)
 {
@@ -394,8 +462,6 @@ void commandAction(char *umsg_text, bool ble)
         // minimum 3 Minuten
         if(meshcom_settings.node_postime < (5 * 60))
             meshcom_settings.node_postime = (5 * 60);
-        else
-            meshcom_settings.node_postime = 0;
 
         if(meshcom_settings.node_postime > 0)
             posinfo_interval = meshcom_settings.node_postime;
@@ -611,6 +677,33 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    #if defined(NRF52_SERIES)
+    // --dfu: in den UF2-Bootloader neu starten, das Board meldet sich dann als
+    // USB-Laufwerk (RAK4631) und laesst sich per Datei-Kopie flashen.
+    //
+    // Warum das existiert: der UF2-Bootloader wird sonst nur per Doppeldruck auf
+    // Reset oder per 1200-Baud-Touch auf der USB-CDC erreicht. Beides faellt aus,
+    // wenn die CDC-Verbindung haengt -- dann bleibt nur physischer Zugriff aufs
+    // Geraet. Ueber diesen Befehl geht es auch per BLE oder Netz-Konsole.
+    //
+    // Der eigentliche Sprung passiert verzoegert im Loop (bEnterDfu), damit die
+    // Quittung noch rausgeht; ein Reset direkt hier verschluckt sie.
+    if(commandCheck(msg_text+2, (char*)"dfu") == 0)
+    {
+        if(ble)
+        {
+            addBLECommandBack((char*)"--dfu now");
+        }
+
+        printfdeb("...starte in den UF2-Bootloader, Board meldet sich als USB-Laufwerk\n");
+
+        bEnterDfu = true;
+        rebootAuto = millis() + 2000;   // 2 s, damit BLE/Seriell die Quittung noch senden
+
+        return;
+    }
+    else
+    #endif
     if(commandCheck(msg_text+2, (char*)"reboot") == 0)
     {
         if(ble)
@@ -693,6 +786,9 @@ void commandAction(char *umsg_text, bool ble)
 //        else
         {
             printfdeb("MeshCom %-4.4s%-1.1s commands\n--setcall  set callsign (OE0XXX-1)\n--operatorname set first name/none\n--setctry 0-99 set RX/RX-LoRa-Parameter\n--reboot   Node reboot\n", SOURCE_VERSION, SOURCE_VERSION_SUB);
+            #if defined(NRF52_SERIES)
+            printfdeb("--dfu      reboot into UF2 bootloader (node appears as USB drive)\n");
+            #endif
             delay(100);
 
             printlndeb("--setssid  WLAN SSID/none\n--setpwd   WLAN PASSWORD/none\n--setownip 255.255.255.255\n--setowngw 255.255.255.255\n--setownms mask:255.255.255.255\n--setowndns 255.255.255.255\n--setownntp 255.255.255.255\n--wifiap on/off WLAN AP\n--extudp  on/off\n--extudpip 255.255.255.255/none\n");
@@ -703,11 +799,11 @@ void commandAction(char *umsg_text, bool ble)
 
             printlndeb("--btcode 999999 BT-Code\n--button gpio 99 User-Button PIN\n--analog gpio 99 Analog PIN\n--analog factor 9.9 Analog factor\n--analog check on/off\n");
             delay(100);
-            printfdeb("--pos      show lat/lon/alt/time info\n--weather  show temp/hum/press\n--sendpos  send pos info now\n--setlat   set latitude 44.12345\n--setlon   set logitude 016.12345\n--setalt   set altidude 9999m\n");
+            printfdeb("--pos      show lat/lon/alt/time info\n--weather  show temp/hum/press\n--sendpos  send pos info now\n--setlat   set latitude 44.12345\n--setlon   set logitude 016.12345\n--setalt   set altidude 9999m, with GPS: seeds the altitude filter, GPS keeps refining\n");
             delay(100);
             printlndeb("--symid  set prim/sec Sym-Table\n--symcd  set table column\n--aprscomment  set APRS Comment/none\n--showI2C\n");
             delay(100);
-            printlndeb("--debug    on/off\n--bledebug on/off\n--loradebug on/off\n--gpsdebug  on/off\n--softserdebug  on/off\n--wxdebug   on/off\n--display   on/off\n--setinfo   on/off\n--volt on/off   show battery voltage\n--proz on/off    show battery proz.\n");
+            printlndeb("--debug    on/off\n--bledebug on/off\n--loradebug on/off\n--txcapture on/off\n--gpsdebug  on/off\n--softserdebug  on/off\n--wxdebug   on/off\n--display   on/off\n--setinfo   on/off\n--volt on/off   show battery voltage\n--proz on/off    show battery proz.\n");
             delay(100);
 #if defined(WP_DISP)
             printlndeb("--rotate 0/90/180/270  E-Ink Display drehen (persistent, board-uebergreifend)\n");
@@ -715,14 +811,25 @@ void commandAction(char *umsg_text, bool ble)
 #endif
             printfdeb("--setgrc 9;..9;  set groups\n--nomsgall on/off  '*'-msg on display\n");
             delay(100);
-            printlndeb("--maxv    100%% battery voltage\n--track   on/off SmartBeaconing\n--gps on/off use GPS-CHIP\n--utcoff +/-99.9 set UTC-Offset\n−−settime yyyy.mm.dd hh:mm:ss\n");
+            printlndeb("--maxv    100%% battery voltage\n--track   on/off SmartBeaconing\n--gps on/off use GPS-CHIP\n--utcoff +/-99.9 set UTC-Offset\n--settime yyyy.mm.dd hh:mm:ss\n");
             delay(100);
             printlndeb("--gps reset Factory reset\n--txpower 99 LoRa TX-power dBm\n--txfreq  999.999 LoRa TX-freqency MHz\n--txbw    999 LoRa TX-bandwith kHz\n--lora    Show LoRa setting\n");
             delay(100);
-            printlndeb("--bmp on  use BMP280-CHIP\n--bme on  use BME280-CHIP\n--680 on  use BME680-CHIP\n--811 on  use CMCU811-CHIP\n--SS on  use SS\n--bmx BME/BMP/680 off\n");
+            printfdeb("--maxhop  %i-%i hop limit for text messages (no value: show)\n", MAXHOP_TEXT_MIN, MAXHOP_TEXT_MAX);
+            delay(100);
+            printlndeb("--bmp on  use BMP280-CHIP\n--bme on  use BME280-CHIP\n--680 on  use BME680-CHIP\n--811 on  use CMCU811-CHIP\n--bmx BME/BMP/680 off\n");
             delay(100);
             printlndeb("--onewire on/off  use DSxxxx\n--onewire gpio 99\n");
             delay(100);
+            // HL-03/HL-04: bis 2026-08-30 nur ueber die T-Deck-GUI erreichbar.
+            // DOC-02: these five commands are gated BOARD_T_DECK/BOARD_T_DECK_PLUS
+            // in commandAction() (own field block ahead of INSTRUMENT_ENABLED,
+            // so they exist in every T-Deck image) -- this line used to
+            // advertise them on every board unconditionally.
+            #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+            printlndeb("--mute on/off  Ton stumm\n--persistflash on/off  Positionen ins Flash\n--persistsd on/off  Positionen auf SD\n--immediatesave on/off  sofort speichern\n--persiststat  Zustand der vier Schalter\n");
+            delay(100);
+            #endif
             
             #ifdef BOARD_RAK4630
                 printfdeb("--lps33 on/off (RAK only)\n");
@@ -735,6 +842,10 @@ void commandAction(char *umsg_text, bool ble)
                 printlndeb("--netconsole on/off  (net console port 2323)\n");
                 printfdeb("--passwd xxxx/none   (net console password, none=clear)\n");
                 delay(100);
+                #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+                    printlndeb("--kiss on/off | tx on/off | meta on/off | auth on/off  (KISS/TCP port 8001)\n");
+                    delay(100);
+                #endif
             #endif
             delay(100);
             printlndeb("--softser   on/off/send/app/baud/fixpegel/fixpegel2/fixtemp");
@@ -765,6 +876,104 @@ void commandAction(char *umsg_text, bool ble)
                 defined(SX1262_V3) || defined(USING_SX1262) || defined(BOARD_RAK4630)
                 delay(100);
                 printlndeb("--setboostedgain    on/off  enable/disable boosted rx gain");
+            #endif
+            delay(100);
+            // INS-01: these live inside the INSTRUMENT_ENABLED block in
+            // commandAction() and do not exist in a normal board build, so
+            // --help must not advertise them there.
+            #if INSTRUMENT_ENABLED
+            printlndeb("--injectmsg <grp|call> <text>  queue a text as if received via LoRa");
+            delay(100);
+            printlndeb("--injectraw <hex>  feed a raw frame through the real RX path (decodeAPRS/dedup/relay)");
+            printlndeb("--loratx <n> <ms>  queue n test TX frames (max 20) at ms intervals (min 100)");
+            #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+            delay(100);
+            printlndeb("--redrawlog on/off, --uistat, --tab list/<n>, --drawer on/off, --playtone start/msg/<file>, --tft on/off/state, --screencrc");
+            delay(100);
+            printlndeb("--spitrace on/off, --touch tap <x> <y> [ms] / down <x> <y> / up");
+            #endif
+            #endif
+
+            // DOC-02: everything above predates this pass and is kept as it
+            // was. Below closes the parity gap against the real command set
+            // in commandAction() -- grouped by topic, not by when it was
+            // added.
+            delay(100);
+            printlndeb("--txsf 6-12  LoRa spreading factor\n--txcr 5-8  LoRa coding rate 4/x\n--cleanflash  wipe settings flash (recovery)\n");
+            delay(100);
+            printlndeb("--sendhey  send HEY beacon now\n--sendtele  send telemetry now\n--sendtrack  send track/APRS beacon now\n");
+            delay(100);
+            printlndeb("--pingcall <call>  set ping target\n--pingtime 99  ping interval (s)\n--pingmax 99/max  ping count limit\n--ping start/stop  start/stop pinging\n");
+            delay(100);
+            #if defined(HAS_ETHERNET)
+            printlndeb("--netmode wifi/eth  select network interface\n");
+            delay(100);
+            #endif
+            #if defined(RELAY_SWITCH)
+            printlndeb("--relay on/off  mesh relay\n");
+            delay(100);
+            #endif
+            printlndeb("--gps autosymbol/fixsymbol  APRS symbol source\n--via on/off/<call>  set via callsign\n--viadebug on/off\n--ackinfo on/off  show who ACKed, not saved to flash\n");
+            delay(100);
+            printlndeb("--debug csv/man/en/de  debug output format/language\n");
+            delay(100);
+            printlndeb("--setcont on/off\n--setlog on/off/<val>\n--setretx on/off\n--shortpath on/off\n");
+            delay(100);
+            printlndeb("--softser app0/baud/rxpin/txpin  softser wiring\n");
+            delay(100);
+            printlndeb("--aht20 on/off\n--sht21 on/off\n--390 on/off  use BMP390-CHIP\n--ina226 on/off\n--shunt 9.999  INA226 shunt ohms\n--imax 9.9  INA226 max current A\n--isamp 9  INA226 sample count\n");
+            delay(100);
+            printlndeb("--batt factor 9.9  battery ADC factor\n--tempoff in/out 9.9  temperature offset\n");
+            delay(100);
+            #if defined(ENABLE_RTC)
+            printlndeb("--setrtc yyyy.mm.dd hh:mm:ss  set RTC chip\n");
+            delay(100);
+            #endif
+            printlndeb("--setpress  latch QNH reference at current altitude\n--setublox <cmd>  u-blox GPS passthrough\n--setl76k <cmd>  L76K GPS passthrough\n");
+            delay(100);
+            #ifdef BOARD_LED
+            printlndeb("--board led on/off  board LED\n");
+            delay(100);
+            #endif
+            printlndeb("--wifitxpower 2-20  WiFi TX power dBm\n--webtimer 0  reset web session timer\n--contrast 1-255  OLED contrast\n--button on/off  enable user-button check\n");
+            delay(100);
+            #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+            printlndeb("--spiffs reset  format SPIFFS\n");
+            delay(100);
+            #endif
+            printlndeb("--io  show IO config\n--setio 99 in/out/pullup  MCP17 IO pin\n--setio clear\n--setout 99 on/off  MCP17 output\n");
+            delay(100);
+            printlndeb("--seset/--wifiset/--nodeset/--analogset/--tel/--aprsset  show that settings group\n--aprsmc <call>  set APRS MYCALL/none\n");
+            delay(100);
+            printlndeb("--posshot  one-shot position now\n--postime 99  position interval (s)\n--regex <call>  test callsign against the validator\n");
+            delay(100);
+            #if defined BOARD_T5_EPAPER
+            printlndeb("--t5 on/off  E-paper power\n");
+            delay(100);
+            #endif
+            #if INSTRUMENT_ENABLED
+            printlndeb("--nopmother on/off  suppress foreign DMs to the EXTUDP peer\n--ntpsync  request an immediate NTP refresh now\n");
+            #else
+            printlndeb("--nopmother on/off  suppress foreign DMs to the EXTUDP peer\n");
+            #endif
+            delay(100);
+            #if defined(ESP32)
+            printlndeb("--wifistat  WiFi link/counters\n--udpstat  MeshCom UDP RX/TX counters\n--udplog on/off  one [UDP] line per datagram\n");
+            delay(100);
+            #endif
+            #if defined(NRF52_SERIES)
+            printlndeb("--ethstat  Ethernet link/counters\n--udplog on/off  one [UDP] line per datagram\n");
+            delay(100);
+            #endif
+
+            // DOC-02: the ~50-command bench/instrument surface (--heap,
+            // --instr, --injectmsg, --tft, --srvip, --flashpoke, --disptest,
+            // --ntpsync, ... see src/instrument.h) is compiled out of a normal
+            // board build and only present in a measurement firmware built
+            // with -D INSTRUMENT_ENABLED=1. Announce it only where it exists,
+            // and do not enumerate the block command by command.
+            #if INSTRUMENT_ENABLED
+            printlndeb("(bench/instrument commands -- this is an INSTRUMENT_ENABLED=1 measurement build, see src/instrument.h -- not listed individually here)\n");
             #endif
         }
 
@@ -846,6 +1055,13 @@ void commandAction(char *umsg_text, bool ble)
         save_settings();
 
         sendDisplayHead(false);
+
+        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+        // TM-33 (b) / upstream #690: sendDisplayHead() is the U8g2 path and a
+        // no-op on the T-Deck -- the command never touched the TFT. Now it
+        // wakes the panel; keys and touch keep waking it as before.
+        tft_on();
+        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"display off") == 0)
@@ -865,49 +1081,35 @@ void commandAction(char *umsg_text, bool ble)
         save_settings();
 
         sendDisplayHead(false);
+
+        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+        tft_off();      // TM-33 (b): backlight off + panel sleep, like the 30 s timeout
+        #endif
     }
     else
     if(commandCheck(msg_text+2, (char*)"deepsleep") == 0)
     {
-        #if defined(vEXT_CTRL)
-            digitalWrite(VEXT_CTRL, LOW);   // HWT needs this for GPS and TFT Screen
-            digitalWrite(ADC_CTRL, LOW);
-        #endif
-
+        // NB: vEXT_CTRL (dead, no variant defines the lowercase macro) and the
+        // BOARD_HELTEC/_V3/_V4 Vext-off block that used to live here have moved
+        // into esp32EnterDeepSleep() (src/esp32/esp32_sleep.cpp), which the
+        // generic ESP32 branch below now calls. GPS_SWITCH stays here: it also
+        // has to fire on the WP_DISP (Vision Master E213) branch just below,
+        // which is out of scope for this pass and must not change.
         #if defined(GPS_SWITCH)
             digitalWrite(GPS_SWITCH, LOW);   // externes GPS im deepsleep ausschalten, Flashwerte aber für wakeup bestehen lassen
         #endif
 
-        #if defined(BOARD_HELTEC) || defined(BOARD_HELTEC_V3)
-            printlndeb(F("[INIT]...Disbling Vext for OLED power"));
-            pinMode(Vext, OUTPUT);
-            digitalWrite(Vext, HIGH);   // Vext OFF (active high)
-            delay(50);
-        #endif
-
-        #if defined(BOARD_HELTEC_T114)
-            
-            // GPIO21: LOW - power off GPS
-            // GPIO15: HIGH - power off LCD LED
-            // GPIO25: LOW - power off LORA
-
-            extern bool bDEEP_SLEEP;
-
-            if(bDEEP_SLEEP)
-            {
-                bDEEP_SLEEP = false;
-            }
-            else
-            {
-                stop_advertising();
-                
-                digitalWrite(PIN_VEXT_CTL, LOW);   // GPS
-                digitalWrite(PIN_TFT_LEDA_CTL, HIGH);   // TFT OFF
-                digitalWrite(PIN_TFT_VDD_CTL, HIGH);   // TFT VDD
-                digitalWrite(LORA_NRSET, LOW);   // LORA
-                
-                bDEEP_SLEEP = true;
-            }
+        #if defined(NRF52_SERIES)
+            // Issue 962 (docs/issue-962-deepsleep-verdict.md, section 6.4):
+            // real nRF52 System OFF for all three nRF52 boards (RAK4631,
+            // Heltec T114, T-Echo). Replaces the old T114-only bDEEP_SLEEP
+            // toggle (soft-off, needed a second --deepsleep call to "wake")
+            // and the RAK4631 no-op (this command did nothing at all for
+            // it). See src/nrf52/nrf52_sleep.cpp for the sequence; wake is a
+            // button press, USB plug-in, or RESET -- not a second
+            // --deepsleep call.
+            extern void nrf52EnterDeepSleep();
+            nrf52EnterDeepSleep();
         #else
             #if defined(WP_DISP)
             // GRAU-FIX (v.a. Akku-leer-Pfad): Bei fast leerem Akku konkurriert der energiehungrige
@@ -930,6 +1132,10 @@ void commandAction(char *umsg_text, bool ble)
             // GPIO (ESP32-S3 ext1); 99 = kein Button -> nur GPIO0.
             uint64_t wake_mask = (1ULL << 0);
             if (iButtonPin < 22) wake_mask |= (1ULL << iButtonPin);
+            // Per Long-Press ausgeloest ist die Taste hier noch gedrueckt (attachLongPressStart);
+            // ein ANY_LOW-Wake auf einem bereits LOW liegenden Pin feuert sofort. Bisher hat nur
+            // der E-Ink-Refresh oben die Zeit bis zum Loslassen ueberbrueckt -- jetzt explizit.
+            esp32WaitButtonRelease();
             esp_sleep_enable_ext1_wakeup(wake_mask, ESP_EXT1_WAKEUP_ANY_LOW);
             // Schlafstrom senken. Kurzes Settle, damit der E-Ink-Voll-Refresh aus wpShowDeepSleep()
             // sicher fertig ist, dann prepareToSleep(): SX1262 -> SLEEP (sonst Dauer-RX ~5 mA),
@@ -938,8 +1144,13 @@ void commandAction(char *umsg_text, bool ble)
             delay(100);
             Platform::prepareToSleep();
             #endif
-            #if not defined(BOARD_RAK4630)
+            #if defined(WP_DISP)
             esp_deep_sleep_start();
+            #else
+            // Issue 962 / Option A: every other ESP32 board -- radio to
+            // sleep, display off, PMU LoRa/GPS rails off, button wake
+            // armed, then esp_deep_sleep_start(). See esp32_sleep.cpp.
+            esp32EnterDeepSleep();
             #endif
         #endif
 
@@ -1450,6 +1661,14 @@ void commandAction(char *umsg_text, bool ble)
     {
         bDisplayTrack=true;
 
+        // TRK-01: Warnhinweis bei jeder Bedienung ausgeben, auch wenn Track schon an war
+        printfdeb(TRACK_WARNING_SERIAL "\n");
+
+        if(meshcom_settings.node_pingcall[0] != 0x00)
+        {
+            printfdeb("[PING]...warning: ping is now suppressed while TRACK mode is active\n");
+        }
+
         track_to_meshcom_timer=0;   // damit auch alle 5 minuten zu MeshCom gesendet wird wenn TRACK ON
 
         meshcom_settings.node_sset |= 0x0020;
@@ -1575,6 +1794,17 @@ void commandAction(char *umsg_text, bool ble)
 
         gpsInitDone = false;
 
+        // A-9 ist hier WIDERLEGT und braucht kein bReturn: der Zweig kehrt
+        // sofort zurueck und erreicht den bReturn-Konsumenten am Ende von
+        // commandAction() gar nicht erst. Ein "wrong command" kann also nicht
+        // entstehen -- auf Hardware gegengeprueft, das Log enthaelt keines.
+        // Ein bReturn = true waere hier ein toter Store.
+        //
+        // Was bleibt: ueber BLE gibt dieser Zweig keine Rueckmeldung, weil er
+        // kein addBLECommandBack() ruft. Auf der seriellen Konsole ist die
+        // GPS-Init-Ausgabe die Rueckmeldung. Welcher Text an die App gehen
+        // soll, ist eine Produktentscheidung und nicht Teil einer
+        // Aufraeumwelle.
         return;
     }
     else
@@ -1872,6 +2102,21 @@ void commandAction(char *umsg_text, bool ble)
         meshcom_settings.node_sset = meshcom_settings.node_sset & 0x7E7F;   // BME280/BMP280 off
         meshcom_settings.node_sset3 = meshcom_settings.node_sset3 & 0x7FEF;   // BMP390 off
 
+        // N-28: "--bmx" ist das Sammelkommando, und die Hilfe sagt seit jeher
+        // "--bmx BME/BMP/680 off". Der BME680 wurde davon aber nie erfasst.
+        // Folge: wer der Hilfe folgte und danach "--bme on" gab, bekam
+        // "BME680 and BMx280 can't be used together!" und stand ohne Sensor da.
+        // Nur das Sammelkommando raeumt mit auf -- "--bme off" und "--bmp off"
+        // meinen weiterhin genau ihren Chip. Kollateralschaden gibt es keinen:
+        // BME680 und BMx280 teilen sich die Adressen und koennen ohnehin nie
+        // gleichzeitig aktiv sein.
+        if(commandCheck(msg_text+2, (char*)"bmx off") == 0)
+        {
+            bBME680ON = false;
+            bme680_found = false;
+            meshcom_settings.node_sset2 &= ~0x0004;   // BME680 off
+        }
+
         if(ble)
         {
             bSensSetting = true;
@@ -1938,6 +2183,40 @@ void commandAction(char *umsg_text, bool ble)
         
         meshcom_settings.node_sset3 &= ~0x0002;
         
+        if(ble)
+        {
+            bNodeSetting = true;
+        }
+
+        bReturn = true;
+
+        save_settings();
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"nopmother on") == 0)
+    {
+        // PM-01 (BACKLOG.md "NoPMOther"): EXTUDP-only. Suppresses direct
+        // messages that are neither addressed to nor sent by this node from
+        // reaching the --extudp peer (filter site: extudp_functions.cpp
+        // sendExtern()). Free bit 0x8000 in node_sset3, no struct bump, no
+        // fleet wipe -- checked directly off node_sset3 at the filter site,
+        // so there is no separate cached global to keep in sync here.
+        meshcom_settings.node_sset3 |= 0x8000;
+
+        if(ble)
+        {
+            bNodeSetting = true;
+        }
+
+        bReturn = true;
+
+        save_settings();
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"nopmother off") == 0)
+    {
+        meshcom_settings.node_sset3 &= ~0x8000;
+
         if(ble)
         {
             bNodeSetting = true;
@@ -2060,7 +2339,10 @@ void commandAction(char *umsg_text, bool ble)
     else
     if(commandCheck(msg_text+2, (char*)"setpress") == 0)
     {
-        fBaseAltidude = (float)meshcom_settings.node_alt;
+        // GPS-04/F9: nicht direkt schreiben -- baroBaseRelatch() zieht JEDE
+        // vorhandene Basishoehe nach (BMx280 und BME680), der direkte Griff
+        // auf fBaseAltidude liess die des BME680 stehen.
+        baroBaseRelatch((float)meshcom_settings.node_alt);
         fBasePress = meshcom_settings.node_press;
 
         printfdeb("\nBase Press set to: %.1f at %.1f m\n", fBasePress, fBaseAltidude);
@@ -2106,6 +2388,32 @@ void commandAction(char *umsg_text, bool ble)
         save_settings();
     }
     else
+    if(commandCheck(msg_text+2, (char*)"ackinfo on") == 0)
+    {
+        // fluechtig: nie in meshcom_settings, nie ins Flash, siehe
+        // docs/ack-implementierungsplan.md 3.5
+        bAckInfo=true;
+
+        if(ble)
+        {
+            addBLECommandBack((char*)"--ackinfo on");
+        }
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"ackinfo off") == 0)
+    {
+        bAckInfo=false;
+
+        if(ble)
+        {
+            addBLECommandBack((char*)"--ackinfo off");
+        }
+
+        return;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"gateway pos") == 0)
     {
         bGATEWAY_NOPOS=false;
@@ -2145,9 +2453,9 @@ void commandAction(char *umsg_text, bool ble)
         String strCtry = _owner_c;
         strCtry.toUpperCase();
 
-        if(strCtry != "OE" && strCtry != "DL")
+        if(strCtry != "OE" && strCtry != "DL" && strCtry != "IT")
         {
-            printfdeb("\nGateway-Server fault <%s> please only OE or DL\n", strCtry.c_str());
+            printfdeb("\nGateway-Server fault <%s> please only OE or DL or IT\n", strCtry.c_str());
             return;
         }
 
@@ -2200,6 +2508,90 @@ void commandAction(char *umsg_text, bool ble)
         // show current net console status; return early to prevent match against --tls... handler
         snprintf(_owner_c, sizeof(_owner_c), "on (%s port 2323)", meshcom_settings.node_ip);
         printfdeb("...net console is %s\n", bNETCONSOLE ? _owner_c : "off");
+        return;
+    }
+    else
+    #endif
+    #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+    if(commandCheck(msg_text+2, (char*)"kiss on") == 0)
+    {
+        bKISS = true;
+        meshcom_settings.node_sset4 |= 0x0010;
+        save_settings();
+        printfdeb("...KISS/TCP on (%s port %d)\n", meshcom_settings.node_ip, KISS_TCP_PORT);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss off") == 0)
+    {
+        bKISS = false;
+        meshcom_settings.node_sset4 &= ~0x0010;
+        save_settings();
+        printfdeb("...KISS/TCP off\n");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss tx on") == 0)
+    {
+        bKISSTX = true;
+        meshcom_settings.node_sset4 |= 0x0020;
+        save_settings();
+        printfdeb("...KISS/TCP TX on\n");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss tx off") == 0)
+    {
+        bKISSTX = false;
+        meshcom_settings.node_sset4 &= ~0x0020;
+        save_settings();
+        printfdeb("...KISS/TCP TX off\n");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss meta on") == 0)
+    {
+        bKISSMETA = true;
+        meshcom_settings.node_sset4 |= 0x0040;
+        save_settings();
+        printfdeb("...KISS/TCP RxMeta on\n");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss meta off") == 0)
+    {
+        bKISSMETA = false;
+        meshcom_settings.node_sset4 &= ~0x0040;
+        save_settings();
+        printfdeb("...KISS/TCP RxMeta off\n");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss auth on") == 0)
+    {
+        bKISSAUTH = true;
+        meshcom_settings.node_sset4 |= 0x0080;
+        save_settings();
+        bool hasPw = (meshcom_settings.node_passwd[0] != 0x00 && meshcom_settings.node_passwd[0] != ' ');
+        printfdeb("...KISS/TCP auth on%s\n", hasPw ? "" : " (WARNING: --passwd not set — not enforced)");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss auth off") == 0)
+    {
+        bKISSAUTH = false;
+        meshcom_settings.node_sset4 &= ~0x0080;
+        save_settings();
+        printfdeb("...KISS/TCP auth off\n");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"kiss") == 0)
+    {
+        printfdeb("...KISS/TCP is %s", bKISS ? "on" : "off");
+        if(bKISS)
+            printfdeb(" (%s port %d)", meshcom_settings.node_ip, KISS_TCP_PORT);
+        printfdeb("  TX:%s  RxMeta:%s  Auth:%s\n", bKISSTX ? "on" : "off", bKISSMETA ? "on" : "off", bKISSAUTH ? "on" : "off");
         return;
     }
     else
@@ -2271,6 +2663,12 @@ void commandAction(char *umsg_text, bool ble)
 
         save_settings();
 
+        // resend SN/SN1 so the app shows the new web password (WSPWD in SN1)
+        if(ble)
+        {
+            sendNodeSetting();
+        }
+
         return;
     }
     else
@@ -2296,6 +2694,13 @@ void commandAction(char *umsg_text, bool ble)
 
         if(sVar == "none")
             sVar = "";
+
+        // node_name is split from the position comment on the LAST '#' in
+        // the comment region (decodeAPRSPOS(), aprs_structures.h:pos_name)
+        // -- a '#' inside the name itself would make that split ambiguous,
+        // so strip it here, the only user-input write path (the web GUI
+        // delegates to this same handler).
+        sVar.replace("#", "");
 
         if(sVar.length() > 19)
             sVar = sVar.substring(0, 19);
@@ -2528,6 +2933,43 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    if(commandCheck(msg_text+2, (char*)"txcapture on") == 0)
+    {
+        // Rohframe-Mitschnitt der SENDESEITE (siehe capture_functions.h).
+        // Eigener Schalter statt an bLORADEBUG gehaengt: die Empfangsseite
+        // will man oft dauerhaft mitlaufen lassen, die Sendeseite nur fuer
+        // gezielte Interop-Messungen -- und sie kostet je Frame eine weitere
+        // ~550 Zeichen lange Logzeile.
+        bTXCAPTURE=true;
+
+        meshcom_settings.node_sset4 = meshcom_settings.node_sset4 | 0x0008;
+
+        if(ble)
+        {
+            addBLECommandBack((char*)"--txcapture on");
+        }
+
+        save_settings();
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"txcapture off") == 0)
+    {
+        bTXCAPTURE=false;
+
+        meshcom_settings.node_sset4 &= ~0x0008;
+
+        if(ble)
+        {
+            addBLECommandBack((char*)"--txcapture off");
+        }
+
+        save_settings();
+
+        return;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"loradebug off") == 0)
     {
         bLORADEBUG=false;
@@ -2579,7 +3021,7 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
         {
-            addBLECommandBack((char*)"--via on");
+            sendNodeSetting();
         }
 
         save_settings();
@@ -2595,7 +3037,7 @@ void commandAction(char *umsg_text, bool ble)
 
         if(ble)
         {
-            addBLECommandBack((char*)"--via off");
+            sendNodeSetting();
         }
 
         save_settings();
@@ -2622,6 +3064,9 @@ void commandAction(char *umsg_text, bool ble)
         }
 
         save_settings();
+
+        if(ble)
+            sendNodeSetting();
 
         return;
     }
@@ -3063,6 +3508,9 @@ void commandAction(char *umsg_text, bool ble)
             #if defined(ESP32) && !defined(DISABLE_NET_CONSOLE)
             netConsoleSetPassword("");
             #endif
+            #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+            kissSetPassword("");
+            #endif
             printfdeb("...net console password cleared (open access)\n");
         }
         else
@@ -3070,6 +3518,9 @@ void commandAction(char *umsg_text, bool ble)
             snprintf(meshcom_settings.node_passwd, sizeof(meshcom_settings.node_passwd), "%-14.14s", _owner_c);
             #if defined(ESP32) && !defined(DISABLE_NET_CONSOLE)
             netConsoleSetPassword(meshcom_settings.node_passwd);
+            #endif
+            #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+            kissSetPassword(meshcom_settings.node_passwd);
             #endif
         }
 
@@ -3163,7 +3614,7 @@ void commandAction(char *umsg_text, bool ble)
     else
     if(commandCheck(msg_text+2, (char*)"sendhey") == 0)
     {
-        sendHey();
+        sendHeyShot();   // FL-02: 30 s floor on the command path, trickle keeps sendHey()
 
         if(ble)
         {
@@ -3209,14 +3660,14 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
-    if(commandCheck(msg_text+2, (char*)"symid") == 0)
+    if(commandCheck(msg_text+2, (char*)"symid ") == 0)
     {
         _owner_c[0] = meshcom_settings.node_symid;
 
         meshcom_settings.node_symid=msg_text[8];
 
         bool bSymbolTable = false;
-        if(meshcom_settings.node_symid == '/' || meshcom_settings.node_symid != '\'')
+        if(meshcom_settings.node_symid == '/' || meshcom_settings.node_symid == '\\')
             bSymbolTable = true;
         else
         if(meshcom_settings.node_symid >= '0' && meshcom_settings.node_symid <= '9')
@@ -3239,7 +3690,7 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
-    if(commandCheck(msg_text+2, (char*)"symcd") == 0)
+    if(commandCheck(msg_text+2, (char*)"symcd ") == 0)
     {
         _owner_c[0] = meshcom_settings.node_symcd;
 
@@ -3310,12 +3761,29 @@ void commandAction(char *umsg_text, bool ble)
             return;
         }
 
+        // "-01" ist dieselbe Station wie "-1", und "-0" dasselbe wie keine SSID.
+        // Hier einmal geradeziehen, bevor es gespeichert wird und auf die Luft
+        // geht. Ein Rufzeichen ohne SSID bleibt zulaessig.
+        if(!normalizeOwnCall(sVar))
+        {
+            printfdeb("\n[ERR]..Callsign <%s> too long with SSID\n", sVar.c_str());
+            return;
+        }
+
+        // Same callsign and shortname as already set: confirm it, but no flash write and no reboot.
+        bool bSameCall = (strcmp(meshcom_settings.node_call, sVar.c_str()) == 0);
+
         snprintf(meshcom_settings.node_call, sizeof(meshcom_settings.node_call), "%s", sVar.c_str());
 
 
-        snprintf(meshcom_settings.node_short, sizeof(meshcom_settings.node_short), "%s", convertCallToShort(meshcom_settings.node_call).c_str());
+        String sShort = convertCallToShort(meshcom_settings.node_call);
+        bSameCall = bSameCall && sShort.equals(meshcom_settings.node_short);
+        snprintf(meshcom_settings.node_short, sizeof(meshcom_settings.node_short), "%s", sShort.c_str());
 
         printfdeb("Call:%s Short:%s set\n", meshcom_settings.node_call, meshcom_settings.node_short);
+
+        if(bSameCall)
+            return;
 
         save_settings();
 
@@ -3377,7 +3845,8 @@ void commandAction(char *umsg_text, bool ble)
             }
         }
 
-        snprintf(meshcom_settings.node_pingcall, sizeof(meshcom_settings.node_call), "%s", sVar.c_str());
+        // Ziel ist node_pingcall, nicht node_call -- eigene sizeof verwenden, sonst bricht es sobald eines der beiden Arrays vergroessert wird
+        snprintf(meshcom_settings.node_pingcall, sizeof(meshcom_settings.node_pingcall), "%s", sVar.c_str());
 
          if(meshcom_settings.node_pingcall[0] == 0x00)
             meshcom_settings.node_pingtime = 0;
@@ -3385,6 +3854,11 @@ void commandAction(char *umsg_text, bool ble)
         {
             if(meshcom_settings.node_pingtime == 0)
                 meshcom_settings.node_pingtime = PING_INTERVAL;
+        }
+
+        if(bDisplayTrack && meshcom_settings.node_pingcall[0] != 0x00)
+        {
+            printfdeb("[PING]...warning: TRACK mode active, ping will not be sent (--track off to enable ping)\n");
         }
 
         save_settings();
@@ -3416,6 +3890,11 @@ void commandAction(char *umsg_text, bool ble)
         bReturn = true;
 
         meshcom_settings.node_pingcount = meshcom_settings.node_pingmax;
+
+        if(bDisplayTrack)
+        {
+            printfdeb("[PING]...warning: TRACK mode active, ping will not be sent (--track off to enable ping)\n");
+        }
 
         save_settings();
     }
@@ -3855,10 +4334,28 @@ void commandAction(char *umsg_text, bool ble)
         snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+9);
         sscanf(_owner_c, "%d", &iVar);
 
+        // GPS-03/F7: Ein Tippfehler darf die Hoehe nicht auf 0 klemmen -- das
+        // hat frueher den Schaetzer auf 0 m geseedet UND die barometrische
+        // Referenz auf 0 m nachgezogen. Unbrauchbare Eingabe wird verworfen.
         if(iVar < 0 || iVar > 40000)
-            iVar = 0;
+        {
+            printfdeb("alt out of range (0..40000 m), ignored\n");
+
+            if(ble)
+            {
+                addBLECommandBack((char*)msg_text);
+            }
+
+            return;
+        }
 
         meshcom_settings.node_alt=iVar;
+
+        #ifdef ENABLE_GPS
+        WZ_GPS_AltSeed((float)iVar);
+        #else
+        baroBaseRelatch((float)iVar);
+        #endif
 
         printfdeb("set alt to %i m\n", meshcom_settings.node_alt);
 
@@ -4122,6 +4619,49 @@ void commandAction(char *umsg_text, bool ble)
         return;
     }
     else
+    // CS-01: Hop-Limit fuer Textnachrichten, persistent. "--maxhop <1..6>" setzt,
+    // "--maxhop" allein zeigt nur an. max_hop_pos ist bewusst nicht setzbar und
+    // bleibt beim Compile-Default (Operator, 2026-08-30).
+    if(commandCheck(msg_text+2, (char*)"maxhop ") == 0)
+    {
+        snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+9);
+        iVar = 0;
+        sscanf(_owner_c, "%d", &iVar);
+
+        if(!maxHopTextValid(iVar))
+        {
+            printfdeb("maxhop %i not between %i and %i\n", iVar, MAXHOP_TEXT_MIN, MAXHOP_TEXT_MAX);
+        }
+        else
+        {
+            meshcom_settings.max_hop_text = iVar;
+
+            printfdeb("set maxhop to %i\n", meshcom_settings.max_hop_text);
+
+            if(ble)
+            {
+                sendNodeSetting();
+            }
+
+            save_settings();
+        }
+
+        // Rohes Serial.printf: printfdeb() entfernt ausserhalb des CSV-Modus die
+        // Semikolons, die der Bench-Harness zum Auslesen braucht.
+        Serial.printf("[MAXHOP];text;%d;pos;%d\n", meshcom_settings.max_hop_text, meshcom_settings.max_hop_pos);
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"maxhop") == 0)
+    {
+        printfdeb("maxhop %i (pos %i)\n", meshcom_settings.max_hop_text, meshcom_settings.max_hop_pos);
+
+        Serial.printf("[MAXHOP];text;%d;pos;%d\n", meshcom_settings.max_hop_text, meshcom_settings.max_hop_pos);
+
+        return;
+    }
+    else
     if(commandCheck(msg_text+2, (char*)"txpower ") == 0)
     {
         snprintf(_owner_c, sizeof(_owner_c), "%s", msg_text+10);
@@ -4367,6 +4907,636 @@ void commandAction(char *umsg_text, bool ble)
     }
     //
     ///////////////////////////////////////////////////////////////////////////
+    // Field diagnostics for gateway operators. Deliberately NOT part of the
+    // INSTRUMENT_ENABLED bench surface below: a node in the field has to be
+    // able to log its UDP / WiFi / Ethernet path without a special build.
+    //
+    #if defined(NRF52_SERIES)
+    else
+    if(commandCheck(msg_text+2, (char*)"ethstat") == 0)
+    {
+        extern void ethStat();
+        ethStat();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"udplog on") == 0 || commandCheck(msg_text+2, (char*)"udplog off") == 0)
+    {
+        // TM-38 follow-up / TM-39: nRF52 parity for the per-datagram [UDP];rx/tx marker
+        extern bool bUDPLOG;
+        bUDPLOG = (commandCheck(msg_text+2, (char*)"udplog on") == 0);
+        Serial.printf("[UDP];log;%d\n", bUDPLOG ? 1 : 0);
+        return;
+    }
+    #endif
+    #if defined(ESP32)
+    else
+    if(commandCheck(msg_text+2, (char*)"wifistat") == 0)
+    {
+        wifiStat();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"udpstat") == 0)
+    {
+        // RX/TX counters of the MeshCom UDP socket
+        udpPrintStat();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"udplog on") == 0 || commandCheck(msg_text+2, (char*)"udplog off") == 0)
+    {
+        // one [UDP];rx / [UDP];tx line per datagram
+        bUDPLOG = (commandCheck(msg_text+2, (char*)"udplog on") == 0);
+        Serial.printf("[UDP];log;%d\n", bUDPLOG ? 1 : 0);
+        return;
+    }
+    #endif
+    #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+    // T-Deck field switches: mute and the three position-persistence flags.
+    // Until 2026-09-13 they sat in the INSTRUMENT_ENABLED block below and were
+    // therefore compiled out of every shipped image -- the GUI "Sound on"
+    // switch (btn_soundon -> "--mute on/off") found no handler while --help
+    // still advertised the commands. The bench-only UI hooks (--tft,
+    // --screencrc, --playtone, ...) stay in the block below.
+    else
+    if(commandCheck(msg_text+2, (char*)"mute on") == 0)
+    {
+        // HL-03: node_mute wurde gesetzt, aber nie gespeichert -- nach dem
+        // naechsten Reset stand der Ton wieder wie vorher. save_settings() hier,
+        // damit der serielle Weg und der GUI-Schalter (der jetzt hierher zeigt)
+        // dieselbe Wirkung haben.
+        meshcom_settings.node_mute = true;
+        audio_set_mute(true);
+        save_settings();
+        Serial.println("[AUDIO];mute;1");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"mute off") == 0)
+    {
+        meshcom_settings.node_mute = false;
+        audio_set_mute(false);
+        save_settings();
+        Serial.println("[AUDIO];mute;0");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"persistflash on") == 0 ||
+       commandCheck(msg_text+2, (char*)"persistflash off") == 0)
+    {
+        // HL-04: bis 2026-08-30 nur ueber den T-Deck-Schalter erreichbar
+        meshcom_settings.node_persist_to_flash = (commandCheck(msg_text+2, (char*)"persistflash on") == 0);
+        save_settings();
+        Serial.printf("[PERSIST];flash;%d\n", meshcom_settings.node_persist_to_flash ? 1 : 0);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"persistsd on") == 0 ||
+       commandCheck(msg_text+2, (char*)"persistsd off") == 0)
+    {
+        // HL-04. Der GUI-Schalter laedt nach dem Umschalten die Persistenz neu;
+        // das muss der serielle Weg genauso tun, sonst arbeitet der Knoten bis
+        // zum naechsten Reset mit dem alten Bestand weiter.
+        meshcom_settings.node_persist_to_sd = (commandCheck(msg_text+2, (char*)"persistsd on") == 0);
+        save_settings();
+        loadPosPersistence();
+        Serial.printf("[PERSIST];sd;%d\n", meshcom_settings.node_persist_to_sd ? 1 : 0);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"immediatesave on") == 0 ||
+       commandCheck(msg_text+2, (char*)"immediatesave off") == 0)
+    {
+        // HL-04
+        meshcom_settings.node_immediate_save = (commandCheck(msg_text+2, (char*)"immediatesave on") == 0);
+        save_settings();
+        Serial.printf("[PERSIST];immediate;%d\n", meshcom_settings.node_immediate_save ? 1 : 0);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"persiststat") == 0)
+    {
+        // HL-03/HL-04: den Zustand aller vier Schalter in einer Zeile lesbar
+        // machen -- ohne das war ueber die serielle Schnittstelle nicht einmal
+        // pruefbar, was der GUI-Schalter gerade gesetzt hat.
+        Serial.printf("[PERSIST];stat;flash;%d;sd;%d;immediate;%d;mute;%d\n",
+                      meshcom_settings.node_persist_to_flash ? 1 : 0,
+                      meshcom_settings.node_persist_to_sd ? 1 : 0,
+                      meshcom_settings.node_immediate_save ? 1 : 0,
+                      meshcom_settings.node_mute ? 1 : 0);
+        return;
+    }
+    #endif
+    //
+    ///////////////////////////////////////////////////////////////////////////
+#if INSTRUMENT_ENABLED
+    ///////////////////////////////////////////////////////////////////////////
+    // TEMPORARY measurement commands -- see src/instrument.h. Removed together
+    // with the rest of the scaffolding before the upstream PR.
+    //
+    // Order matters: commandCheck() is a prefix match, so "heap " (tagged form)
+    // must be tested before the bare "heap".
+    else
+    if(commandCheck(msg_text+2, (char*)"heap ") == 0)
+    {
+        instrument_report_heap(msg_text + 7);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"heap") == 0)
+    {
+        instrument_report_heap("-");
+        return;
+    }
+    else
+    // --- UI test hooks (T-Deck) and message injection -----------------------
+    // --injectmsg <dst> <text>: enqueue a text message as if received via LoRa
+    // --injectpos <call> <lat> <lon>   (decimal degrees, negative = S / W)
+    // T-Deck: station onto the map; every other display board: position page
+    // on the OLED via the same deferred-display path a LoRa frame takes.
+    if(commandCheck(msg_text+2, (char*)"injectpos ") == 0)
+    {
+        char call[16] = {0};
+        double lat = 0.0, lon = 0.0;
+        if(sscanf(msg_text+12, "%15s %lf %lf", call, &lat, &lon) == 3)
+        {
+            #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+            tdeck_add_pos_point(String(call), fabs(lat), lat < 0 ? 'S' : 'N', fabs(lon), lon < 0 ? 'W' : 'E');
+            Serial.printf("[INJECTPOS];ok;%s;%.5f;%.5f\n", call, lat, lon);
+            #else
+            inject_position(call, lat, lon, -60, 6);
+            #endif
+        }
+        else
+            Serial.println("[INJECTPOS];err;usage");
+        return;
+    }
+    else
+    // --btn click|double|triple|long : drive the OneButton handlers (OLED pages)
+    if(commandCheck(msg_text+2, (char*)"btn ") == 0)
+    {
+        #if !defined(BOARD_T_DECK) && !defined(BOARD_T_DECK_PLUS)
+        const char *what = msg_text + 6;
+        if(strncmp(what, "click", 5) == 0)       { singleClick(); Serial.println("[BTN];click"); }
+        else if(strncmp(what, "double", 6) == 0) { doubleClick(); Serial.println("[BTN];double"); }
+        else if(strncmp(what, "triple", 6) == 0) { tripleClick(); Serial.println("[BTN];triple"); }
+        else Serial.println("[BTN];err;usage (click|double|triple)");   // long = deepsleep, not for the bench
+        #else
+        Serial.println("[BTN];err;no button on this board");
+        #endif
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"oledstat") == 0)
+    {
+        oledStat();
+        return;
+    }
+    #if defined(NRF52_SERIES)
+    else
+    if(commandCheck(msg_text+2, (char*)"ethdrop") == 0)
+    {
+        // TM-35 bench hook: run the firmware's recovery path (resetDHCP), timed
+        extern void ethDrop();
+        ethDrop();
+        return;
+    }
+    #endif
+    #if defined(ESP32)
+    else
+    if(commandCheck(msg_text+2, (char*)"wifidrop") == 0)
+    {
+        // TM-34 bench hook: driver-side disconnect + re-select, no config change
+        wifiDrop();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"wifi on") == 0 || commandCheck(msg_text+2, (char*)"wifi off") == 0)
+    {
+        // HL-01: the WLAN intent flag was GUI-only on the T-Deck
+        bool on = (commandCheck(msg_text+2, (char*)"wifi on") == 0);
+        #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+        meshcom_settings.node_wifion = on;
+        save_settings();
+        Serial.printf("[WIFI];wifion;%d\n", on ? 1 : 0);
+        if(on)
+            startNetwork();
+        else
+        {
+            WiFi.disconnect(true, true);
+            WiFi.mode(WIFI_OFF);
+            { extern bool hasIPaddress; hasIPaddress = false; }
+            meshcom_settings.node_hasIPaddress = false;
+        }
+        #else
+        Serial.printf("[WIFI];wifion;n/a;note;only the T-Deck gates WLAN on node_wifion (requested %d)\n", on ? 1 : 0);
+        #endif
+        return;
+    }
+    #endif
+    else
+    if(commandCheck(msg_text+2, (char*)"oledlog on") == 0)
+    {
+        bOledLog = true;
+        Serial.println("[OLED];log;1");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"oledlog off") == 0)
+    {
+        bOledLog = false;
+        Serial.println("[OLED];log;0");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"injectmsg ") == 0)
+    {
+        char dst[32] = {0};
+        const char *p = msg_text + 12;
+        while(*p == ' ') p++;
+        unsigned int di = 0;
+        while(*p && *p != ' ' && di < sizeof(dst) - 1) dst[di++] = *p++;
+        while(*p == ' ') p++;
+        char text[220] = {0};
+        snprintf(text, sizeof(text), "%s", p);
+        size_t tl = strlen(text);
+        while(tl > 0 && (text[tl-1] == '\n' || text[tl-1] == '\r')) text[--tl] = 0;
+        inject_text_message(dst, text, NULL, -60, 8);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"injectraw ") == 0)
+    {
+        // TM-06(a): feeds hex through the REAL RX path (OnRxDone -> decodeAPRS
+        // -> dedup/mheard/relay/display), unlike --injectmsg above. Markers:
+        // [INJ];raw;err;<reason> immediately on a bad command, or
+        // [INJ];raw;len;<bytes>;res;<decodeAPRS-return> once actually drained
+        // (see test_inject_service() in lora_functions.cpp).
+        test_inject_raw(msg_text + 12);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"loratx ") == 0)
+    {
+        // TM-06(b): non-blocking TX burst -- n frames (cap 20) at ms intervals
+        // (floor 100) into the normal TX ring, for LoRa SPI/TX bench work.
+        int n = 0, ms = 0;
+        if(sscanf(msg_text+9, "%d %d", &n, &ms) == 2)
+            test_inject_loratx(n, ms);
+        else
+            Serial.println("[INJ];loratx;err;usage");
+        return;
+    }
+    else
+#if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+    if(commandCheck(msg_text+2, (char*)"spitrace on") == 0)
+    {
+        tdeck_dbg_spitrace(true);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"spitrace off") == 0)
+    {
+        tdeck_dbg_spitrace(false);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"touch ") == 0)
+    {
+        // --touch tap <x> <y> [ms] | --touch down <x> <y> | --touch up
+        char subcmd[8] = {0};
+        int  x = 0, y = 0, ms = 0;
+        if(sscanf(msg_text+8, "%7s %d %d %d", subcmd, &x, &y, &ms) >= 1)
+            tdeck_touch_inject(subcmd, x, y, ms);
+        else
+            Serial.println("[TOUCH];err;usage");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"redrawlog on") == 0)
+    {
+        tdeck_dbg_redrawlog(true);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"redrawlog off") == 0)
+    {
+        tdeck_dbg_redrawlog(false);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"uistat") == 0)
+    {
+        tdeck_dbg_uistat();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"tab list") == 0)
+    {
+        tdeck_dbg_tab_list();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"tab ") == 0)
+    {
+        int idx = -1;
+        sscanf(msg_text+6, "%d", &idx);
+        tdeck_dbg_tab(idx);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"drawer on") == 0)
+    {
+        tdeck_dbg_drawer(true);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"drawer off") == 0)
+    {
+        tdeck_dbg_drawer(false);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"key ") == 0)
+    {
+        // --key <text>   inject keyboard characters (\n = Enter, \b = Backspace)
+        tdeck_dbg_key(msg_text+6);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"balledge on") == 0)
+    {
+        tdeck_dbg_balledge(true);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"balledge off") == 0)
+    {
+        tdeck_dbg_balledge(false);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"balledges") == 0)
+    {
+        tdeck_dbg_balledges(strstr(msg_text, "reset") != NULL);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"ball ") == 0)
+    {
+        // --ball <up|down|left|right|click> <n>
+        char dir[8] = {0};
+        int n = 0;
+        if(sscanf(msg_text+7, "%7s %d", dir, &n) == 2)
+            tdeck_dbg_ball(dir, n);
+        else
+            Serial.println("[BALL];err;usage");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"scroll ") == 0)
+    {
+        // --scroll <tab> <dy>   dy > 0 scrolls down, < 0 up
+        int tab = 0, dy = 0;
+        if(sscanf(msg_text+9, "%d %d", &tab, &dy) == 2)
+            tdeck_dbg_scroll(tab, dy);
+        else
+            Serial.println("[SCROLL];err;usage");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"flushfix on") == 0)
+    {
+        tdeck_dbg_flushfix(true);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"flushfix off") == 0)
+    {
+        tdeck_dbg_flushfix(false);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"framedump") == 0)
+    {
+        tdeck_dbg_framedump_arm(true);   // dumps at the next full-screen flush
+        tdeck_dbg_invalidate();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"blink ") == 0)
+    {
+        int n = 10;
+        sscanf(msg_text+8, "%d", &n);
+        tdeck_dbg_blink(n);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"disptest") == 0)
+    {
+        // TM-41: --disptest [full|invert|colors|square|circle|triangle] [stride]
+        char phase[16] = {0};
+        int stride = 0;
+        sscanf(msg_text+10, "%15s %d", phase, &stride);
+        tdeck_dbg_disptest(phase, stride);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"mapzoom in") == 0)
+    {
+        tdeck_dbg_mapzoom(1);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"mapzoom out") == 0)
+    {
+        tdeck_dbg_mapzoom(-1);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"reflush") == 0)
+    {
+        tdeck_dbg_reflush();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"invalidate") == 0)
+    {
+        tdeck_dbg_invalidate();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"sdtest") == 0)
+    {
+        unsigned long t0 = millis();
+        bool ex = SD.exists("/mc_probe_does_not_exist");
+        Serial.printf("[SDTEST];exists;%d;t_ms;%lu\n", ex ? 1 : 0, (unsigned long)(millis() - t0));
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"audiodbg ") == 0)
+    {
+        sscanf(msg_text+11, "%d", &audio_dbg_mode);
+        Serial.printf("[AUDIO];dbg;mode;%d\n", audio_dbg_mode);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"tft on") == 0)
+    {
+        tdeck_dbg_tft(1);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"tft off") == 0)
+    {
+        tdeck_dbg_tft(0);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"tft state") == 0)
+    {
+        tdeck_dbg_tft(2);
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"screencrc") == 0)
+    {
+        tdeck_dbg_screencrc();
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"playtone ") == 0)
+    {
+        char what[64] = {0};
+        snprintf(what, sizeof(what), "%s", msg_text+11);
+        size_t wl = strlen(what);
+        while(wl > 0 && (what[wl-1] == '\n' || what[wl-1] == '\r' || what[wl-1] == ' ')) what[--wl] = 0;
+        audio_play_tone(what);
+        return;
+    }
+    else
+#endif
+    if(commandCheck(msg_text+2, (char*)"instreset") == 0)
+    {
+        instrument_reset();
+        return;
+    }
+    #if defined(ESP32) && !defined(DISABLE_NET_CONSOLE)
+    // DISABLE_NET_CONSOLE (E22_XML): kein WiFi-Include-Pfad und kein RAM-Budget
+    // fuer den Bench-Hook -- der Block entfaellt dort komplett.
+    else
+    if(commandCheck(msg_text+2, (char*)"srvip ") == 0)
+    {
+        // TM-31 bench hook: MeshCom server override (0.0.0.0 clears), RAM only,
+        // takes effect at the next startMeshComUDP() (--reboot or WiFi restart).
+        extern IPAddress bench_srvip;
+        IPAddress ip;
+        if(ip.fromString(msg_text+8))
+        {
+            bench_srvip = ip;
+            Serial.printf("[SRVIP];%s;set\n", ip.toString().c_str());
+            // Re-run the UDP bring-up now so the override takes effect without a
+            // reboot (the override lives in RAM only). Keyed on the driver state,
+            // not on hasIPaddress: after the boot retry gave up, a driver-side
+            // reconnect is never harvested (TM-34 F3 blind window, seen live
+            // 2026-08-29: got_ip at 53 s, no startMeshComUDP() until the 5-min
+            // restart) -- this hook doubles as the manual harvest for the bench.
+            if(WiFi.status() == WL_CONNECTED)
+            {
+                extern WiFiUDP Udp;
+                Udp.stop();
+                startMeshComUDP();
+            }
+            else
+                Serial.println("[SRVIP];note;WiFi not connected, applies at the next bring-up");
+        }
+        else
+            Serial.println("[SRVIP];err;usage --srvip a.b.c.d");
+        return;
+    }
+    #endif
+    else
+    if(commandCheck(msg_text+2, (char*)"ntpsync") == 0)
+    {
+        // NTP-01 bench hook: trigger an immediate NtpAsync refresh outside
+        // the normal 15-min caller cadence (esp32_main.cpp / nrf52_main.cpp
+        // both force requestNow() every 15 min, see docs/ntp-timing.md).
+        // Shared across both platforms: exactly one `timeClient` global is
+        // linked per build -- udp_functions.cpp on ESP32, nrf_eth.cpp on
+        // nRF52, both guarded by their own #ifdef -- so a plain extern
+        // resolves either way, same as bench_srvip above resolves only on
+        // ESP32. The class is non-blocking by design (src/ntp_async.h): this
+        // command only triggers the request, the outcome (ok/timeout/
+        // txfail/kod) prints asynchronously off the [NTP];... markers
+        // NtpAsync::loop()/tryConsume() already emit -- see
+        // tools/bench/experiments/ntpsync.py, which parses exactly those.
+        extern NtpAsync timeClient;
+
+        if(!meshcom_settings.node_hasIPaddress)
+        {
+            Serial.println("[NTPSYNC];err;no IP address");
+        }
+        else if(timeClient.isPending())
+        {
+            // requestNow() only rewrites _nextDueMs -- while a request is
+            // already in flight that has no effect until its own <=2.5s
+            // timeout (ntp_async.h::isPending() doc comment). Report it
+            // instead of silently doing nothing.
+            Serial.println("[NTPSYNC];busy;request already in flight");
+        }
+        else
+        {
+            timeClient.requestNow();
+            // NTP-01 Nachtrag (Bench-Regression): mit GPS-Fix pumpt der
+            // 15-min-Block in esp32_main.cpp nicht -- ein Pump hier feuert
+            // den Send sofort, danach haelt dort (!posinfo_fix ||
+            // isPending()) den Block offen, bis ok/timeout gemeldet ist.
+            timeClient.loop();
+            Serial.println("[NTPSYNC];requested");
+        }
+
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"flashpoke ") == 0)
+    {
+        // TM-32 bench hook: write a raw (possibly out-of-range) radio value to
+        // the settings and save -- the next boot must report [FLASH]...sanitized.
+        char field[16] = {0};
+        float fval = 0;
+        if(sscanf(msg_text+12, "%15s %f", field, &fval) == 2)
+        {
+            bool ok = true;
+            if(strcmp(field, "sf") == 0) meshcom_settings.node_sf = (int)fval;
+            else if(strcmp(field, "cr") == 0) meshcom_settings.node_cr = (int)fval;
+            else if(strcmp(field, "bw") == 0) meshcom_settings.node_bw = fval;
+            else if(strcmp(field, "power") == 0) meshcom_settings.node_power = (int)fval;
+            else if(strcmp(field, "freq") == 0) meshcom_settings.node_freq = fval;
+            else if(strcmp(field, "country") == 0) meshcom_settings.node_country = (int)fval;
+            else ok = false;
+            if(ok)
+            {
+                save_settings();
+                Serial.printf("[FLASHPOKE];%s;%g;saved\n", field, (double)fval);
+            }
+            else
+                Serial.println("[FLASHPOKE];err;unknown field (sf|cr|bw|power|freq|country)");
+        }
+        else
+            Serial.println("[FLASHPOKE];err;usage --flashpoke <field> <value>");
+        return;
+    }
+    else
+    if(commandCheck(msg_text+2, (char*)"instr") == 0)
+    {
+        instrument_report_heap("instr");
+        instrument_report_timing();
+        instrument_report_gui();
+        return;
+    }
+    ///////////////////////////////////////////////////////////////////////////
+#endif
     else
     if(commandCheck(msg_text+2, (char*)"lora") == 0)
     {
@@ -4490,6 +5660,8 @@ void commandAction(char *umsg_text, bool ble)
         strCallSign.toUpperCase();
     
         snprintf(meshcom_settings.node_aprsmc, sizeof(meshcom_settings.node_aprsmc), "%s", strCallSign.c_str());
+
+        save_settings();
 
         return;
     }
@@ -4634,21 +5806,7 @@ void commandAction(char *umsg_text, bool ble)
             tmdoc["VALES"] = meshcom_settings.node_values;
             tmdoc["PTIME"] = meshcom_settings.node_parm_time;
 
-            // reset print buffer
-            memset(print_buff, 0, sizeof(print_buff));
-
-            serializeJson(tmdoc, print_buff, measureJson(tmdoc));
-
-            json_len = strlen(print_buff);
-            if (json_len > MAX_MSG_LEN_PHONE - 2) {
-                json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-            }
-
-            memset(msg_buffer, 0, sizeof(msg_buffer));
-            msg_buffer[0] = 0x44;
-            memcpy(msg_buffer + 1, print_buff, json_len);
-
-            addBLEComToOutBuffer(msg_buffer, json_len + 1);
+            sendBleJsonRegister(tmdoc); // JSN-01
         }
 
         if(!bRxFromPhone)
@@ -4684,21 +5842,7 @@ void commandAction(char *umsg_text, bool ble)
             wdoc["VAMP"] = meshcom_settings.node_vcurrent;
             wdoc["VPOW"] = meshcom_settings.node_vpower;
              
-            // reset print buffer
-            memset(print_buff, 0, sizeof(print_buff));
-
-            serializeJson(wdoc, print_buff, measureJson(wdoc));
-
-            json_len = strlen(print_buff);
-            if (json_len > MAX_MSG_LEN_PHONE - 2) {
-                json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-            }
-
-            memset(msg_buffer, 0, sizeof(msg_buffer));
-            msg_buffer[0] = 0x44;
-            memcpy(msg_buffer + 1, print_buff, json_len);
-
-            addBLEComToOutBuffer(msg_buffer, json_len + 1);
+            sendBleJsonRegister(wdoc); // JSN-01
         }
 
         if(!bRxFromPhone)
@@ -4794,21 +5938,7 @@ void commandAction(char *umsg_text, bool ble)
             iodoc["BxOUT"] = iooutB;
             iodoc["BxVAL"] = iovalB;
 
-            // reset print buffer
-            memset(print_buff, 0, sizeof(print_buff));
-
-            serializeJson(iodoc, print_buff, measureJson(iodoc));
-
-            json_len = strlen(print_buff);
-            if (json_len > MAX_MSG_LEN_PHONE - 2) {
-                json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-            }
-
-            memset(msg_buffer, 0, sizeof(msg_buffer));
-            msg_buffer[0] = 0x44;
-            memcpy(msg_buffer + 1, print_buff, json_len);
-
-            addBLEComToOutBuffer(msg_buffer, json_len + 1);
+            sendBleJsonRegister(iodoc); // JSN-01
         }
 
         if(!bRxFromPhone)
@@ -4884,23 +6014,20 @@ void commandAction(char *umsg_text, bool ble)
             idoc["BOOST"] = bBOOSTEDGAIN;
             idoc["BPIN"] = meshcom_settings.bt_code;
 
-            // reset print buffer
-            memset(print_buff, 0, sizeof(print_buff));
+            sendBleJsonRegister(idoc); // JSN-01
 
-            serializeJson(idoc, print_buff, measureJson(idoc));
+            // second info JSON, "I" is at the length limit
+            JsonDocument idoc1;
 
-            json_len = strlen(print_buff);
-            if (json_len > MAX_MSG_LEN_PHONE - 2) {
-                json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-            }
+            char bdate[16];     // "YYYYMMDD-HHMMSS"
+            getBuildDate(bdate, sizeof(bdate));
 
-            memset(msg_buffer, 0, sizeof(msg_buffer));
-            msg_buffer[0] = 0x44;
-            memcpy(msg_buffer + 1, print_buff, json_len);
+            idoc1["TYP"] = "IS1";
+            idoc1["BDATE"] = bdate;
 
-            addBLEComToOutBuffer(msg_buffer, json_len + 1);
+            sendBleJsonRegister(idoc1);
         }
-        
+
         if(!bRxFromPhone)
         {
             int ibt = meshcom_settings.node_button_pin;
@@ -4918,22 +6045,35 @@ void commandAction(char *umsg_text, bool ble)
             printfdeb("...Flash-Version %i\n", meshcom_settings.node_fversion);
 
             printfdeb("...NOMSGALL %s ...MESH %s ...BUTTON (%i) %s ...SOFTSER %s ... SOFTSERREAD %s\n...PASSWD <%s>\n",
-                (bNoMSGtoALL?"on":"off"), (bMESH?"on":"off"), ibt, (bButtonCheck?"on":"off"), (bSOFTSERON?"on":"off"), (bSOFTSERREAD?"on":"off"), meshcom_settings.node_passwd);
+                (bNoMSGtoALL?"on":"off"), (bMESH?"on":"off"), ibt, (bButtonCheck?"on":"off"), (bSOFTSERON?"on":"off"), (bSOFTSERREAD?"on":"off"), maskSecret(meshcom_settings.node_passwd));
 
             printfdeb("...DEBUG %s ...DEBUG %s\n", (bDEBUGCSV?"csv":"man"), (bDEBUGEN?"en":"de"));
 
             printfdeb("...DEBUG %s ...LORADEBUG %s ...GPSDEBUG %s/%i ...SOFTSERDEBUG %s\n...WXDEBUG %s ...BLEDEBUG %s\n",
                 (bDEBUG?"on":"off"), (bLORADEBUG?"on":"off"), (iGPSDEBUG?"on":"off"), iGPSDEBUG, (bSOFTSERDEBUG?"on":"off"),(bWXDEBUG?"on":"off"), (bBLEDEBUG?"on":"off"));
             
-            printfdeb("...DisplayInfo %s ...DisplayCont %s ...DisplyLog %s ...contrast %i\n",
-                (bDisplayInfo?"on":"off"), (bDisplayCont?"on":"off"), (bDisplayLog?"on":"off"), meshcom_settings.node_contrast);
+            printfdeb("...DisplayInfo %s ...DisplayCont %s ...DisplyLog %s ...contrast %i ...ackinfo %s\n",
+                (bDisplayInfo?"on":"off"), (bDisplayCont?"on":"off"), (bDisplayLog?"on":"off"), meshcom_settings.node_contrast, (bAckInfo?"on":"off"));
 
-            printfdeb("...EXTUDP %s ...EXT IP %s\n", (bEXTUDP?"on":"off"), meshcom_settings.node_extern);
+            #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+            // TD-10: raw-mode verdict of the keyboard controller. "no" or a
+            // lasting "unknown" after typing means the controller firmware
+            // predates raw mode and keys cannot auto-repeat on this unit.
+            printfdeb("...KBD raw-mode %s ...KEYLOCK %s\n", tdeck_kbd_raw_support_str(),
+                (meshcom_settings.node_keyboardlock?"on":"off"));
+            #endif
+
+            printfdeb("...EXTUDP %s ...EXT IP %s ...NOPMOTHER %s\n", (bEXTUDP?"on":"off"), meshcom_settings.node_extern,
+                    ((meshcom_settings.node_sset3 & 0x8000)?"on":"off"));
 
             printfdeb("...BTCODE %06i\n", meshcom_settings.bt_code);
             printfdeb("...APRSMC: %s\n...ATXT: %s\n...NAME: %s\n...BLE : %s\n...DISPLAY %s\n...CTRY %s\n...FREQ %.4f MHz TXPWR %i dBm RXBOOST %s\n",
                     meshcom_settings.node_aprsmc, meshcom_settings.node_atxt, meshcom_settings.node_name, (bBLElong?"long":"short"),  (bDisplayOff?"off":"on"),
                     getCountry(meshcom_settings.node_country).c_str() , getFreq(), getPower(), (bBOOSTEDGAIN?"on":"off"));
+
+            // CS-01: max_hop_text ist persistent und ueber --maxhop setzbar,
+            // max_hop_pos bleibt der Compile-Default.
+            printfdeb("...MAXHOP text %i / pos %i\n", meshcom_settings.max_hop_text, meshcom_settings.max_hop_pos);
 
             for(int ig=0;ig<6;ig++)
             {
@@ -4981,7 +6121,10 @@ void commandAction(char *umsg_text, bool ble)
 
             if(bAnalogCheck)
             {
-                printfdeb("\n...ANALOG PIN %i factor %.4f slope %.4f offset %.0f\n", meshcom_settings.node_analog_pin, meshcom_settings.node_analog_faktor, meshcom_settings.node_analog_slope, meshcom_settings.node_analog_offset);
+                if(meshcom_settings.node_analog_pin <= 0 || meshcom_settings.node_analog_pin >= 99)
+                    printfdeb("\n...ANALOG PIN %i factor %.4f slope %.4f offset %.0f (GPIO not set, measurement paused)\n", meshcom_settings.node_analog_pin, meshcom_settings.node_analog_faktor, meshcom_settings.node_analog_slope, meshcom_settings.node_analog_offset);
+                else
+                    printfdeb("\n...ANALOG PIN %i factor %.4f slope %.4f offset %.0f\n", meshcom_settings.node_analog_pin, meshcom_settings.node_analog_faktor, meshcom_settings.node_analog_slope, meshcom_settings.node_analog_offset);
                 printfdeb("...Value %.2f V\n", fAnalogValue);
                 printfdeb("");
             }
@@ -4992,11 +6135,18 @@ void commandAction(char *umsg_text, bool ble)
 
             #ifndef BOARD_T_ECHO
             printfdeb("\n...Webserver  %s", (bWEBSERVER?"on":"off"));
-            printfdeb(" / Webpwd <%s>", meshcom_settings.node_webpwd);
+            printfdeb(" / Webpwd <%s>", maskSecret(meshcom_settings.node_webpwd));
             printfdeb(" / Gateway %s %s\n", (bGATEWAY?"on":"off"), (bGATEWAY_NOPOS?"nopos":""));
 
             #if defined(ESP32) && !defined(DISABLE_TLS_CONSOLE)
             printfdeb("...NETConsole %s\n", (bNETCONSOLE ? "on (port 2323)" : "off"));
+            #endif
+
+            #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+            printfdeb("...KISS/TCP   %s", (bKISS ? "on" : "off"));
+            if(bKISS)
+                printfdeb(" (port %d)", KISS_TCP_PORT);
+            printfdeb(" / TX %s / RxMeta %s / Auth %s\n", (bKISSTX?"on":"off"), (bKISSMETA?"on":"off"), (bKISSAUTH?"on":"off"));
             #endif
 
 
@@ -5015,7 +6165,7 @@ void commandAction(char *umsg_text, bool ble)
                         printfdeb("...SSID <>");
 
                     if(strlen(meshcom_settings.node_pwd) > 0)
-                        printfdeb(" / PASSWORD <%s>\n", meshcom_settings.node_pwd);
+                        printfdeb(" / PASSWORD <%s>\n", maskSecret(meshcom_settings.node_pwd));
                     else
                         printfdeb(" / PASSWORD <>\n");
                 }
@@ -5127,21 +6277,7 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc["OWPIN"] = meshcom_settings.node_owgpio;
         sensdoc["OWF"] = one_found;
         sensdoc["USERPIN"] = ibt;
-        // reset print buffer
-        memset(print_buff, 0, sizeof(print_buff));
-
-        serializeJson(sensdoc, print_buff, measureJson(sensdoc));
-
-        json_len = strlen(print_buff);
-        if (json_len > MAX_MSG_LEN_PHONE - 2) {
-            json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-        }
-
-        memset(msg_buffer, 0, sizeof(msg_buffer));
-        msg_buffer[0] = 0x44;
-        memcpy(msg_buffer + 1, print_buff, json_len);
-
-        addBLEComToOutBuffer(msg_buffer, json_len + 1);
+        sendBleJsonRegister(sensdoc); // JSN-01
 
         JsonDocument sensdoc1;
 
@@ -5155,21 +6291,7 @@ void commandAction(char *umsg_text, bool ble)
         sensdoc1["226"] = bINA226ON;
         sensdoc1["226F"] = ina226_found;
 
-        // reset print buffer
-        memset(print_buff, 0, sizeof(print_buff));
-
-        serializeJson(sensdoc1, print_buff, measureJson(sensdoc1));
-
-        json_len = strlen(print_buff);
-        if (json_len > MAX_MSG_LEN_PHONE - 2) {
-            json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-        }
-
-        memset(msg_buffer, 0, sizeof(msg_buffer));
-        msg_buffer[0] = 0x44;
-        memcpy(msg_buffer + 1, print_buff, json_len);
-
-        addBLEComToOutBuffer(msg_buffer, json_len + 1);
+        sendBleJsonRegister(sensdoc1); // JSN-01
 
         return;
     }
@@ -5197,22 +6319,8 @@ void commandAction(char *umsg_text, bool ble)
         swdoc["DNS"] = meshcom_settings.node_dns;
         swdoc["SUB"] = meshcom_settings.node_subnet;
 
-        // reset print buffer
-        memset(print_buff, 0, sizeof(print_buff));
+        sendBleJsonRegister(swdoc); // JSN-01
 
-        serializeJson(swdoc, print_buff, measureJson(swdoc));
-
-        json_len = strlen(print_buff);
-        if (json_len > MAX_MSG_LEN_PHONE - 2) {
-            json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-        }
-
-        memset(msg_buffer, 0, sizeof(msg_buffer));
-        msg_buffer[0] = 0x44;
-        memcpy(msg_buffer + 1, print_buff, json_len);
-
-        addBLEComToOutBuffer(msg_buffer, json_len + 1);
-        
         JsonDocument swdoc2;
 
         swdoc2["TYP"] = "S2";
@@ -5225,21 +6333,7 @@ void commandAction(char *umsg_text, bool ble)
         swdoc2["EUDPIP"] = meshcom_settings.node_extern;
         swdoc2["TXPOW"] = meshcom_settings.node_wifi_power;
 
-        // reset print buffer
-        memset(print_buff, 0, sizeof(print_buff));
-
-        serializeJson(swdoc2, print_buff, measureJson(swdoc2));
-
-        json_len = strlen(print_buff);
-        if (json_len > MAX_MSG_LEN_PHONE - 2) {
-            json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-        }
-
-        memset(msg_buffer, 0, sizeof(msg_buffer));
-        msg_buffer[0] = 0x44;
-        memcpy(msg_buffer + 1, print_buff, json_len);
-
-        addBLEComToOutBuffer(msg_buffer, json_len + 1);
+        sendBleJsonRegister(swdoc2); // JSN-01
 
         return;
     }
@@ -5294,7 +6388,7 @@ void sendGpsJson()
     pdoc["ALT"] = meshcom_settings.node_alt;
     pdoc["SAT"] = (int)posinfo_satcount;
     pdoc["SFIX"] = posinfo_fix;
-    pdoc["HDOP"] = posinfo_hdop;
+    pdoc["HDOP"] = (int)fposinfo_hdop;
     pdoc["RATE"] = (int)posinfo_interval;
     pdoc["NEXT"] = (int)(((posinfo_timer + (posinfo_interval * 1000)) - millis()) / 1000);
     pdoc["DIST"] = posinfo_distance;
@@ -5302,23 +6396,10 @@ void sendGpsJson()
     pdoc["DIRo"] = (int)posinfo_last_direction;
     pdoc["DATE"] = getDateString() + " " + getTimeString();
 
-    // reset print buffer
-    memset(print_buff, 0, sizeof(print_buff));
-
-    serializeJson(pdoc, print_buff, measureJson(pdoc));
-
-    Serial.printf("GPS<%s>\n", print_buff);
-
-    json_len = strlen(print_buff);
-    if (json_len > MAX_MSG_LEN_PHONE - 2) {
-        json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-    }
-
-    memset(msg_buffer, 0, sizeof(msg_buffer));
-    msg_buffer[0] = 0x44;
-    memcpy(msg_buffer + 1, print_buff, json_len);
-
-    addBLEComToOutBuffer(msg_buffer, json_len + 1);
+    // JSN-01: sendBleJsonRegister() frames and sends in one call; log the
+    // JSON text it wrote into the shared msg_buffer (was print_buff).
+    sendBleJsonRegister(pdoc);
+    Serial.printf("GPS<%s>\n", (char *)msg_buffer + 1);
 }
 
 
@@ -5352,10 +6433,7 @@ void sendNodeSetting()
     {
         meshcom_settings.node_bw = LORA_BANDWIDTH;
     }
-    if (meshcom_settings.node_power == 0)
-    {
-        meshcom_settings.node_power = TX_OUTPUT_POWER;
-    }
+    meshcom_settings.node_power = resolve_tx_power(meshcom_settings.node_power, TX_OUTPUT_POWER); // #1132: also normalize the -20 "unset" sentinel, not just 0
 
     // if we are on nrf52 we need to change frequency reading to MHz
     #ifdef BOARD_RAK4630
@@ -5367,8 +6445,8 @@ void sendNodeSetting()
     nsetdoc["TYP"] = "SN";
     nsetdoc["GW"] = bGATEWAY;
     nsetdoc["WS"] = bWEBSERVER;
-    //KBC/KFR
-    nsetdoc["WSPWD"] = meshcom_settings.node_webpwd;
+    // WSPWD and ASYM are sent in SN1 below: with them SN exceeded
+    // BLE_JSON_PAYLOAD_MAX and bleJsonFrameFailSoft() dropped trailing fields (GWS)
     nsetdoc["DISP"] =  bDisplayOff;
     nsetdoc["BTN"] = bButtonCheck;
     nsetdoc["MSH"] = bMESH;
@@ -5382,25 +6460,23 @@ void sendNodeSetting()
     nsetdoc["MBW"] = getBW();
     nsetdoc["GWNPOS"] = bGATEWAY_NOPOS;
     nsetdoc["NOALL"] = bNoMSGtoALL;
+    nsetdoc["NOPMOTHER"] = (bool)(meshcom_settings.node_sset3 & 0x8000);
     nsetdoc["BLED"] = bUSER_BOARD_LED;
     nsetdoc["GWS"] = meshcom_settings.node_gwsrv;
-    nsetdoc["ASYM"] = bGPSAutosymbol;
 
-    // reset print buffer
-    memset(print_buff, 0, sizeof(print_buff));
+    sendBleJsonRegister(nsetdoc); // JSN-01
 
-    serializeJson(nsetdoc, print_buff, measureJson(nsetdoc));
+    // second node settings json
+    // {"TYP":"SN1","VIA":true,"VIACALL":"OE1KFR-12","WSPWD":"","ASYM":false}
+    JsonDocument nsetdoc1;
 
-    json_len = strlen(print_buff);
-    if (json_len > MAX_MSG_LEN_PHONE - 2) {
-        json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-    }
+    nsetdoc1["TYP"] = "SN1";
+    nsetdoc1["VIA"] = bVIA;
+    nsetdoc1["VIACALL"] = meshcom_settings.node_via;
+    nsetdoc1["WSPWD"] = meshcom_settings.node_webpwd;
+    nsetdoc1["ASYM"] = bGPSAutosymbol;
 
-    memset(msg_buffer, 0, sizeof(msg_buffer));
-    msg_buffer[0] = 0x44;
-    memcpy(msg_buffer + 1, print_buff, json_len);
-
-    addBLEComToOutBuffer(msg_buffer, json_len + 1);
+    sendBleJsonRegister(nsetdoc1); // JSN-01
 }
 
 void sendAnalogSetting()
@@ -5423,21 +6499,7 @@ void sendAnalogSetting()
     asetdoc["ADCOF"] = meshcom_settings.node_analog_offset;
     asetdoc["ADCAT"] = meshcom_settings.node_analog_atten;
 
-    // reset print buffer
-    memset(print_buff, 0, sizeof(print_buff));
-
-    serializeJson(asetdoc, print_buff, measureJson(asetdoc));
-
-    json_len = strlen(print_buff);
-    if (json_len > MAX_MSG_LEN_PHONE - 2) {
-        json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-    }
-
-    memset(msg_buffer, 0, sizeof(msg_buffer));
-    msg_buffer[0] = 0x44;
-    memcpy(msg_buffer + 1, print_buff, json_len);
-
-    addBLEComToOutBuffer(msg_buffer, json_len + 1);
+    sendBleJsonRegister(asetdoc); // JSN-01
 
     #endif
 
@@ -5460,21 +6522,7 @@ void sendAPRSset()
     aprsdoc["SYMCD"] = symcd;
     aprsdoc["NAME"] = meshcom_settings.node_name;
 
-    // reset print buffer
-    memset(print_buff, 0, sizeof(print_buff));
-
-    serializeJson(aprsdoc, print_buff, measureJson(aprsdoc));
-
-    json_len = strlen(print_buff);
-    if (json_len > MAX_MSG_LEN_PHONE - 2) {
-        json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-    }
-
-    memset(msg_buffer, 0, sizeof(msg_buffer));
-    msg_buffer[0] = 0x44;
-    memcpy(msg_buffer + 1, print_buff, json_len);
-
-    addBLEComToOutBuffer(msg_buffer, json_len + 1);
+    sendBleJsonRegister(aprsdoc); // JSN-01
 
 }
 
@@ -5487,19 +6535,5 @@ void sendConfigFinish()
 
     cdoc["TYP"] = "CONFFIN";
 
-    // reset print buffer
-    memset(print_buff, 0, sizeof(print_buff));
-
-    serializeJson(cdoc, print_buff, measureJson(cdoc));
-
-    json_len = strlen(print_buff);
-    if (json_len > MAX_MSG_LEN_PHONE - 2) {
-        json_len = MAX_MSG_LEN_PHONE - 2;  // 1 Byte Header + Null-Terminator
-    }
-
-    memset(msg_buffer, 0, sizeof(msg_buffer));
-    msg_buffer[0] = 0x44;
-    memcpy(msg_buffer + 1, print_buff, json_len);
-
-    addBLEComToOutBuffer(msg_buffer, json_len + 1);
+    sendBleJsonRegister(cdoc); // JSN-01
 }

@@ -3,6 +3,7 @@ This file contains all web-based setup functions
 */
 #include "web_setup.h"
 #include <command_functions.h>
+#include <regex_functions.h>
 #include <loop_functions.h>
 #include <loop_functions_extern.h>
 #include <string> 
@@ -58,7 +59,15 @@ void webSetup_setParam(setupStruct *setupData){
     if(setupData->paramName.equals("setcall")) {        
         snprintf(message_text, sizeof(message_text), "--setcall %s", setupData->paramValue.c_str());                   // set command string
         commandAction(message_text, bPhoneReady);                                                                      // try to execute the command
-        setupData->returnCode = strcmp(meshcom_settings.node_call, setupData->paramValue.c_str())==0?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;    //check if new parameter was accepted, return with corresponding code
+        // --setcall speichert das Rufzeichen in Grossbuchstaben und mit
+        // kanonisch geschriebener SSID. Der Vergleich muss deshalb gegen dieselbe Form
+        // laufen wie die, die der Knoten ablegt -- sonst meldet die GUI
+        // "Value could not be set.", obwohl das Rufzeichen gesetzt wurde.
+        String sWanted = setupData->paramValue;
+        sWanted.trim();
+        sWanted.toUpperCase();
+        normalizeOwnCall(sWanted);
+        setupData->returnCode = strcmp(meshcom_settings.node_call, sWanted.c_str())==0?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;    //check if new parameter was accepted, return with corresponding code
         setupData->returnValue = meshcom_settings.node_call;                                                           // send back the current used value
         return;
     } else
@@ -118,7 +127,18 @@ void webSetup_setParam(setupStruct *setupData){
         setupData->returnValue = String(meshcom_settings.node_power);
         return;
     } else
-    
+
+    // CS-02: Hop-Limit fuer Textnachrichten. Wie jeder andere Parameter hier
+    // ueber commandAction(), damit GUI und serielle Konsole nicht auseinander
+    // laufen (HL-01/HL-03).
+    if(setupData->paramName.equals("maxhop")) {
+        snprintf(message_text, sizeof(message_text), "--maxhop %s", setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        setupData->returnCode = (meshcom_settings.max_hop_text == setupData->paramValue.toInt())?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = String(meshcom_settings.max_hop_text);
+        return;
+    } else
+
     if(setupData->paramName.equals("utcoffset")) {
         snprintf(message_text, sizeof(message_text), "--utcoff %s", setupData->paramValue.c_str());
         commandAction(message_text, bPhoneReady);
@@ -152,15 +172,9 @@ void webSetup_setParam(setupStruct *setupData){
     } else
 
     if(setupData->paramName.equals("volt")) {
-        if(setupData->paramValue.equals("on")){
-            snprintf(message_text, sizeof(message_text), "--volt"); //, setupData->paramValue.c_str());
-            commandAction(message_text, bPhoneReady);
-            setupData->returnCode = (bDisplayVolt == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
-        } else {
-            snprintf(message_text, sizeof(message_text), "--proz"); //, setupData->paramValue.c_str());
-            commandAction(message_text, bPhoneReady);
-            setupData->returnCode = (bDisplayVolt == !(setupData->paramValue.compareTo("off")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
-        }
+        snprintf(message_text, sizeof(message_text), "--volt %s", setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        setupData->returnCode = (bDisplayVolt == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = bDisplayVolt?"on":"off";
         return;
     } else
@@ -192,11 +206,11 @@ void webSetup_setParam(setupStruct *setupData){
     if(setupData->paramName.equals("setlat")) {
         snprintf(message_text, sizeof(message_text), "--setlat %s", setupData->paramValue.c_str());
         commandAction(message_text, bPhoneReady);
-        #ifdef ESP32
-        setupData->returnCode = (fabs(meshcom_settings.node_lat) == fabs(setupData->paramValue.toDouble()))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
-        #else
-        setupData->returnCode = (meshcom_settings.node_lat == setupData->paramValue.toFloat())?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
-        #endif
+        // node_lat ist double, der nRF52-Core hat kein String::toDouble(): ein
+        // float-Vergleich scheitert fuer fast jede Koordinate (49.997 != 49.9970016f).
+        // atof() liefert auf beiden Cores double; fabs(), weil --setlat negative
+        // Werte als Betrag plus 'S'/'W' ablegt.
+        setupData->returnCode = (fabs(meshcom_settings.node_lat - fabs(atof(setupData->paramValue.c_str()))) < 1e-7)?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = String(meshcom_settings.node_lat,6);
         return;
     } else
@@ -204,11 +218,11 @@ void webSetup_setParam(setupStruct *setupData){
     if(setupData->paramName.equals("setlon")) {
         snprintf(message_text, sizeof(message_text), "--setlon %s", setupData->paramValue.c_str());
         commandAction(message_text, bPhoneReady);
-        #ifdef ESP32
-        setupData->returnCode = (fabs(meshcom_settings.node_lon) == fabs(setupData->paramValue.toDouble()))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
-        #else
-        setupData->returnCode = (meshcom_settings.node_lon == setupData->paramValue.toFloat())?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
-        #endif
+        // node_lon ist double, der nRF52-Core hat kein String::toDouble(): ein
+        // float-Vergleich scheitert fuer fast jede Koordinate (49.997 != 49.9970016f).
+        // atof() liefert auf beiden Cores double; fabs(), weil --setlon negative
+        // Werte als Betrag plus 'S'/'W' ablegt.
+        setupData->returnCode = (fabs(meshcom_settings.node_lon - fabs(atof(setupData->paramValue.c_str()))) < 1e-7)?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
         setupData->returnValue = String(meshcom_settings.node_lon,6);
         return;
     } else
@@ -394,12 +408,21 @@ void webSetup_setParam(setupStruct *setupData){
     } else 
 
     if(setupData->paramName.equals("sendpos")) {
-        snprintf(message_text, sizeof(message_text), "--nomsgall %s", setupData->paramValue.c_str());
-        commandAction(message_text, bPhoneReady);
-        setupData->returnCode = (bNoMSGtoALL == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
-        setupData->returnValue = bNoMSGtoALL?"on":"off";
+        // WEB-04: this used to be a copy-paste of the nomsgall block above it
+        // and toggled bNoMSGtoALL instead of sending a position. sendpos is
+        // a one-shot action, not a settable parameter -- fire it the same
+        // way webFunctionCall()'s "sendpos" case does for the /callfunction/
+        // endpoint the web UI's "Send Position" button already uses
+        // (web_nodefunctioncalls.cpp), and report success once it has run.
+        if(bDisplayTrack) {
+            commandAction((char*)"--sendtrack", bPhoneReady);
+        } else {
+            commandAction((char*)"--sendpos", bPhoneReady);
+        }
+        setupData->returnCode = WS_RETURNCODE_OKAY;
+        setupData->returnValue = "sent";
         return;
-    } else 
+    } else
 
     if(setupData->paramName.equals("setssid")) {
         snprintf(message_text, sizeof(message_text), "--setssid %s", setupData->paramValue.c_str());
@@ -481,6 +504,40 @@ void webSetup_setParam(setupStruct *setupData){
         return;
     } else
 
+    #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+    if(setupData->paramName.equals("kiss")) {
+        snprintf(message_text, sizeof(message_text), "--kiss %s", setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        setupData->returnCode = (bKISS == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = bKISS?"on":"off";
+        return;
+    } else
+
+    if(setupData->paramName.equals("kisstx")) {
+        snprintf(message_text, sizeof(message_text), "--kiss tx %s", setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        setupData->returnCode = (bKISSTX == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = bKISSTX?"on":"off";
+        return;
+    } else
+
+    if(setupData->paramName.equals("kissmeta")) {
+        snprintf(message_text, sizeof(message_text), "--kiss meta %s", setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        setupData->returnCode = (bKISSMETA == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = bKISSMETA?"on":"off";
+        return;
+    } else
+
+    if(setupData->paramName.equals("kissauth")) {
+        snprintf(message_text, sizeof(message_text), "--kiss auth %s", setupData->paramValue.c_str());
+        commandAction(message_text, bPhoneReady);
+        setupData->returnCode = (bKISSAUTH == (setupData->paramValue.compareTo("on")==0))?WS_RETURNCODE_OKAY:WS_RETURNCODE_FAIL;
+        setupData->returnValue = bKISSAUTH?"on":"off";
+        return;
+    } else
+    #endif
+
     /// ###################################### MCPIO ######################################
     if(setupData->paramName.substring(0,5).equals("mcpio")) {
         String port = setupData->paramName.substring(5);
@@ -496,7 +553,11 @@ void webSetup_setParam(setupStruct *setupData){
         commandAction(message_text, bPhoneReady);
         
         //MCP Module has 16 IO Ports named A0...7 and B0...7 ... but internally they are 0....15
-        uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48 
+        if((port.charAt(0)!='A' && port.charAt(0)!='B') || port.charAt(1)<'0' || port.charAt(1)>'7') {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            return;
+        }
+        uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48
         if(port.charAt(0)=='B') t_io+=8;
 
         uint16_t bitmask = 1 << t_io;
@@ -523,7 +584,11 @@ void webSetup_setParam(setupStruct *setupData){
         commandAction(message_text, bPhoneReady);
         
         //MCP Module has 16 IO Ports named A0...7 and B0...7 ... but internally they are 0....15
-        uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48 
+        if((port.charAt(0)!='A' && port.charAt(0)!='B') || port.charAt(1)<'0' || port.charAt(1)>'7') {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            return;
+        }
+        uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48
         if(port.charAt(0)=='B') t_io+=8;
 
         uint16_t bitmask = 1 << t_io;
@@ -546,6 +611,10 @@ void webSetup_setParam(setupStruct *setupData){
         }
 
         //MCP Module has 16 IO Ports named A0...7 and B0...7 ... but internally they are 0....15
+        if((port.charAt(0)!='A' && port.charAt(0)!='B') || port.charAt(1)<'0' || port.charAt(1)>'7') {
+            setupData->returnCode = WS_RETURNCODE_FAIL;
+            return;
+        }
         uint8_t t_io = (uint8_t)port.charAt(1) - 48;            //ASCII '0' is numarically 48
         if(port.charAt(0)=='B') t_io+=8;
 
@@ -665,7 +734,12 @@ void webSetup_getParam(setupStruct *setupData){
         setupData->returnValue = String(meshcom_settings.node_power);
         return;
     } else
-    
+
+    if(setupData->paramName.equals("maxhop")) {     // CS-02
+        setupData->returnValue = String(meshcom_settings.max_hop_text);
+        return;
+    } else
+
     if(setupData->paramName.equals("utcoffset")) {
         setupData->returnValue = String(meshcom_settings.node_utcoff, 1);
         return;
@@ -879,6 +953,28 @@ void webSetup_getParam(setupStruct *setupData){
         setupData->returnValue = bNETCONSOLE?"on":"off";
         return;
     }
+
+    #if defined(ESP32) && !defined(DISABLE_KISS_TCP)
+    if(setupData->paramName.equals("kiss")) {
+        setupData->returnValue = bKISS?"on":"off";
+        return;
+    }
+
+    if(setupData->paramName.equals("kisstx")) {
+        setupData->returnValue = bKISSTX?"on":"off";
+        return;
+    }
+
+    if(setupData->paramName.equals("kissmeta")) {
+        setupData->returnValue = bKISSMETA?"on":"off";
+        return;
+    }
+
+    if(setupData->paramName.equals("kissauth")) {
+        setupData->returnValue = bKISSAUTH?"on":"off";
+        return;
+    }
+    #endif
 
     if(setupData->paramName.equals("tempoffsetindoor")) {
         setupData->returnValue = String(meshcom_settings.node_tempi_off);    

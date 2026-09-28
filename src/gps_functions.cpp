@@ -14,12 +14,36 @@
 
 #include "gps_functions.h"
 
+#include "gps_filter.h"
+#include "alt_fusion.h"
+
+#if defined(ENABLE_BMX280)
+#include "bmx280.h"
+#endif
+
+#include "printfdeb_functions.h"
+
+#include "watchdog_feed.h"
+
 #include <clock.h>
 
 #include <loop_functions.h>
 #include <loop_functions_extern.h>
 
-#define GPS_BAUDRATE_SOFTCHECK        // GPS Baudratenermittlung wird mit Software Loop geprüft
+// A-1/A-4: Hier stand ein unbedingtes "#define GPS_BAUDRATE_SOFTCHECK".
+// Das Makro ist eigentlich eine Variantenoption -- 15 variants/*/configuration.h
+// setzen oder kommentieren es --, aber diese Zeile hat die Wahl jeder Variante
+// ueberschrieben. Der #else-Zweig (Baudratenerkennung ueber Flankenmessung im
+// ISR) war damit auf ALLEN Boards unerreichbar und ist entfallen; die
+// Software-Schleife ist jetzt der einzige Weg. Zwei Implementierungen, von
+// denen eine nie uebersetzt wird, sind genau der Mechanismus, ueber den die
+// beiden Varianten auseinandergedriftet sind (Befunde A-2 und A-3).
+//
+// Die Defines in den Varianten sind dadurch wirkungslos geworden und koennen
+// gesondert entfernt werden.
+//
+// GPS_BAUDRATE_SETFIX wird jetzt unbedingt ausgewertet (A-4). Vorher lag der
+// vorzeitige return nur im SOFTCHECK-Zweig; der andere kannte SETFIX nicht.
 
 #include <TinyGPSPlus.h>
 
@@ -43,10 +67,33 @@ no more in use
 static HardwareSerial GPSSerial(1);  // UART1
 #endif
 
+// GPS-06: Die wirksamen UART-Pins. Voreinstellung sind die Pins der Variante;
+// ein Board mit GPS_FALLBACK_RX_PIN/GPS_FALLBACK_TX_PIN (T-Deck ohne Plus)
+// wechselt in detectBaudrate() auf die Zweitbelegung, wenn auf der ersten kein
+// NMEA-Satz zu finden ist. Alle spaeteren begin()-Aufrufe nutzen diese Werte.
+static int8_t s_gpsRxPin = GPS_RX_PIN;
+static int8_t s_gpsTxPin = GPS_TX_PIN;
+
 GPSData gpsData;
 
-// Baudrate-Erkennung: Viele Module starten mit 9600, manche mit 38400/115200
-static const unsigned long GPS_BAUDS[] = {1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200};
+// Baudrate-Erkennung. Die Reihenfolge ist nach Trefferwahrscheinlichkeit
+// sortiert, nicht numerisch: seit der Scan bei der ersten gueltigen
+// NMEA-Pruefsumme abbricht (N-25/S5), bestimmt sie unmittelbar die Dauer der
+// GPS-Initialisierung. Fuer das ERGEBNIS ist sie unerheblich -- es entscheidet
+// die Pruefsumme, nicht die Position.
+//
+// 38400 steht vorn, obwohl 9600 die Werkseinstellung der meisten Module ist.
+// Grund ist der Lebenszyklus, nicht die Verbreitung: SetupL76K() und
+// SetupUBLOX() stellen das Modul beim ersten erfolgreichen Init auf 38400 und
+// speichern das im Modul-Flash. Ab dann laeuft das Modul dauerhaft auf 38400.
+// 9600 trifft also genau einmal zu -- beim allerersten Kontakt --, 38400 bei
+// jedem weiteren Boot.
+//
+// Auf der Bank gemessen (T-Beam, 2026-08-22, u-blox): mit 9600 vorn
+// 535 ms beim Erstkontakt, aber 1956 ms bei jedem Reboot danach, weil das
+// 9600-Fenster voll auslaeuft, bevor 38400 drankommt. Mit 38400 vorn kehrt
+// sich das um -- und Reboots sind der haeufigere Fall.
+static const unsigned long GPS_BAUDS[] = {38400, 9600, 115200, 57600, 19200, 4800, 2400, 1200};
 static const size_t   GPS_BAUD_COUNT = sizeof(GPS_BAUDS) / sizeof(GPS_BAUDS[0]);
 int GPS_BAUDS_RX[GPS_BAUD_COUNT];
 
@@ -56,33 +103,155 @@ bool updateGPSdata;
 int NMEAlineIndex = 0;
 char c;
 
+// GPS-02: Stichproben, die die Plausibilitaetspruefung verworfen hat.
+static uint16_t s_gpsRejectCount = 0;
+
+// GPS-03: Hoehenschaetzer. Der Zustand haelt zwischen den Auswertungen; die
+// Logik selbst liegt Arduino-frei in gps_filter.cpp.
+static struct AltFilter s_alt;
+// Flanke "erstmals konvergiert seit dem letzten Seed" -- sie loest das
+// Nachziehen der barometrischen Referenzhoehe aus.
+static bool s_altConvergedOnce = false;
+// millis() der letzten in den Schaetzer eingespeisten Hoehe. 0 = unbekannt
+// (erste Auswertung nach dem Start/Reset), dann gilt die Nennkadenz.
+static uint32_t s_altLastMs = 0;
+
+// GPS-05b: Komplementaerfilter GPS/Barometer. Laeuft nur auf Boards mit
+// BMx280, deren Druckreferenz scharf ist (fBasePress != 0, siehe GPS-08);
+// alle anderen schreiben weiter den Kalman-Schaetzer nach node_alt. Die
+// Logik liegt Arduino-frei in alt_fusion.cpp.
+static struct AltFusion s_altFusion;
+static uint32_t s_altFusionLastMs = 0;
+
 unsigned long detectedBaud = 0;
 String ver = "";
 uint32_t startTimeout;
 
 const int WAIT_DURATION = 2000;   // max. Wartedauer
 
-#if defined(GPS_BAUDRATE_SOFTCHECK)
 
-unsigned long detectBaudrate()
+// ---------------------------------------------------------------------------
+// NMEA-Rahmenpruefung fuer die Baudratenerkennung (N-25/S5, B-15)
+//
+// Ein NMEA-0183-Satz hat die Form  $<payload>*HH<CR><LF>.  HH ist das XOR
+// aller Zeichen zwischen '$' und '*', hexadezimal in Grossbuchstaben.
+//
+// Der Pruefer laeuft ueber den ROHEN Bytestrom, nicht ueber den gefilterten:
+// der Zeichenfilter der Erkennung laesst '.' und '-' nicht durch, beide
+// kommen in jedem realen Satz vor ($GPRMC,064829.00,...). Ueber dem
+// gefilterten Strom koennte die Pruefsumme nie stimmen.
+//
+// Zweck: Rauschen von einem Modul unterscheiden. Die alte Erkennung nahm
+// schlicht die Baudrate mit den meisten passenden Zeichen (Argmax ohne
+// Mindestanzahl, Befund B-15). Da GPS_RX_PIN ohne Pull-up als INPUT
+// konfiguriert wird, "erkennt" ein einziges Rauschbyte auf einem Board ohne
+// angeschlossenes Modul eine Phantom-Baudrate.
+// ---------------------------------------------------------------------------
+
+#define NMEA_MAX_PAYLOAD 82   // NMEA-0183: max. 82 Zeichen je Satz
+
+struct NMEAframeCheck
 {
-    #if defined(GPS_BAUDRATE_SETFIX)
-        return GPS_BAUDRATE_SETFIX;
-    #endif
+    uint8_t  state;    // 0 = wartet auf '$', 1 = Nutzlast, 2 = Hex hoch, 3 = Hex tief
+    uint8_t  sum;      // laufendes XOR ueber die Nutzlast
+    uint8_t  want;     // aus dem Rahmen gelesene Soll-Pruefsumme
+    uint16_t len;      // Laenge der Nutzlast
+};
 
-    unsigned long detectedBaud=0;
+static void nmeaCheckReset(struct NMEAframeCheck *nc)
+{
+    nc->state = 0;
+    nc->sum = 0;
+    nc->want = 0;
+    nc->len = 0;
+}
 
-    for(int iGpsBaud=0; iGpsBaud < (int)GPS_BAUD_COUNT; iGpsBaud++)
+static int nmeaHexVal(char ch)
+{
+    if(ch >= '0' && ch <= '9') return ch - '0';
+    if(ch >= 'A' && ch <= 'F') return ch - 'A' + 10;
+    if(ch >= 'a' && ch <= 'f') return ch - 'a' + 10;
+    return -1;
+}
+
+/// @return true, sobald ein vollstaendiger Satz mit gueltiger Pruefsumme endet
+static bool nmeaCheckFeed(struct NMEAframeCheck *nc, char ch)
+{
+    // '$' beginnt immer einen neuen Satz, egal in welchem Zustand
+    if(ch == '$')
     {
+        nc->state = 1;
+        nc->sum = 0;
+        nc->len = 0;
+        return false;
+    }
+
+    switch(nc->state)
+    {
+        case 1:
+            if(ch == '*')
+            {
+                // leere Nutzlast ist kein Satz
+                if(nc->len == 0)
+                    nc->state = 0;
+                else
+                    nc->state = 2;
+            }
+            else if(ch == 0x0D || ch == 0x0A || nc->len >= NMEA_MAX_PAYLOAD)
+            {
+                nc->state = 0;   // abgebrochener oder ueberlanger Satz
+            }
+            else
+            {
+                nc->sum = nc->sum ^ (uint8_t)ch;
+                nc->len++;
+            }
+            break;
+
+        case 2:
+        {
+            int v = nmeaHexVal(ch);
+            if(v < 0) { nc->state = 0; break; }
+            nc->want = (uint8_t)(v << 4);
+            nc->state = 3;
+            break;
+        }
+
+        case 3:
+        {
+            int v = nmeaHexVal(ch);
+            nc->state = 0;
+            if(v < 0) break;
+            nc->want = (uint8_t)(nc->want | v);
+            return nc->want == nc->sum;
+        }
+
+        default:
+            break;
+    }
+
+    return false;
+}
+
+// Ein Durchlauf ueber alle Baudraten auf den aktuell wirksamen Pins.
+// Liefert den Index der ersten Baudrate mit gueltigem NMEA-Satz, sonst -1.
+static int gpsScanBauds()
+{
+    int ipos = -1;      // Index der Baudrate mit gueltigem NMEA-Satz
+
+    // Vollstaendig zuruecksetzen: der Scan bricht jetzt vorzeitig ab, sonst
+    // stuenden in den restlichen Eintraegen die Zaehlerstaende des letzten
+    // Durchlaufs (--gps reset ruft erneut hier herein).
+    for(int iGpsBaud=0; iGpsBaud < (int)GPS_BAUD_COUNT; iGpsBaud++)
         GPS_BAUDS_RX[iGpsBaud] = 0;
 
-        detectedBaud =  GPS_BAUDS[iGpsBaud];
-
+    for(int iGpsBaud=0; iGpsBaud < (int)GPS_BAUD_COUNT && ipos < 0; iGpsBaud++)
+    {
         #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
         Serial1.begin(GPS_BAUDS[iGpsBaud]);
         Serial1.flush();
         #else
-        GPSSerial.begin(GPS_BAUDS[iGpsBaud], SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
+        GPSSerial.begin(GPS_BAUDS[iGpsBaud], SERIAL_8N1, s_gpsRxPin, s_gpsTxPin);
         GPSSerial.flush();
         #endif
 
@@ -91,13 +260,26 @@ unsigned long detectBaudrate()
         NMEAlineIndex = 0;
         memset(msg_text, 0x00, maxNMEAline);
 
-         // 2 Sekunden lang auf gueltige NMEA-Daten warten
-        while (millis() - start < 1500)
+        struct NMEAframeCheck nmeaCheck;
+        nmeaCheckReset(&nmeaCheck);
+        bool bFrameOK = false;
+
+        // N-25: Eine Fütterung pro Baudstufe genügt -- das Fenster unten ist
+        // hart auf 1500 ms begrenzt, der Watchdog löst erst nach 5 s aus.
+        meshcom_wdt_feed();
+
+        // Bis zu 1,5 Sekunden auf einen vollstaendigen NMEA-Satz warten.
+        // Liegt einer vor, endet das Fenster sofort -- es gibt nichts mehr
+        // zu entscheiden.
+        while ((millis() - start < 1500) && !bFrameOK)
         {
+            // Die innere Schleife war unbegrenzt: bei einem dauerhaft
+            // sendenden Modul bleibt available() beliebig lange wahr. Sie
+            // erbt jetzt dasselbe 1500-ms-Fenster wie die äußere.
             #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
-            while (Serial1.available())
+            while (Serial1.available() && (millis() - start < 1500) && !bFrameOK)
             #else
-            while (GPSSerial.available())
+            while (GPSSerial.available() && (millis() - start < 1500) && !bFrameOK)
             #endif
             {
                 #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
@@ -106,7 +288,11 @@ unsigned long detectBaudrate()
                 c = char(GPSSerial.read());
                 #endif
 
-                
+                // Pruefsumme ueber den ROHEN Strom -- der Filter unten laesst
+                // '.' und '-' nicht durch, beide stehen in jedem realen Satz.
+                if(nmeaCheckFeed(&nmeaCheck, c))
+                    bFrameOK = true;
+
                 // A-Z 0-9 $ , * CR LF
                 if((c >='A' && c <='Z') || (c >='0' && c<= '9') || c=='!' || c=='$' || c=='*' || c==',' || c=='\\' || c==0x0A || c==0x0D)
                 {
@@ -126,120 +312,92 @@ unsigned long detectBaudrate()
         }
 
         if(iGPSDEBUG >= 2 && GPS_BAUDS_RX[iGpsBaud] > 0)
-          Serial.printf("[GPS ]...%lu baud --> %i chars\n", GPS_BAUDS[iGpsBaud], GPS_BAUDS_RX[iGpsBaud]);
+          Serial.printf("[GPS ]...%lu baud --> %i chars%s\n", GPS_BAUDS[iGpsBaud], GPS_BAUDS_RX[iGpsBaud],
+                        bFrameOK ? " (NMEA ok)" : "");
 
         #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
         Serial1.end();
         #else
         GPSSerial.end();
         #endif
+
+        if(bFrameOK)
+            ipos = iGpsBaud;
     }
 
-    int itxt = 0;
-    int ipos = -1;
+    return ipos;
+}
+
+unsigned long detectBaudrate()
+{
+    #if defined(GPS_BAUDRATE_SETFIX)
+        return GPS_BAUDRATE_SETFIX;
+    #endif
+
+    uint32_t tScan = millis();
+
+    // Jede Erkennung beginnt auf den Pins der Variante -- auch "--gps reset"
+    // nach einem Umverdrahten.
+    s_gpsRxPin = GPS_RX_PIN;
+    s_gpsTxPin = GPS_TX_PIN;
+
+    int ipos = gpsScanBauds();
+
+    #if defined(GPS_FALLBACK_RX_PIN) && defined(GPS_FALLBACK_TX_PIN)
+    // GPS-06: Bis 4.35d hat der T-Deck ohne Plus per SoftwareSerial auf
+    // GPIO43 empfangen und auf GPIO44 gesendet; seit 4.35p (a672d18b) ist es
+    // umgekehrt, wie beim T-Deck Plus und in der LilyGo-Belegung. Ein selbst
+    // verdrahtetes Modul nach alter Belegung ist seither stumm. Ein zweiter
+    // Durchlauf auf der alten Belegung kostet einmalig bis zu 12 s und nur,
+    // wenn der erste nichts gefunden hat.
+    if(ipos < 0)
+    {
+        Serial.printf("[GPS ]...nichts auf RX=%d TX=%d, zweiter Versuch auf RX=%d TX=%d (Belegung bis 4.35d)\n",
+                      (int)GPS_RX_PIN, (int)GPS_TX_PIN, (int)GPS_FALLBACK_RX_PIN, (int)GPS_FALLBACK_TX_PIN);
+
+        s_gpsRxPin = GPS_FALLBACK_RX_PIN;
+        s_gpsTxPin = GPS_FALLBACK_TX_PIN;
+        pinMode(s_gpsRxPin, INPUT);
+        pinMode(s_gpsTxPin, OUTPUT);
+
+        ipos = gpsScanBauds();
+
+        if(ipos >= 0)
+        {
+            Serial.printf("[GPS ]...Modul auf RX=%d TX=%d gefunden -- bitte Draehte tauschen, Standard ist RX=%d TX=%d\n",
+                          (int)s_gpsRxPin, (int)s_gpsTxPin, (int)GPS_RX_PIN, (int)GPS_TX_PIN);
+        }
+        else
+        {
+            s_gpsRxPin = GPS_RX_PIN;
+            s_gpsTxPin = GPS_TX_PIN;
+            pinMode(s_gpsRxPin, INPUT);
+            pinMode(s_gpsTxPin, OUTPUT);
+        }
+    }
+    #endif
 
     gpsDetected = false;
 
-    for(int iGpsBaud=0; iGpsBaud < (int)GPS_BAUD_COUNT; iGpsBaud++)
-    {
-        if(GPS_BAUDS_RX[iGpsBaud] > itxt)
-        {
-          itxt = GPS_BAUDS_RX[iGpsBaud];
-          ipos = iGpsBaud;
-        }
-    }
-
     if(ipos >= 0)
     {
-        Serial.printf("[GPS ]...found with %lu baud (%i chars)\n", GPS_BAUDS[ipos], itxt);
+        Serial.printf("[GPS ]...found with %lu baud (%i chars, NMEA-Pruefsumme gueltig, %lu ms)\n",
+                      GPS_BAUDS[ipos], GPS_BAUDS_RX[ipos], (unsigned long)(millis() - tScan));
 
         gpsDetected = true;
 
-        detectedBaud = GPS_BAUDS[ipos];
-
-        return detectedBaud;
+        return GPS_BAUDS[ipos];
     }
 
-    detectedBaud = 0;
-    
-    return detectedBaud;
+    // Kein einziger Satz mit gueltiger Pruefsumme: kein Modul, falsch
+    // verkabelt oder stumm. Frueher lieferte hier der Argmax ueber die
+    // Zeichenzaehler eine Phantom-Baudrate (B-15) und der Aufrufer lief in
+    // GPSprobe() gegen nichts.
+    Serial.printf("[GPS ]...keine gueltige NMEA-Sequenz auf %d Baudraten (%lu ms)\n",
+                  (int)GPS_BAUD_COUNT, (unsigned long)(millis() - tScan));
+
+    return 0;
 }
-#else
-
-//=======================================================================================
-const int SAMPLE_COUNT = 50;      // Anzahl der zu messenden Signalflanken
-const int SAMPLE_DURATION = 5000; // max. Messdauer 5s
-volatile unsigned long pulseTimes[SAMPLE_COUNT];
-volatile int pulseIndex = 0;
-volatile unsigned long lastMicros = 0;
-volatile unsigned long currentMicros = 0;
-volatile unsigned long duration = 0;
-volatile unsigned long startWait = 0;
-
-/**
- * @brief ISR für detectBaudrate
- */
-void IRAM_ATTR handleRxInterrupt() {
-  currentMicros = micros();
-  duration = currentMicros - lastMicros;
-  
-  if (pulseIndex < SAMPLE_COUNT && duration > 2) {
-    pulseIndex = pulseIndex+1;
-    pulseTimes[pulseIndex] = duration;
-  }
-  lastMicros = currentMicros;
-}
-
-/**
- * @brief detect Baudrate durch Messung der Zeit zwischen RX-Flanken
- * @return long = detected Baudrate
- */
-unsigned long detectBaudrate() {
-  pulseIndex = 0;
-  lastMicros = micros();
-
-  // Messung: warten, bis genügend Flanken gemessen wurden oder Timeout
-  attachInterrupt(GPS_RX_PIN, handleRxInterrupt, CHANGE);
-  startWait = millis();
-  while (pulseIndex < SAMPLE_COUNT && (millis() - startWait < SAMPLE_DURATION)) { delay(10); }
-  detachInterrupt(GPS_RX_PIN);
-
-  // Auswertung
-  Serial.printf("[GPS ]...messured %u\n", pulseIndex);
-  long minDiff = 1000000;
-  if (pulseIndex < 5) return -1; // Zu wenig Daten empfangen
-  unsigned long minDuration = minDiff;
-  for (int i = 1; i < pulseIndex; i++) {  // Suche nach dem kürzesten Puls (entspricht 1 Bit)
-    if (pulseTimes[i] < minDuration && pulseTimes[i] > 2) { // Rauschfilter > 2µs, ist zwar schon in der Erfassung
-      minDuration = pulseTimes[i];
-    }
-  }
- 
-  // Mapping auf Standard-Baudraten
-  long calculatedBaud = minDiff / minDuration;
-  if(iGPSDEBUG >= 2)
-    Serial.printf("[GPS ]...1st attempt: %lu Baud of %i\n", calculatedBaud, GPS_BAUD_COUNT);
-
-  long bestMatch = 0;
-  if ((calculatedBaud > (GPS_BAUDS[GPS_BAUD_COUNT-1]+1000)) || (calculatedBaud < (GPS_BAUDS[0]-100)) )
-  {
-     return -1;
-  }
-  
-  for (long b : GPS_BAUDS)
-  {
-    long diff = abs(calculatedBaud - b);
-    if (diff < minDiff)
-    {
-      minDiff = diff;
-      bestMatch = b;
-    }
-  }
-
-  return bestMatch;
-}
-
-#endif
 /* 9600 
 unsigned long new_baud = 9600;
 // B5 62 06 00 14 00 01 00 00 00 D0 08 00 00 80 25 00 00 07 00 02 00 00 00 00 00 A1 AF
@@ -367,7 +525,12 @@ void sendUBX_CFG_CFG() {  // Binäres Paket senden
 String readUBX() {
   startTimeout = millis() + 500;
   ver = "";
-  while (millis() < startTimeout) {
+  while ((int32_t)(millis() - startTimeout) < 0) {
+    // N-25/B-9: Das Timeout wird bei JEDEM empfangenen Byte neu gesetzt.
+    // Gegen ein dauerhaft sendendes Modul hat diese Schleife daher keine
+    // obere Schranke; ohne Fütterung reboot der Knoten mitten in der
+    // GPS-Erkennung. Die Schranke selbst gehört noch gezogen (S2).
+    meshcom_wdt_feed();
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
     while (Serial1.available()) {
     #else
@@ -388,7 +551,8 @@ String readUBX() {
 String readUBXbin() {
   startTimeout = millis() + 500;
   ver = "";
-    while (millis() < startTimeout) {
+    while ((int32_t)(millis() - startTimeout) < 0) {
+    meshcom_wdt_feed();   // N-25/B-9: gleiches gleitendes Timeout wie readUBX()
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
     while (Serial1.available()) {
       int c = Serial1.read();
@@ -409,16 +573,18 @@ String readUBXbin() {
 
 
 void WaitPause() {
+  meshcom_wdt_feed();   // N-25: die erste Schleife wartet bis zu 1000 ms
   startTimeout = millis() + 1000;
   #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
-  while ((!Serial1.available()) && (millis() < startTimeout)) { delay(5); } // auf Block von Zeichen warten
+  while ((!Serial1.available()) && ((int32_t)(millis() - startTimeout) < 0)) { delay(5); } // auf Block von Zeichen warten
   #else
-  while ((!GPSSerial.available()) && (millis() < startTimeout)) { delay(5); } // auf Block von Zeichen warten
+  while ((!GPSSerial.available()) && ((int32_t)(millis() - startTimeout) < 0)) { delay(5); } // auf Block von Zeichen warten
   #endif
   if(iGPSDEBUG >= 2)
     Serial.printf("[GPS ]...wait");
   startTimeout = millis() + 50;  // für Serial Sync Zeichenblock lesen und Pause von 50ms abwarten
-  while (millis() < startTimeout) {
+  while ((int32_t)(millis() - startTimeout) < 0) {
+    meshcom_wdt_feed();   // N-25: 50-ms-Timeout wird pro Byte neu gesetzt
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
     if (Serial1.available()) {
       Serial1.read();
@@ -493,13 +659,22 @@ void SetupUBLOX()
     Serial.printf("[GPS ]...UBLOX config finished\n");
   }
 
-  WaitPause(); // Pause zwischen Blöcken erreicht
-
-  sendUBX_MON_VER();
-  ver = readUBXbin();
+  // TM-16 (Bootzeit): die Versionsabfrage kostet jeden Boot fest ueber eine
+  // halbe Sekunde -- WaitPause() wartet auf den naechsten Zeichenblock (bis
+  // 1000 ms) und readUBXbin() laeuft immer bis zu seinem 500-ms-Timeout aus,
+  // weil es nur nachtriggert und nie vorzeitig zurueckkehrt. Der einzige
+  // Verbraucher des Ergebnisses ist die Debug-Zeile darunter: `ver` ist in
+  // dieser Datei lokal und wird sonst nirgends gelesen. Also nur noch abfragen,
+  // wenn die Ausgabe auch erscheint. Auf dem T-Deck Plus gemessen: SetupUBLOX()
+  // 1,93 s -> 1,33 s, ohne Aenderung an der Modulkonfiguration selbst.
   if(iGPSDEBUG >= 2)
-    Serial.printf("[GPS_VER] %s\n", ver.c_str());
+  {
+    WaitPause(); // Pause zwischen Blöcken erreicht
 
+    sendUBX_MON_VER();
+    ver = readUBXbin();
+    Serial.printf("[GPS_VER] %s\n", ver.c_str());
+  }
 }
 
 /**
@@ -596,7 +771,9 @@ bool GPSprobe() {
     ver = ver + char(GPSSerial.read());
   #endif
 
-    if (millis() > startTimeout) { // RC-Buffer muss nach WAIT_DURATION leer sein
+    meshcom_wdt_feed();   // N-25: bis zu WAIT_DURATION = 2000 ms
+
+    if ((int32_t)(millis() - startTimeout) > 0) { // RC-Buffer muss nach WAIT_DURATION leer sein
       Serial.printf("[GPS_ERR] wait stop NMEA timeout!\n");
       return false;
     }
@@ -705,6 +882,13 @@ void WZ_GPS_Reset() {
  * @brief automatische Baudrate Erkennung, L76K | UBLOX Erkennung, jeweils Parameter bei jedem Start setzen:
  * 
  */
+// A-6: gpsDetected hat drei Schreiber -- detectBaudrate(), WZ_GPS_Init() und den
+// "--gps off"-Zweig in command_functions.cpp. Deklariert ist es in
+// loop_functions.cpp. Das ist redundant, aber heute widerspruchsfrei: die
+// Erkennung setzt es, der Aufrufer bestaetigt oder verwirft es, das Kommando
+// schaltet ab. Bewusst nicht zusammengefasst -- eine Umstellung auf einen
+// einzigen Schreiber beruehrt den Kommandopfad und gehoert nicht in eine
+// Aufraeumwelle ohne Verhaltensaenderung.
 void WZ_GPS_Init()
 {
   if(gpsInitDone)
@@ -713,12 +897,26 @@ void WZ_GPS_Init()
   WZ_GPS_Reset();
 
   gpsInitDone = true;
-  
+
+  // GPS-03: Neue Sitzung, neuer Schaetzer.
+  altFilterReset(&s_alt);
+  s_altConvergedOnce = false;
+  s_altLastMs = 0;
+  altFusionReset(&s_altFusion);
+  s_altFusionLastMs = 0;
+
   Serial.printf("[GPS ]...Init GPIO RX=%d TX=%d\n", GPS_RX_PIN, GPS_TX_PIN);
   
   #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
   Serial1.setPins(GPS_RX_PIN, GPS_TX_PIN);
-  //Serial1.end();  // vorsorglich schließen, damit Interrupt nicht gestört wird
+  // A-8: Der ESP32-Zweig unten schliesst den Port vorsorglich, dieser nicht --
+  // das Serial1.end() ist hier auskommentiert. Folge: "--gps on" und
+  // "--gps reset" betreten auf T114/T-Echo Serial1.begin() erneut, ohne die
+  // vorherige Instanz zu schliessen. Ob die nRF52-UARTE ein doppeltes begin()
+  // vertraegt, ist aus diesem Repo nicht zu beantworten und wurde nicht auf
+  // Hardware geprueft -- deshalb bleibt das Verhalten unveraendert und ist
+  // hier nur benannt. Wer eines der beiden Boards auf der Bank hat: Re-Init
+  // mehrfach ausloesen und pruefen, ob der Empfang danach noch laeuft.
   #else
   pinMode(GPS_RX_PIN, INPUT);
   pinMode(GPS_TX_PIN, OUTPUT);
@@ -735,7 +933,7 @@ void WZ_GPS_Init()
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
     Serial1.begin(detectedBaud);
     #else
-    GPSSerial.begin(detectedBaud,SERIAL_8N1,GPS_RX_PIN,GPS_TX_PIN);
+    GPSSerial.begin(detectedBaud,SERIAL_8N1,s_gpsRxPin,s_gpsTxPin);
     #endif
 
     gpsDetected = true;
@@ -757,24 +955,20 @@ void WZ_GPS_Init()
 
 
 /**
- * @brief Non-blocking GPS-Update. In jedem loop()-Durchlauf aufrufen.
+ * @brief GPS-01: UART leeren und in den Parser fuettern. In JEDEM
+ *        loop()-Durchlauf aufrufen.
  *
- * Liest alle verfuegbaren Bytes von der GPS-UART und fuettert 
- * in den TinyGPS++ Parser. Aktualisiert gpsData wenn neue Daten da sind.
+ * Der Ringpuffer der Arduino-UART fasst 256 Byte. Bei 38400 Baud liefert ein
+ * Modul das in rund 65 ms; die Auswertung in WZ_GPS_Loop() laeuft aber nur
+ * alle gps_refresh_intervall Sekunden. Wer erst dort liest, verliert den
+ * groessten Teil jeder Sekunde an Ueberlauf -- und ein Ueberlauf mitten im
+ * Satz erzeugt zusammengesetzte Zeilen, die die NMEA-Pruefsumme zufaellig
+ * passieren koennen. Deshalb ist das Leeren vom Auswerten getrennt.
  */
-int WZ_GPS_Loop() {
-
-    int igps = POSINFO_INTERVAL;
-
-    if(iGPSDEBUG > 2)
-    {
-      Serial.printf("[GPS ]...igps: %i\n", igps);
-    }
-
-    if (!gpsDetected) return igps;
-
-    NMEAlineIndex = 0;
-    memset(msg_text, 0x00, maxNMEAline);
+void WZ_GPS_Feed()
+{
+    if (!gpsDetected)
+        return;
 
     // Alle verfuegbaren Bytes lesen (non-blocking)
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
@@ -791,28 +985,65 @@ int WZ_GPS_Loop() {
 
         if (gps.encode(char(ic))) { updateGPSdata = true; }
 
+        // NMEA-Echo. msg_text ist der globale Kommandopuffer -- diese Schleife
+        // laeuft in jedem loop()-Durchlauf, ein memset() darauf waere nicht
+        // vertretbar. Ab Debugstufe 3 wird zeilenweise gesammelt und bei '\n'
+        // genau einmal ausgegeben; darunter bleiben msg_text und
+        // NMEAlineIndex vollstaendig unberuehrt.
         if(iGPSDEBUG > 2)
         {
-          // TODO: nicht einzeln ausgeben, sondern sammeln in LineBuffer
-          // und erst ausgeben, wenn ein Satz vollständig ist \r\n
-          if (NMEAlineIndex < (int)maxNMEAline-2) {
-              msg_text[NMEAlineIndex] = char(ic);
-              NMEAlineIndex++;
-          }
+            if(ic != '\r' && ic != '\n' && NMEAlineIndex < (int)(maxNMEAline) - 2)
+            {
+                msg_text[NMEAlineIndex] = char(ic);
+                NMEAlineIndex++;
+            }
+
+            if(ic == '\n' || NMEAlineIndex >= (int)(maxNMEAline) - 2)
+            {
+                if(NMEAlineIndex > 0)
+                {
+                    msg_text[NMEAlineIndex] = 0x00;
+                    Serial.printf("[GPS ]...NMEA: %s\n", msg_text);
+                }
+
+                NMEAlineIndex = 0;
+            }
         }
     }
+}
+
+/**
+ * @brief Auswertung des zuletzt Gelesenen. Laeuft auf dem eigenen Takt
+ *        (gps_refresh_intervall).
+ *
+ * Das Leeren der UART liegt in WZ_GPS_Feed(); hier wird nur noch bewertet,
+ * was der Parser inzwischen zusammengesetzt hat, sobald updateGPSdata gesetzt
+ * ist.
+ */
+int WZ_GPS_Loop() {
+
+    int igps = POSINFO_INTERVAL;
+
+    if(iGPSDEBUG > 2)
+    {
+      Serial.printf("[GPS ]...igps: %i\n", igps);
+    }
+
+    if (!gpsDetected) return igps;
 
     if (updateGPSdata)
     {
-        if(iGPSDEBUG > 2)
-        {
-            Serial.printf("[GPS ]...NMEABuffer size:%i\n%s\n", NMEAlineIndex, msg_text);
-        }
-
         // GPS-Daten in unsere Struktur uebertragen
         gpsData.valid      = gps.location.isValid();
         gpsData.latitude   = gps.location.lat();
         gpsData.longitude  = gps.location.lng();
+
+        // GPS-03/F6: isUpdated() muss VOR meters() gelesen werden -- der
+        // Zugriff auf den Wert loescht das Flag. updateGPSdata setzt jeder
+        // beliebige Satz; ohne diese Abfrage speist ein GGA mit Fixqualitaet 0
+        // oder leerem Hoehenfeld den alten Wert erneut in den Filter und
+        // schrumpft P auf einer Stichprobe ohne Informationsgehalt.
+        bool altNew        = gps.altitude.isUpdated();
         gpsData.altitude   = gps.altitude.meters();
         gpsData.satellites = gps.satellites.value();
         gpsData.hdop       = gps.hdop.hdop();
@@ -846,30 +1077,57 @@ int WZ_GPS_Loop() {
         updateGPSdata = false;
 
         posinfo_satcount = gpsData.satellites;
-        posinfo_hdop = gpsData.hdop;
         fposinfo_hdop= gpsData.hdop;
 
         bool has_gnss_location=false;
 
-        if ((posinfo_hdop < 6.0) && (posinfo_satcount > 5))
+        // GPS-02: HDOP und Satellitenzahl sagen nichts darueber aus, ob der
+        // Satz UNVERSEHRT ist. Ein aus zwei Haelften zusammengesetzter Satz
+        // kann die Pruefsumme zufaellig passieren und liefert dann Null-Insel
+        // oder einen unmoeglichen Kalender. Solche Stichproben nehmen ab hier
+        // den bestehenden Zweig ohne Fix.
+        bool bPlausible = gpsSamplePlausible(gpsData.latitude, gpsData.longitude, gpsData.altitude,
+                                             (int)gpsData.year, (int)gpsData.month, (int)gpsData.day);
+
+        if ((fposinfo_hdop < 6.0) && (posinfo_satcount > 5) && bPlausible)
         {
             has_gnss_location = true;
             posinfo_fix = true;
         }
         else
         {
+            if((fposinfo_hdop < 6.0) && (posinfo_satcount > 5) && !bPlausible)
+            {
+                if(s_gpsRejectCount < 0xFFFF)
+                    s_gpsRejectCount++;
+
+                if(iGPSDEBUG > 0)
+                    printfdeb("[GPS ]...reject: lat:%.6lf lon:%.6lf date:%04d.%02d.%02d n:%u\n",
+                              gpsData.latitude, gpsData.longitude,
+                              (int)gpsData.year, (int)gpsData.month, (int)gpsData.day,
+                              (unsigned int)s_gpsRejectCount);
+            }
+
             posinfo_fix = false;
         }
-        
+
         if (WZ_GPS_HasFix() && has_gnss_location)
         {
             // time -> variables
-            if(gpsData.year > 2023)
+            //
+            // GPS-02/F1: Bei einem gespleissten RMC kann der Datumsteil heil
+            // durchkommen, waehrend der Zeitteil zerstoert ist ("1834" wird zu
+            // 00:18:34, "999999.99" zu h=99). mktime() nimmt beides
+            // widerspruchslos an -- nur eine eigene Bereichspruefung faengt es
+            // ab, bevor die Systemzeit verstellt wird.
+            if(gpsData.year > 2023 && gps.time.isValid()
+               && gpsDatePlausible((int)gpsData.year, (int)gpsData.month, (int)gpsData.day)
+               && gpsTimePlausible((int)gpsData.hour, (int)gpsData.minute, (int)gpsData.second))
             {
                 MyClock.setCurrentTime(meshcom_settings.node_utcoff, gpsData.year, gpsData.month, gpsData.day, gpsData.hour, gpsData.minute, gpsData.second);
                 snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
             }
-                
+
             meshcom_settings.node_date_year = MyClock.Year();
             meshcom_settings.node_date_month = MyClock.Month();
             meshcom_settings.node_date_day = MyClock.Day();
@@ -914,18 +1172,107 @@ int WZ_GPS_Loop() {
             else
                 meshcom_settings.node_lat_c='N';
 
-            meshcom_settings.node_alt = (int)gpsData.altitude;
+            // GPS-03: Die Rohhoehe eines Consumer-Empfaengers streut um
+            // mehrere Meter. Im Ruhezustand glaettet ein skalarer
+            // Kalman-Filter das; in TRACK bewegt sich der Knoten und eine
+            // Zeitkonstante von Minuten waere dort ein Fehler.
+            if(bDisplayTrack)
+            {
+                altFilterReset(&s_alt);
+                s_altConvergedOnce = false;
+                s_altLastMs = 0;
+                altFusionReset(&s_altFusion);
+                s_altFusionLastMs = 0;
+
+                meshcom_settings.node_alt = (int)gpsData.altitude;
+            }
+            else
+            {
+                // GPS-03/F2: Das Prozessrauschen ist eine Rate. Die Auswertung
+                // laeuft auf nRF52 im Sekundentakt, auf ESP32 im
+                // Dreisekundentakt; ohne dt waere die Zeitkonstante dort ein
+                // Drittel. F6: nur eine WIRKLICH neue Hoehe darf einspeisen.
+                if(altNew)
+                {
+                    uint32_t nowMs = millis();
+                    uint32_t dtMs  = (s_altLastMs == 0) ? ALT_KF_DT_REF_MS : (nowMs - s_altLastMs);
+                    s_altLastMs    = nowMs;
+
+                    if(altFilterUpdate(&s_alt, (float)gpsData.altitude, dtMs))
+                    {
+                        float altOut = s_alt.x;
+
+                        #if defined(ENABLE_BMX280)
+                        // GPS-05b: Der Kalman-Schaetzer liefert den langsamen
+                        // Anteil, das Barometer die Form der letzten Minuten.
+                        // Der absolute Anker des Barometers (eine einzige
+                        // GPS-Stichprobe, GPS-08) kuerzt sich im Hochpass
+                        // heraus. Ohne scharfe Druckreferenz bleibt es beim
+                        // reinen Kalman-Wert, damit Boards ohne Sensor und die
+                        // erste Minute nach dem Boot unveraendert laufen.
+                        if((bBMPON || bBMEON) && fBasePress != 0.0f)
+                        {
+                            float baroAlt = getPressALTf();
+
+                            if(baroAlt != 0.0f)
+                            {
+                                uint32_t fdtMs = (s_altFusionLastMs == 0) ? 0 : (nowMs - s_altFusionLastMs);
+                                s_altFusionLastMs = nowMs;
+
+                                altOut = altFusionUpdate(&s_altFusion, s_alt.x, baroAlt, fdtMs);
+
+                                if(iGPSDEBUG > 1)
+                                    printfdeb("[GPS ]...alt fused: %.1f m (kf %.1f baro %.1f)\n",
+                                              (double)altOut, (double)s_alt.x, (double)baroAlt);
+                            }
+                        }
+                        #endif
+
+                        meshcom_settings.node_alt = (int)lroundf(altOut);
+                    }
+                }
+
+                // Flanke: erst ab hier ist die Hoehe gut genug, um die
+                // barometrische Referenz darauf festzunageln.
+                if(!s_altConvergedOnce && altFilterConverged(&s_alt))
+                {
+                    s_altConvergedOnce = true;
+
+                    baroBaseRelatch(s_alt.x);
+
+                    if(iGPSDEBUG > 0)
+                        printfdeb("[GPS ]...alt converged: %d m (P=%.1f)\n",
+                                  (int)lroundf(s_alt.x), (double)s_alt.P);
+                }
+            }
+
             if(meshcom_settings.node_alt < 0)
                 meshcom_settings.node_alt = 0;
 
             posinfo_age = gpsData.age_ms;
+
+            #ifdef ESP32
+            // Without a fix the node sends the stored position, so the fix is saved
+            // (at most every 15 minutes) and survives a reboot.
+            static unsigned long lastPosSave = 0;
+            if(lastPosSave == 0 || (millis() - lastPosSave) >= 15 * 60 * 1000UL)
+            {
+                save_position();
+                lastPosSave = millis();
+            }
+            #endif
 
             igps = setSMartBeaconing(dlat, dlon);
         }
         else
         {
             // time -> variables
-            if(gpsData.year > 2024)
+            // GPS-02/F1: gleiche Bereichspruefung wie im Fix-Zweig -- dieser
+            // Pfad nimmt gerade die Stichproben auf, die das
+            // Plausibilitaets-Gate verworfen hat.
+            if(gpsData.year > 2024 && gps.time.isValid()
+               && gpsDatePlausible((int)gpsData.year, (int)gpsData.month, (int)gpsData.day)
+               && gpsTimePlausible((int)gpsData.hour, (int)gpsData.minute, (int)gpsData.second))
             {
                 MyClock.setCurrentTime(meshcom_settings.node_utcoff, gpsData.year, gpsData.month, gpsData.day, gpsData.hour, gpsData.minute, gpsData.second);
                 snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
@@ -951,9 +1298,35 @@ int WZ_GPS_Loop() {
 }
 
 /**
- * @brief 
- * 
- * @return true | false 
+ * @brief GPS-03: Hoehenschaetzer auf einen bekannten Wert setzen (--setalt).
+ *
+ * Der Wert ist ein Startpunkt, keine Festlegung: das GPS verfeinert danach
+ * weiter. Die barometrische Referenz wird sofort nachgezogen, weil der
+ * Bediener hier mehr weiss als der Empfaenger.
+ */
+void WZ_GPS_AltSeed(float alt)
+{
+    altFilterSeed(&s_alt, alt);
+    s_altConvergedOnce = false;
+    s_altLastMs        = 0;
+    altFusionReset(&s_altFusion);
+    s_altFusionLastMs  = 0;
+
+    baroBaseRelatch(alt);
+}
+
+/**
+ * @brief GPS-03: true, sobald die Kovarianz unter ALT_KF_P_CONV liegt.
+ */
+bool WZ_GPS_AltConverged()
+{
+    return altFilterConverged(&s_alt);
+}
+
+/**
+ * @brief
+ *
+ * @return true | false
  */
 bool WZ_GPS_HasFix() {
     return gpsInitDone && gpsData.valid && gpsData.age_ms < 5000;
@@ -1037,3 +1410,52 @@ void WZ_L76Kreset() {
 
 
 #endif // ENABLE_GPS
+
+// ---------------------------------------------------------------------------
+// GPS-04: barometrische Referenzhoehe
+//
+// Die Drucksensoren rechnen ihren Messwert mit einer Basishoehe auf
+// Meeresniveau um und nageln diese Basis beim ersten Aufruf fest. Mit GPS ist
+// der erste Wert der erste Rohfix -- also genau der schlechteste, den die
+// Sitzung zu bieten hat. Die beiden Helfer verschieben das: gelatcht wird
+// erst, wenn der Hoehenschaetzer konvergiert ist, und --setalt zieht die
+// Referenz sofort nach.
+//
+// Beide Funktionen sind auf JEDEM Board uebersetzt -- ein Board kann einen
+// Drucksensor ohne GPS haben. Ohne ENABLE_GPS erlaubt der Latch wie bisher
+// den ersten Wert.
+// ---------------------------------------------------------------------------
+
+void baroBaseRelatch(float alt)
+{
+    #if defined(ENABLE_BMX280)
+    fBaseAltidude = alt;
+    #endif
+
+    #if defined(ENABLE_BMX680)
+    fBaseAltidude680 = alt;
+    #endif
+
+    #if !defined(ENABLE_BMX280) && !defined(ENABLE_BMX680)
+    (void)alt;   // kein Drucksensor an Bord
+    #endif
+}
+
+bool baroBaseLatchAllowed()
+{
+    #if defined(ENABLE_GPS)
+    // In TRACK laeuft kein Schaetzer (bewegter Knoten); dort gilt wie bisher
+    // der erste Wert, sonst wuerde die Referenz nie gesetzt.
+    //
+    // GPS-04/F4: Zurueckgehalten wird nur, solange ein Fix vorliegt und der
+    // Schaetzer noch nicht konvergiert ist. Ohne WZ_GPS_HasFix() haelt ein
+    // abgeschatteter WX-Knoten, der nie fixt, fBaseAltidude fuer immer auf 0
+    // und meldet QFE als QNH -- vor dem Patch hat dort der gespeicherte
+    // node_alt gelatcht. Der erste getPressASL()-Aufruf faellt ausserdem auf
+    // t~60 s, also vor TTFF. Die Konvergenzflanke latcht spaeter nach.
+    if(bGPSON && gpsDetected && !bDisplayTrack && WZ_GPS_HasFix())
+        return WZ_GPS_AltConverged();
+    #endif
+
+    return true;
+}

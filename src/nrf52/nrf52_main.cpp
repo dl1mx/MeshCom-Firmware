@@ -3,14 +3,19 @@
 // 20230326: Version 4.00: START
 
 #include "configuration.h"
+#include "capture_functions.h"
 
 #include <Arduino.h>
+#include "instrument.h"
+#include "track_warning.h" // TRK-01: Warnhinweis bei aktivem Track
+#include <maxhop.h>         // CS-01: plausibility of the persisted text hop limit
 #include <SPI.h>
 
 #include <debugconf.h>
 #include <time.h>
 #include <nrf52_functions.h>
 #include <nrf52_radio.h>
+#include <settings_sanitize.h> // #1132: resolve_tx_power sentinel normalization
 #include <extudp_functions.h>
 
 #include <TinyGPSPlus.h>
@@ -118,10 +123,14 @@ void sendHeartbeat();
 #include <lora_setchip.h>
 #include <loop_functions.h>
 #include <loop_functions_extern.h>
+#include <regex_functions.h>
+#include "setlog_lines.h"
+#include "dedup_functions.h"
 #include <command_functions.h>
 #include <aprs_functions.h>
 #include <batt_functions.h>
 #include <lora_functions.h>
+#include "txring_functions.h" // BP-02: txRingDepth() declaration
 #include <udp_functions.h>
 #include <web_functions/web_functions.h>
 #include <phone_commands.h>
@@ -235,14 +244,25 @@ static RadioEvents_t RadioEvents;
 unsigned long iReceiveTimeOutTime = 0;
 
 // CSMA/CA async CAD state
-volatile bool cad_done_flag = false;
-volatile bool cad_channel_busy = false;
-volatile bool cad_in_progress = false;
-volatile bool cad_double_check = false;
+std::atomic<bool> cad_done_flag{false};
+std::atomic<bool> cad_channel_busy{false};
+std::atomic<bool> cad_in_progress{false};
+std::atomic<bool> cad_double_check{false};
 unsigned long cad_start_time = 0;
 
 bool g_meshcom_initialized;
 bool init_flash_done=false;
+
+// FreeRTOS queue of raw BLE payloads, filled by bleuart_rx_callback() in
+// nrf52_ble.cpp (BLE task context) and drained below in nrf52loop() so
+// readPhoneCommand()/commandAction()/save_settings() run in the Main Loop
+// task instead of inline in the BLE callback (CONC-14). Struct layout must
+// stay in sync with the definition in nrf52_ble.cpp.
+struct BleQueueItem {
+    uint8_t data[MAX_MSG_LEN_PHONE];
+    size_t length;
+};
+extern QueueHandle_t bleQueue;
 
 bool bPosFirst = true;
 bool bHeyFirst = true;
@@ -394,7 +414,7 @@ void OnCadDone(bool channelActivityDetected)
     // RACE-05 fix: atomic flag update under critical section
     taskENTER_CRITICAL();
     cad_channel_busy = channelActivityDetected;
-    cad_done_flag = true;
+    cad_done_flag.store(true, std::memory_order_release);
     taskEXIT_CRITICAL();
 }
 
@@ -500,24 +520,46 @@ void nrf52setup()
     if(meshcom_settings.node_cleanflash == 1)
         bClear = true;
 
-    if(meshcom_settings.node_fversion != FLASH_VERSION || bClear)
+    // Geloescht wird nur bei echter Layout-Aenderung, nicht bei jedem neuen
+    // Build-Datum. Siehe configuration_global.h.
+    if(!flashLayoutCompatible(meshcom_settings.node_fversion) || bClear)
     {
-        Serial.printf("[INIT]...FLASH cleared new version %i\n", FLASH_VERSION);
+        Serial.printf("[INIT]...FLASH cleared, Settings-Layout %i -> %i\n",
+                      meshcom_settings.node_fversion, FLASH_STRUCT_VERSION);
 
         flash_reset();
     }
     else
     {
-        Serial.printf("[INIT]...FLASH version %i\n", meshcom_settings.node_fversion);
+        Serial.printf("[INIT]...FLASH layout %i ok, build %i\n",
+                      meshcom_settings.node_fversion, FLASH_VERSION);
     }
 
     if(bClear)
         init_flash();
 
-    meshcom_settings.node_fversion = FLASH_VERSION;
+    meshcom_settings.node_fversion = FLASH_STRUCT_VERSION;
     meshcom_settings.node_mversion = MODUL_HARDWARE;
     meshcom_settings.node_cleanflash = 0;
     snprintf(meshcom_settings.node_fwversion, sizeof(meshcom_settings.node_fwversion), "%-4.4s%-1.1s", SOURCE_VERSION, SOURCE_VERSION_SUB);
+
+    // "-0" und "-01" sind nicht die kanonische Schreibweise der SSID. Was aus
+    // dem Flash kommt, wird deshalb einmal beim Start geradegezogen -- das
+    // save_settings() darunter schreibt es ohnehin. Ein Rufzeichen ohne SSID
+    // bleibt, wie es ist. Die Werkseinstellung bleibt unberuehrt, sie soll weiter als
+    // "noch nicht konfiguriert" erkennbar sein.
+    if(!isNodeUnconfigured(meshcom_settings.node_call))
+    {
+        String sOwnCall = meshcom_settings.node_call;
+
+        if(normalizeOwnCall(sOwnCall) && strcmp(sOwnCall.c_str(), meshcom_settings.node_call) != 0)
+        {
+            Serial.printf("[INIT]...Call <%s> -> <%s> (SSID kanonisch)\n", meshcom_settings.node_call, sOwnCall.c_str());
+
+            snprintf(meshcom_settings.node_call, sizeof(meshcom_settings.node_call), "%s", sOwnCall.c_str());
+            snprintf(meshcom_settings.node_short, sizeof(meshcom_settings.node_short), "%s", convertCallToShort(meshcom_settings.node_call).c_str());
+        }
+    }
     
     save_settings();
 
@@ -544,6 +586,10 @@ void nrf52setup()
     bGATEWAY =  meshcom_settings.node_sset & 0x1000;
     bEXTUDP =  meshcom_settings.node_sset & 0x2000;
     bDisplayCont =  meshcom_settings.node_sset & 0x4000;
+
+    // TRK-01: Warnhinweis einmal beim Boot, wenn Track aus den Settings aktiv geladen wurde
+    if(bDisplayTrack)
+        Serial.printf("[INIT]..." TRACK_WARNING_SERIAL "\n");
 
     bONEWIRE =  meshcom_settings.node_sset2 & 0x0001;
     bLPS33 =  meshcom_settings.node_sset2 & 0x0002;
@@ -572,6 +618,7 @@ void nrf52setup()
     bDEBUGCSV = meshcom_settings.node_sset4 & 0x0001;
     bDEBUGEN = meshcom_settings.node_sset4 & 0x0002;
     bDisplayLog = meshcom_settings.node_sset4 & 0x0004;
+    bTXCAPTURE = meshcom_settings.node_sset4 & 0x0008;
 
     bDisplayInfo = bLORADEBUG;
 
@@ -580,7 +627,10 @@ void nrf52setup()
         strcpy(meshcom_settings.node_aprsmc, (char*)"APRSMC");  // default
     }
 
-    meshcom_settings.max_hop_text = MAX_HOP_TEXT_DEFAULT;
+    // CS-01: max_hop_text is user-settable (--maxhop) and survives in the settings
+    // file now; only a missing or out-of-range value falls back to the compile
+    // default. max_hop_pos stays a compile-time constant (operator, 2026-08-30).
+    meshcom_settings.max_hop_text = maxHopTextSanitize(meshcom_settings.max_hop_text);
     meshcom_settings.max_hop_pos = MAX_HOP_POS_DEFAULT;
 
     iButtonPin = BUTTON_PIN;
@@ -592,7 +642,7 @@ void nrf52setup()
 
     // if Node not set --> WifiAP Mode on
     /* NRF52 no WiFi
-    if(memcmp(meshcom_settings.node_call, "XX0XXX", 6) == 0 || meshcom_settings.node_call[0] == 0x00 || memcmp(meshcom_settings.node_call, "none", 4) == 0)
+    if(isNodeUnconfigured(meshcom_settings.node_call))
     {
         bWIFIAP = true;
         bWEBSERVER = true;
@@ -775,8 +825,7 @@ void nrf52setup()
 
     posinfo_fix = false;
     posinfo_satcount = 0;
-    posinfo_hdop = 0;
-    fposinfo_hdop = 0;
+    fposinfo_hdop = 0.0;
 
     // Try to initialize!
     #if defined(LPS33)
@@ -939,6 +988,17 @@ void nrf52setup()
 
     Serial.println("[INIT]...CLIENT STARTED");
 
+    // Reset-Ursache loggen (POWER->RESETREAS, vom Core beim Start gesichert):
+    // 0x1 Reset-Pin, 0x2 Watchdog, 0x4 Soft-Reset (SREQ — auch der Weg, den
+    // der SoftDevice-Fault-Handler nach einem App-Absturz nimmt), 0x8 Lockup.
+    // Unterscheidet nach einem unerwarteten Reboot sofort Absturz von
+    // Spannungsproblem — haette die N-22-Diagnose erheblich verkuerzt.
+    {
+        extern uint32_t readResetReason(void);
+        Serial.printf("[BOOT] RESETREAS=0x%08lX\n", (unsigned long)readResetReason());
+    }
+
+
     Radio.SetModem(MODEM_LORA);
 
     Serial.printf("[INIT]...Radio-Sync: %04X\n", Radio.GetSyncWord());
@@ -1007,6 +1067,7 @@ void nrf52setup()
     );
 
     // Set Radio TX configuration
+    meshcom_settings.node_power = resolve_tx_power(meshcom_settings.node_power, TX_OUTPUT_POWER); // #1132: normalize -20/0 sentinel like ESP32 does
     Serial.printf("[LoRa]...RF_POWER: %i dBm\n", getPower());
 
     Radio.SetTxConfig(
@@ -1109,6 +1170,24 @@ void nrf52setup()
 
 void nrf52loop()
 {
+    INSTR_LOOPTICK();
+
+    // BP-01/BP-04: close a back-pressure episode with QRV once the TX ring
+    // has drained, even when no further user message arrives to observe it.
+    // Since BP-02 an occupied-slot scan (O(MAX_RING)), since BP-04 with the
+    // water-band hold; it emits at most once per episode.
+    bpPollDrain();
+
+    // TM-25: Boot-Marke fuer den Bench-Harness, wie [BOOT];ready auf dem ESP32.
+    // Auf dem nRF52 ist die Netzwerkphase (W5100S/DHCP) am Ende von setup()
+    // bereits synchron abgeschlossen -- die Marke faellt beim ersten Loop-Durchlauf.
+    static bool s_bootReadyLogged = false;
+    if (!s_bootReadyLogged)
+    {
+        s_bootReadyLogged = true;
+        Serial.printf("[BOOT];ready;ms;%lu;ip;%d;eth;%d\n", (unsigned long)millis(),
+                      neth.hasIPaddress ? 1 : 0, neth.hasETHHardware ? 1 : 0);
+    }
     #if defined(HAS_TFT_114) or defined(BOARD_T_ECHO)
     if(bDEEP_SLEEP)
     {
@@ -1128,7 +1207,7 @@ void nrf52loop()
     {
         bMyClock = false;
 
-        loopRTC();
+        { INSTR_SECTION("rtc"); loopRTC(); }
 
         if(!posinfo_fix) // GPS hat Vorang zur RTC
         {
@@ -1158,6 +1237,7 @@ void nrf52loop()
 
     if(meshcom_settings.node_hasIPaddress)
     {
+        INSTR_SECTION("eth_state");
         strTime = "none";
 
         extern bool btimeClient;
@@ -1165,7 +1245,7 @@ void nrf52loop()
         // every 15 minutes
         if(btimeClient)
         {
-            if((updateTimeClient + 1000 * 60 * 15) < millis() || updateTimeClient == 0)
+            if((uint32_t)(millis() - updateTimeClient) >= (uint32_t)(1000 * 60 * 15) || updateTimeClient == 0)
             {
                 strTime = neth.udpUpdateTimeClient();
 
@@ -1204,6 +1284,7 @@ void nrf52loop()
 
     if(bMyClock)
     {
+        INSTR_SECTION("clock");
         MyClock.CheckEvent();
         
         if(MyClock.Year() > 2023)
@@ -1229,9 +1310,14 @@ void nrf52loop()
     // Retransmission status must tick on ALL nodes (including gateways).
     // Without this, gateway text messages stay stuck at RING_STATUS_SENT
     // forever if no echo is received via LoRa (RING_ZOMBIE).
-    if ((retransmit_timer + (1000 * 2)) < millis())
+    if ((uint32_t)(millis() - retransmit_timer) >= (1000 * 2))
     {
         updateRetransmissionStatus();
+        // BP-03 (DJ8MEH-RCA): age out stale BACKGROUND (HEY) ring entries
+        // here, in the main-loop tick -- NOT in getNextTxSlot(), which also
+        // runs on the nRF52 timer task itself (Advisor F1, the critical
+        // finding this fix is named after).
+        txRingAgeBackground(millis());
 
         retransmit_timer = millis();
     }
@@ -1252,9 +1338,18 @@ void nrf52loop()
             }
             int w = iWrite;
             int r = iRead;
-            int queued = (w >= r) ? (w - r) : (MAX_RING - r + w);
-            Serial.printf("[MC-DBG] RING_STATUS queued=%d pending=%d retrying=%d done=%d iW=%d iR=%d\n",
-                queued, pending, retrying, done, w, r);
+            // BP-02: queued is now the honest occupied-slot count (the
+            // pending/retrying/done buckets above already scan every slot
+            // and partition it exactly) instead of the raw index distance --
+            // that distance counted freed holes left behind by a
+            // priority-starved entry parked at iRead as still queued
+            // (DJ8MEH-RCA: queued=19 vs. 3-4 real). The old arithmetic
+            // survives as `dist` below for anyone comparing against
+            // pre-BP-02 logs.
+            int queued = pending + retrying + done;
+            int dist = (w >= r) ? (w - r) : (MAX_RING - r + w);
+            Serial.printf("[MC-DBG] RING_STATUS queued=%d pending=%d retrying=%d done=%d iW=%d iR=%d dist=%d\n",
+                queued, pending, retrying, done, w, r, dist);
         }
     }
 
@@ -1275,34 +1370,73 @@ void nrf52loop()
             bPendingDisplayPos = false;
         }
         taskEXIT_CRITICAL();
+        INSTR_SECTION("display_rx");
         if(_pendText) sendDisplayText(_msg, _rssi, _snr);
         if(_pendPos)  sendDisplayPosition(_msg, _rssi, _snr);
     }
 
-    // Channel utilization report (every 10s)
+    // Channel utilization report (every 10s). SL-05: the drain of the
+    // ch_util accumulators feeds stat_util_rx_5m/tx_5m for the STAT line
+    // (--setlog on), so the 10-s tick runs independent of bLORADEBUG; only
+    // the diagnostic prints stay behind the flag, unchanged.
     {
         static unsigned long ch_util_timer = 0;
-        if(bLORADEBUG && (millis() - ch_util_timer) > 10000)
+        if((millis() - ch_util_timer) > 10000)
         {
             unsigned long window = millis() - ch_util_timer;
             ch_util_timer = millis();
             unsigned long rx_ms = ch_util_rx_accum.exchange(0);
             unsigned long tx_ms = ch_util_tx_accum.exchange(0);
+            stat_util_rx_5m += (uint32_t)rx_ms;
+            stat_util_tx_5m += (uint32_t)tx_ms;
             unsigned int util = (unsigned int)((rx_ms + tx_ms) * 100 / window);
             if(util > 100) util = 100;
-            Serial.printf("[MC-DBG] CHANNEL_UTIL rx=%lums tx=%lums util=%u%%\n",
-                rx_ms, tx_ms, util);
-            // ONRXDONE stats: report max and warn count, then reset
-            Serial.printf("[MC-DBG] ONRXDONE_STATS max=%lums warn=%u (>%dms)\n",
-                onrxdone_max_ms, onrxdone_warn_count, ONRXDONE_WARN_MS);
-            onrxdone_max_ms = 0;
-            onrxdone_warn_count = 0;
+            if(bLORADEBUG)
+            {
+                Serial.printf("[MC-DBG] CHANNEL_UTIL rx=%lums tx=%lums util=%u%%\n",
+                    rx_ms, tx_ms, util);
+                // ONRXDONE stats: report max and warn count, then reset
+                Serial.printf("[MC-DBG] ONRXDONE_STATS max=%lums warn=%u (>%dms)\n",
+                    onrxdone_max_ms, onrxdone_warn_count, ONRXDONE_WARN_MS);
+                onrxdone_max_ms = 0;
+                onrxdone_warn_count = 0;
+            }
+        }
+    }
+
+    // SL-05 STAT tick (--setlog on / bDisplayLog): runs independent of
+    // bLORADEBUG so the interval counters never grow unbounded even when the
+    // block above never fires. Reset always, print only when enabled.
+    {
+        static uint32_t setlog_stat_timer = 0;
+        if((uint32_t)(millis() - setlog_stat_timer) >= PRIO_STAT_INTERVAL_S * 1000UL)
+        {
+            setlog_stat_timer = millis();
+
+            struct setlogStatFields f;
+            setlogFillStat(&f, nrf52_getFreeHeap());
+
+            // stat_drop_count[] increments happen under this same lock in
+            // txring_functions.cpp -- clear under it too, right after the
+            // (uncleared) read inside setlogFillStat().
+            taskENTER_CRITICAL();
+            for(int i = 0; i < 5; i++)
+                stat_drop_count[i + 1] = 0;
+            taskEXIT_CRITICAL();
+
+            if(bDisplayLog)
+            {
+                char buf[300];
+                setlogFormatStat(buf, sizeof(buf), &f);
+                setlogPrint(buf);
+            }
         }
     }
 
     if(iReceiveTimeOutTime > 0)
     {
-        if((iReceiveTimeOutTime + csma_timeout) < millis())
+        INSTR_SECTION("lora_rx_timeout");
+        if((uint32_t)(millis() - iReceiveTimeOutTime) >= (uint32_t)csma_timeout)
         {
             if(bLORADEBUG)
                 Serial.printf("[MC-DBG] RX_TIMEOUT_FIRE ts=%lu wait=%lu delta=%lu\n",
@@ -1337,6 +1471,7 @@ void nrf52loop()
 
     if(iReceiveTimeOutTime == 0 && is_receiving == false && tx_is_active == false)
     {
+        INSTR_SECTION("lora_sm");
         int _w = iWrite;
         int _r = iRead;
         if (_w != _r)
@@ -1353,11 +1488,13 @@ void nrf52loop()
             if(!_cad_ip && !_cad_df)
             {
                 // Start CAD scan
+                // BP-02: qlen is txRingDepth() (occupied slots), not the raw
+                // index distance -- see txRingDepth() doc comment.
                 if(bLORADEBUG)
                 {
                     Serial.printf("[MC-SM] IDLE -> TX_PREPARE rc=0\n");
                     Serial.printf("[MC-DBG] TX_GATE_ENTER qlen=%d cad_attempt=%d\n",
-                        (_w >= _r) ? (_w - _r) : (MAX_RING - _r + _w),
+                        txRingDepth(),
                         cad_attempt);
                 }
 
@@ -1386,14 +1523,30 @@ void nrf52loop()
                     if(_cad_dc && bLORADEBUG)
                         Serial.printf("[MC-DBG] CAD_FALSE_POSITIVE\n");
                     // Channel free — transmit
+                    //
+                    // Marker-Paritaet mit dem ESP32 (esp32_main.cpp:2688 und 2709):
+                    // CAD_FREE meldet den freien Kanal VOR doTX(), TX_START den
+                    // tatsaechlich abgesetzten Frame. Vorher stand CAD_FREE im
+                    // Erfolgszweig und bedeutete damit dasselbe wie TX_START drueben --
+                    // gleicher Name, anderes Ereignis. Eine flottenweite Auswertung,
+                    // die CAD_FREE zaehlt, verglich damit zwei verschiedene Groessen:
+                    // auf dem ESP32 auch den Fall "Kanal frei, aber nichts gesendet"
+                    // (dort folgt CAD_FREE_NO_TX auf CAD_FREE), auf dem nRF52 nicht.
+                    if(bLORADEBUG)
+                        Serial.printf("[MC-DBG] CAD_FREE attempt=%d\n", cad_attempt);
+
                     csma_reset();
-                    if(doTX())
+                    bool _tx_ok;
+                    { INSTR_SECTION("lora_tx"); _tx_ok = doTX(); }
+                    if(_tx_ok)
                     {
                         ch_util_tx_start = millis();
                         if(bLORADEBUG)
                         {
                             Serial.printf("[MC-SM] TX_PREPARE -> TX_ACTIVE rc=0\n");
-                            Serial.printf("[MC-DBG] CAD_FREE attempt=%d\n", cad_attempt);
+                            // BP-02: qlen ist txRingDepth() (belegte Slots), nicht der
+                            // rohe Indexabstand -- siehe Doku-Kommentar von txRingDepth().
+                            Serial.printf("[MC-DBG] TX_START qlen=%d\n", txRingDepth());
                         }
                     }
                     else
@@ -1472,6 +1625,7 @@ void nrf52loop()
     #if defined(ENABLE_GPS)
     if(bGPSON)
     {
+        INSTR_SECTION("gps_init");
         WZ_GPS_Init();
     }
     #endif
@@ -1480,8 +1634,9 @@ void nrf52loop()
     #if defined(ENABLE_SOFTSER)
     if(bSOFTSERON)
     {
+        INSTR_SECTION("softser");
         // check every 5 seconds to ready next telemetry via serial interface
-        if ((softser_refresh_timer + 5000) < millis() && softserFunktion == 0)
+        if ((uint32_t)(millis() - softser_refresh_timer) >= 5000 && softserFunktion == 0)
         {
             if(lastSOFTSER_MINUTE != meshcom_settings.node_date_minute)
             {
@@ -1517,11 +1672,29 @@ void nrf52loop()
 
     btn.tick();
 
+    // BLE Queue: process data from the BLE task in Main Loop context (CONC-14)
+    {
+        BleQueueItem bleItem;
+        while (xQueueReceive(bleQueue, &bleItem, 0) == pdTRUE) {
+            { INSTR_SECTION("ble_cmd"); readPhoneCommand(bleItem.data); }
+        }
+    }
+
+    // Apply a settings write staged by settings_rx_callback(), if any (CONC-17)
+    { INSTR_SECTION("ble_settings"); applyPendingBleSettings(); }
+
     // check if message from phone to send
     if(hasMsgFromPhone)
     {
+        INSTR_SECTION("phone_msg");
         if(memcmp(textbuff_phone, ":", 1) == 0)
-            sendMessage(textbuff_phone, txt_msg_len_phone);
+        {
+            // BP-01: tag the origin so the back-pressure notice goes back to
+            // the phone that just typed, and never over the air.
+            setMsgOrigin(ORIGIN_BLE);
+            (void)sendMessage(textbuff_phone, txt_msg_len_phone);
+            setMsgOrigin(ORIGIN_NONE);
+        }
 
         if(memcmp(textbuff_phone, "-", 1) == 0)
             commandAction(textbuff_phone, isPhoneReady, true);
@@ -1531,7 +1704,7 @@ void nrf52loop()
 
     #if defined(ENABLE_MCP23017)
     // 5 sec
-    if ((mcp_refresh_timer + 5000) < millis())
+    if ((uint32_t)(millis() - mcp_refresh_timer) >= 5000)
     {
         // get i/o state
         if(loopMCP23017())
@@ -1549,6 +1722,7 @@ void nrf52loop()
 
     if(gKeyNum == 1)
     {
+        INSTR_SECTION("key1");
         Serial.println("gKeyNum == 1");
 
         //getTEMP();
@@ -1560,13 +1734,14 @@ void nrf52loop()
 
     if(gKeyNum == 2)
     {
+        INSTR_SECTION("key2");
         //TEST Serial.println("gKeyNum == 2");
 
         #if defined(ENABLE_RAK_GPS)
         if(bGPSON)
         {
             // gps refresh every 10 sec
-            if ((gps_refresh_timer + (GPS_REFRESH_INTERVAL * 1000)) < millis())
+            if ((uint32_t)(millis() - gps_refresh_timer) >= (uint32_t)(GPS_REFRESH_INTERVAL * 1000))
             {
                 unsigned int igps = getGPS();
 
@@ -1590,14 +1765,16 @@ void nrf52loop()
         #if defined(ENABLE_GPS)
         if(bGPSON)
         {
+            if (gpsDetected) { INSTR_SECTION("gps_feed"); WZ_GPS_Feed(); }
+
             // gps refresh every sec
-            if ((gps_refresh_timer + 1000) < millis())
+            if ((uint32_t)(millis() - gps_refresh_timer) >= 1000)
             {
                 unsigned int igps = POSINFO_INTERVAL;
 
                 if(gpsDetected)
                 {
-                    igps = WZ_GPS_Loop();
+                    { INSTR_SECTION("gps"); igps = WZ_GPS_Loop(); }
 
                     if(iGPSDEBUG > 0)
                     {
@@ -1651,12 +1828,11 @@ void nrf52loop()
         if(bGPSON)
         {
             // check GPS ON and activ --> <gKeyNum == 2> the signal must be active
-            if ((gps_refresh_timer + (5 * (GPS_REFRESH_INTERVAL * 1000))) < millis())
+            if ((uint32_t)(millis() - gps_refresh_timer) >= (uint32_t)(5 * (GPS_REFRESH_INTERVAL * 1000)))
             {
                 posinfo_fix = false;
                 posinfo_satcount = 0;
-                posinfo_hdop = 0;
-                fposinfo_hdop = 0;
+                fposinfo_hdop = 0.0;
                 posinfo_interval = POSINFO_INTERVAL;
             }
         }
@@ -1667,6 +1843,7 @@ void nrf52loop()
 
     if(gKeyNum == 3)
     {
+        INSTR_SECTION("key3");
         Serial.println("Right button pressed");
 
         gKeyNum = 0;
@@ -1682,7 +1859,7 @@ void nrf52loop()
                 commandAction((char*)config_cmds[config_cmds_index], isPhoneReady, true);
             }
 
-            sendMheard();
+            startMheardToPhone(); // MHeard erst, wenn der Kommando-Ring leer ist (siehe unten)
 
             config_to_phone_prepare_timer=millis();
 
@@ -1691,18 +1868,23 @@ void nrf52loop()
         else
         {
             // wait after BLE Connect 3 sec.
-            if(millis() < config_to_phone_prepare_timer + 3000)
+            if((uint32_t)(millis() - config_to_phone_prepare_timer) < 3000)
                 iPhoneState = 0;
 
             if (iPhoneState > 3)   // only every 6 times of mainloop send to phone  RAK 2 x ESP
             {
                 // prepare JSON config to phone after BLE connection
                 // send JSON config to phone after BLE connection
-                if (ComToPhoneWrite != ComToPhoneRead)
+                if (!bf_empty(&phoneComRing))
                 {
                     sendComToPhone();
                 }
-                else if (toPhoneWrite != toPhoneRead)
+                else if (mheardToPhonePending())
+                {
+                    // Kommando-Ring leer: naechste Portion der MHeard-Liste nachlegen
+                    sendMheard();
+                }
+                else if (!bf_empty(&phoneRing))
                 {
                     sendToPhone();
                 }
@@ -1722,7 +1904,7 @@ void nrf52loop()
         }
 
         // 5 minuten
-        if((config_to_phone_datetime_timer + (5 * 60 * 1000)) < millis())
+        if((uint32_t)(millis() - config_to_phone_datetime_timer) >= (5 * 60 * 1000))
         {
             bNTPDateTimeValid=false;
 
@@ -1734,8 +1916,9 @@ void nrf52loop()
     int incnt = getMheardCount();
     if(ncnt_hold != incnt)
     {
+        INSTR_SECTION("pos_timer");
         // minimal alle 60 sec
-        if((posinfo_timer_min + 60000) < millis())
+        if((uint32_t)(millis() - posinfo_timer_min) >= 60000)
         {
             posinfo_shot = true;
             ncnt_hold = incnt;
@@ -1747,10 +1930,10 @@ void nrf52loop()
     //Serial.printf(" posinfo_timer:%ld posinfo_interval:%ld timer:%ld millis:%ld\n", posinfo_timer, posinfo_interval, (posinfo_timer + (posinfo_interval * 1000)), millis());
 
     // posinfo_interval in Seconds
-    if (((posinfo_timer + (posinfo_interval * 1000)) < millis()) || (millis() > 100000 && millis() < 130000 && bPosFirst) || posinfo_shot)
+    if (((uint32_t)(millis() - posinfo_timer) >= (uint32_t)(posinfo_interval * 1000)) || (millis() > 100000 && millis() < 130000 && bPosFirst) || posinfo_shot)
     {
         // minimal transmit time only max 30 sec
-        if((posinfo_timer_min + 30000) < millis())
+        if((uint32_t)(millis() - posinfo_timer_min) >= 30000)
         {
             if(bDisplayInfo)
             {
@@ -1791,11 +1974,11 @@ void nrf52loop()
                 else
                     node_lon_c='E';
 
-                sendPosition(posinfo_interval, node_lat, node_lat_c, node_lon, node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
+                { INSTR_SECTION("pos_tx"); sendPosition(posinfo_interval, node_lat, node_lat_c, node_lon, node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl); }
             }
             else
             {
-                sendPosition(posinfo_interval, meshcom_settings.node_lat, meshcom_settings.node_lat_c, meshcom_settings.node_lon, meshcom_settings.node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl);
+                { INSTR_SECTION("pos_tx"); sendPosition(posinfo_interval, meshcom_settings.node_lat, meshcom_settings.node_lat_c, meshcom_settings.node_lon, meshcom_settings.node_lon_c, meshcom_settings.node_alt, meshcom_settings.node_press, meshcom_settings.node_hum, meshcom_settings.node_temp, meshcom_settings.node_temp2, meshcom_settings.node_gas_res, meshcom_settings.node_co2, meshcom_settings.node_press_alt, meshcom_settings.node_press_asl); }
             }
 
             posinfo_shot=false;
@@ -1826,7 +2009,7 @@ void nrf52loop()
     }
 
     // Trickle-HEY: adaptive interval (RFC 6206)
-    if (((heyinfo_timer + trickle_interval_ms) < millis()) || bHeyFirst)
+    if (((uint32_t)(millis() - heyinfo_timer) >= trickle_interval_ms) || bHeyFirst)
     {
         bHeyFirst = false;
 
@@ -1848,7 +2031,7 @@ void nrf52loop()
         }
         else
         {
-            sendHey();
+            { INSTR_SECTION("hey_tx"); sendHey(); }
         }
 
         trickle_interval_ms = min(trickle_interval_ms * 2, TRICKLE_IMAX_S * 1000UL);
@@ -1861,6 +2044,7 @@ void nrf52loop()
     unsigned long akt_timer = meshcom_settings.node_parm_time;
     if(akt_timer < 5 || akt_timer > 120)
     {
+        INSTR_SECTION("akt_timer");
         akt_timer = TELEMETRY_INTERVAL;
     }
     
@@ -1869,27 +2053,61 @@ void nrf52loop()
     if(iNextTelemetry < 5)
         akt_timer= 15 * 1000; // 15 Seconds PARM, UNIT, EQNS and 1st T-Message
 
-    if (((telemetry_timer + akt_timer) < millis()) || bHeyFirst)
+    if (((uint32_t)(millis() - telemetry_timer) >= (uint32_t)akt_timer) || bHeyFirst)
     {
         bHeyFirst = false;
         
-        sendTelemetry(SOFTSER_APP_ID);
+        { INSTR_SECTION("telemetry"); sendTelemetry(SOFTSER_APP_ID); }
 
         telemetry_timer = millis();
     }
     
+    // ETH-01: link poll/heartbeat and the DHCP lease refresh must run
+    // whenever Ethernet is up, not only for bGATEWAY -- a gateway-off /
+    // webserver-on node (bWEBSERVER, see setup ~1086) has ETH hardware too
+    // and was never renewing its lease nor logging link state. Both
+    // functions already self-guard on neth.hasETHHardware (false when
+    // neither bGATEWAY nor bWEBSERVER is set), so hoisting them here is a
+    // no-op for nodes without ETH. Order: link edges/heartbeat first, then
+    // the DHCP renew check, then (below) either the gateway UDP get/send or
+    // the TM-45 NTP-only harvest -- exactly one of the latter two per pass.
+
+    // TM-35 / N-20 instrumentation: link edges and the 60-s heartbeat
+    ethLinkPoll();
+    ethLinkHeartbeat();
+
+    // DHCP refresh
+    if(neth.hasETHHardware && (uint32_t)(millis() - dhcp_timer) >= (uint32_t)(DHCP_REFRESH * 60000))
+    {
+        // no need on static IPs
+        if(!(strlen(meshcom_settings.node_ownip) > 6 && strlen(meshcom_settings.node_ownms) > 6 && strlen(meshcom_settings.node_owngw) > 6))
+        {
+            if(bDEBUG)
+            {
+                Serial.print(getTimeString());
+                Serial.println(" [MAIN] checkDHCP");
+            }
+
+            { INSTR_SECTION("eth_dhcp"); neth.checkDHCP(); }
+        }
+
+        dhcp_timer = millis();
+    }
+
     // get UDP & send UDP message from ringBufferOut if there is one to tx
     if(bGATEWAY)
     {
+        INSTR_SECTION("gateway");
         int bUDPReceived = false;
 
         // check if we received a UDP packet
         if (neth.hasIPaddress)
         {
             bSPI_ETH_Active = true;   // SPI guard: Ethernet owns bus
+            INSTR_SECTION("eth_udp");
             if(neth.getUDP() == 1)  // 1...no udp-paket received
             {
-                sendUDP();
+                { INSTR_SECTION("eth_udp_tx"); sendUDP(); }
             }
             else
             {
@@ -1913,7 +2131,7 @@ void nrf52loop()
             meshcom_settings.node_last_upd_timer = neth.last_upd_timer;
             
             // check HB response (we also check successful sending KEEP. check if they work together!)
-            if((neth.last_upd_timer + (MAX_HB_RX_TIME * 1000)) < millis())
+            if((uint32_t)(millis() - neth.last_upd_timer) >= (uint32_t)(MAX_HB_RX_TIME * 1000))
             {
                 if(bDEBUG)
                     Serial.println("LOOP GATEWAY last_upd_timer actions");
@@ -1939,43 +2157,45 @@ void nrf52loop()
                     else
                     {
                         Serial.print(getTimeString());
-                        Serial.println(" [MAIN] initethDHCP");
+                        Serial.println(" [MAIN] resetDHCP (retry)");
 
-                        neth.initethDHCP();
+                        // N-20: initethDHCP() wuerde den W5100S bei jedem
+                        // Retry per initETH_HW() hardware-resetten — danach
+                        // braucht die PHY-Aushandlung mehrere Sekunden und der
+                        // Link-Check in startETH() sieht dauerhaft LinkOFF:
+                        // ein einmal gezogenes Kabel verbindet nie wieder (auf
+                        // Hardware beobachtet). Das volle HW-Init ist nur beim
+                        // Boot noetig (Setup); hier reicht resetDHCP() ohne
+                        // PHY-Reset — der Link-Zustand ist dann echt, und bei
+                        // LinkOFF bricht startETH() sofort ab statt 10 s zu
+                        // blocken.
+                        neth.resetDHCP();
                     }
                 }
             }
-            
-            // DHCP refresh
-            if ((dhcp_timer + (DHCP_REFRESH * 60000)) < millis())
-            {
-                if(neth.hasETHHardware)
-                {
-                    // no need on static IPs
-                    if(!(strlen(meshcom_settings.node_ownip) > 6 && strlen(meshcom_settings.node_ownms) > 6 && strlen(meshcom_settings.node_owngw) > 6))
-                    {
-                        if(bDEBUG)
-                        {
-                            Serial.print(getTimeString());
-                            Serial.println(" [MAIN] checkDHCP");
-                        }
-                        
-                        neth.checkDHCP();
-                    }
-                }
-
-                dhcp_timer = millis();
-            }
+            // ETH-01: DHCP refresh moved above, ahead of this if(bGATEWAY)
+            // block, so it also runs when bGATEWAY is off.
         }
+    }
+    else if(neth.hasIPaddress)
+    {
+        // TM-45: the block above never runs while bGATEWAY is off, so it
+        // never reads the socket -- do only the NTP-reply harvest instead
+        // of the full gateway receive path (no double read: exactly one of
+        // the two branches runs per loop pass).
+        INSTR_SECTION("udp"); neth.harvestNTP();
     }
 
     #if defined(SHTC3)
 
     // TEMP/HUM
-    if (((temphum_timer + TEMPHUM_INTERVAL) < millis()))
+    if (((uint32_t)(millis() - temphum_timer) >= TEMPHUM_INTERVAL))
     {
         if(shtc3_found)
+        {
+            INSTR_SECTION("shtc3");
             getTEMP();
+        }
 
         temphum_timer = millis();
     }
@@ -1986,8 +2206,9 @@ void nrf52loop()
 
     if(bLPS33)
     {
+        INSTR_SECTION("lps33");
         // DRUCK
-        if (((druck_timer + DRUCK_INTERVAL) < millis()))
+        if (((uint32_t)(millis() - druck_timer) >= DRUCK_INTERVAL))
         {
             getPRESSURE();
 
@@ -2003,11 +2224,12 @@ void nrf52loop()
 
     #endif
 
-    mainStartTimeLoop();
+    { INSTR_SECTION("display_tick"); mainStartTimeLoop(); }
 
     if(DisplayOffWait > 0)
     {
-        if (millis() > DisplayOffWait)
+        INSTR_SECTION("display_off");
+        if ((int32_t)(millis() - DisplayOffWait) > 0)
         {
             DisplayOffWait = 0;
             if(bDisplayOff)
@@ -2026,26 +2248,59 @@ void nrf52loop()
     // rebootAuto
     if(rebootAuto > 0)
     {
-        if (millis() > rebootAuto)
+        INSTR_SECTION("reboot_auto");
+        if ((int32_t)(millis() - rebootAuto) > 0)
         {
             rebootAuto = 0;
 
             #ifdef ESP32
                 ESP.restart();
             #endif
-            
+
             #if defined NRF52_SERIES
+                // dfuAuto: --dfu will den UF2-Bootloader statt eines normalen
+                // Neustarts. Beides laeuft ueber denselben verzoegerten Pfad, damit
+                // die Quittung noch ueber BLE bzw. Seriell rausgeht, bevor der Reset
+                // kommt -- ein Reset direkt in commandAction() verschluckt sie.
+                //
+                // N-19: enterUf2Dfu() (reset_mcu() in cores/nRF5/wiring.c) haengt
+                // aus diesem Loop-Task -- auf Hardware reproduziert: --dfu liess das
+                // Board mit stehender CPU zurueck (USB-Deskriptor blieb App-PID, kein
+                // Reset). Derselbe reset_mcu()-Pfad funktioniert aus dem TinyUSB-Task
+                // (1200-Baud-Touch), und NVIC_SystemReset() funktioniert aus genau
+                // diesem Loop-Pfad (--reboot) -- verdaechtig ist sd_softdevice_disable()
+                // im Loop-Kontext. Deshalb hier ohne SD-Disable: GPREGRET per
+                // SoftDevice-SVC setzen (bei aktivem SoftDevice erlaubt, das BLE-Init
+                // laeuft auf nRF52 immer) und den bewaehrten NVIC_SystemReset()
+                // nehmen; der Bootloader liest GPREGRET beim Start und bleibt im
+                // UF2-Modus (USB-Laufwerk).
+                if(bEnterDfu)
+                {
+                    bEnterDfu = false;
+                    sd_power_gpregret_clr(0, 0xFF);
+                    sd_power_gpregret_set(0, 0x57);   // DFU_MAGIC_UF2_RESET (cores/nRF5/wiring.c)
+                    uint32_t gpr = 0;
+                    sd_power_gpregret_get(0, &gpr);
+                    printfdeb("...GPREGRET=0x%02lX (0x57 -> UF2-Bootloader)\n", (unsigned long)gpr);
+                    // Ack/Log noch ueber die CDC rausschreiben, bevor der Reset die
+                    // USB-Verbindung kappt. Ohne flush+Wartezeit kam das Board in
+                    // einem Hardware-Test trotz korrekt gesetztem GPREGRET als App
+                    // statt als Bootloader zurueck.
+                    Serial.flush();
+                    delay(300);
+                }
+
                 NVIC_SystemReset();     // resets the device
             #endif
         }
     }
 
-    checkSerialCommand();
+    { INSTR_SECTION("serial_cmd"); checkSerialCommand(); }
 
     if(BattTimeWait == 0)
         BattTimeWait = millis() - 31000;
 
-    if ((BattTimeWait + 30000) < millis())
+    if ((uint32_t)(millis() - BattTimeWait) >= 30000)
     {
         if (tx_is_active == false && is_receiving == false)
         {
@@ -2063,7 +2318,7 @@ void nrf52loop()
         if (heapMonTimer == 0)
             heapMonTimer = millis();
 
-        if ((heapMonTimer + 60000) < millis())
+        if ((uint32_t)(millis() - heapMonTimer) >= 60000)
         {
             uint32_t freeHeap = nrf52_getFreeHeap();
 
@@ -2091,7 +2346,7 @@ void nrf52loop()
             onewireTimeWait = millis() - 10000;
 
 
-        if ((onewireTimeWait + 30000) < millis())  // 30 sec
+        if ((uint32_t)(millis() - onewireTimeWait) >= 30000)  // 30 sec
         {
             //if (tx_is_active == false && is_receiving == false)
             {
@@ -2119,7 +2374,7 @@ void nrf52loop()
     {
         unsigned long lreduction = 0;
 
-        if ((BMXTimeWait + 60000) < millis())   // 60 sec
+        if ((uint32_t)(millis() - BMXTimeWait) >= 60000)   // 60 sec
         {
             #if defined(ENABLE_BMX280)
                 if(loopBMX280())
@@ -2174,7 +2429,7 @@ void nrf52loop()
     #if defined(ENABLE_BMP390)
     if((bBMP3ON && bmp3_found))
     {
-        if ((BMP3TimeWait + 60000) < millis())   // 60 sec
+        if ((uint32_t)(millis() - BMP3TimeWait) >= 60000)   // 60 sec
         {
             if(loopBMP390())
             {
@@ -2198,7 +2453,7 @@ void nrf52loop()
         if(MCU811TimeWait == 0)
             MCU811TimeWait = millis() - 10000;
 
-        if ((MCU811TimeWait + 60000) < millis())   // 60 sec
+        if ((uint32_t)(millis() - MCU811TimeWait) >= 60000)   // 60 sec
         {
             // read MCU-811 Sensor
             if(loopMCU811())
@@ -2223,7 +2478,7 @@ void nrf52loop()
         if(INA226TimeWait == 0)
             INA226TimeWait = millis() - 10000;
 
-        if ((INA226TimeWait + 60000) < millis())   // 60 sec
+        if ((uint32_t)(millis() - INA226TimeWait) >= 60000)   // 60 sec
         {
             // read INA Sensor
             if(loopINA226())
@@ -2243,7 +2498,7 @@ void nrf52loop()
     #if defined(ENABLE_BMX680)
     if(bBME680ON && bme680_found)
     {
-        if ((bme680_timer + 60000) < millis() || delay_bme680 <= 0)
+        if ((uint32_t)(millis() - bme680_timer) >= 60000 || delay_bme680 <= 0)
         {
             if (delay_bme680 <= 0)
             {
@@ -2268,7 +2523,7 @@ void nrf52loop()
     // heartbeat
     if (bGATEWAY)
     {
-        if ((hb_timer + (HEARTBEAT_INTERVAL * 1000)) < millis())
+        if ((uint32_t)(millis() - hb_timer) >= (uint32_t)(HEARTBEAT_INTERVAL * 1000))
         {
             if(bDisplayCont)
             {
@@ -2276,7 +2531,7 @@ void nrf52loop()
                 Serial.printf(" [UDP] sending Heartbeat\n");
             }
 
-            sendHeartbeat();
+            { INSTR_SECTION("eth_heartbeat"); sendHeartbeat(); }
 
             hb_timer = millis();
         }
@@ -2293,7 +2548,7 @@ void nrf52loop()
 
     if(bWEBSERVER || bEXTUDP)
     {
-        if (web_timer == 0 || ((web_timer + (HEARTBEAT_INTERVAL * 1000 * 30)) < millis()))   // repeat 15 minutes
+        if (web_timer == 0 || ((uint32_t)(millis() - web_timer) >= (uint32_t)(HEARTBEAT_INTERVAL * 1000 * 30)))   // repeat 15 minutes
         {
             meshcom_settings.node_hasIPaddress = neth.hasIPaddress;
 
@@ -2307,7 +2562,15 @@ void nrf52loop()
                     startWIFI();
             #endif
 
-            if(bWEBSERVER)
+            // N-20-Falle: ohne initialisiertes Ethernet (Setup ueberspringt die
+            // HW-Initialisierung, wenn weder Gateway noch Webserver aktiv sind,
+            // oder es ist keine RAK13800 gesteckt) blockieren W5100S-Socket-Ops
+            // (UdpExtern.begin()/sendExternHeartbeat()) den Loop-Task unbegrenzt
+            // -- Node wirkt tot, Konsole ohne Echo, nur 1200-Baud-Touch hilft.
+            // Reproduziert 2026-08-22: --extudp on bei Gateway/Webserver off
+            // friert den Loop ab dem naechsten Durchlauf dauerhaft ein (auch
+            // nach jedem Reboot, da gespeichert). Deshalb: Start nur mit IP.
+            if(bWEBSERVER && neth.hasIPaddress)
             {
                 bSPI_ETH_Active = true;
                 startWebserver();
@@ -2315,7 +2578,7 @@ void nrf52loop()
                 if(bPendingRadioRx) { bPendingRadioRx = false; startRadioReceive(); }
             }
 
-            if(bEXTUDP)
+            if(bEXTUDP && neth.hasIPaddress)
             {
                 bSPI_ETH_Active = true;
                 startExternUDP();
@@ -2339,7 +2602,7 @@ void nrf52loop()
 
     if(meshcom_settings.node_pingtime > 29)
     {
-        if((resendPing + meshcom_settings.node_pingtime * 1000) < millis())
+        if((int32_t)(millis() - (resendPing + meshcom_settings.node_pingtime * 1000)) > 0)
         {
             resendPing = millis();
 
@@ -2347,7 +2610,14 @@ void nrf52loop()
                 printfdeb("[PING]...send Ping to %s\n", meshcom_settings.node_pingcall);
 
             if(meshcom_settings.node_pingcall[0] != 0x00)
-                sendPing(meshcom_settings.node_pingcall);
+            {
+                PingResult pingResult = sendPing(meshcom_settings.node_pingcall);
+
+                // Fehlschlag außerhalb von bDisplayInfo sichtbar machen, sonst verstummt
+                // der Knoten für jeden, der mit Info aus läuft, ohne jede Meldung.
+                if(pingResult != PING_QUEUED)
+                    printfdeb("[PING]...FAILED Ping to %s\n", meshcom_settings.node_pingcall);
+            }
         }
     }
 
@@ -2478,14 +2748,14 @@ String ver = "";
 void WaitPause() {
   startTimeout = millis() + 1000;
   #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
-  while ((!Serial1.available()) && (millis() < startTimeout)) { delay(5); } // auf Block von Zeichen warten
+  while ((!Serial1.available()) && ((int32_t)(millis() - startTimeout) < 0)) { delay(5); } // auf Block von Zeichen warten
   #else
-  while ((!Serial1.available()) && (millis() < startTimeout)) { delay(5); } // auf Block von Zeichen warten
+  while ((!Serial1.available()) && ((int32_t)(millis() - startTimeout) < 0)) { delay(5); } // auf Block von Zeichen warten
   #endif
   if(iGPSDEBUG >= 2)
     Serial.printf("[GPS ]...wait");
   startTimeout = millis() + 50;  // für Serial Sync Zeichenblock lesen und Pause von 50ms abwarten
-  while (millis() < startTimeout) {
+  while ((int32_t)(millis() - startTimeout) < 0) {
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
     if (Serial1.available()) {
       Serial1.read();
@@ -2522,7 +2792,7 @@ void sendUBX_MON_VER() {  // Binäres Paket senden
   if(iGPSDEBUG >= 2)
     Serial.println("[GPS ]...Sende UBX_MON_VER");
 
-  for (int i = 0; i < sizeof(UBX_MON_VER_RAK); i++)
+  for (size_t i = 0; i < sizeof(UBX_MON_VER_RAK); i++)
   {
     Serial1.write(UBX_MON_VER_RAK[i]);
   }
@@ -2535,7 +2805,7 @@ void sendUBX_SET_GNSS() {  // Binäres Paket senden
   if(iGPSDEBUG >= 2)
     Serial.println("[GPS ]...Sende UBX_SET_GNSS");
 
-  for (int i = 0; i < sizeof(ubx_cfg_gnss); i++)
+  for (size_t i = 0; i < sizeof(ubx_cfg_gnss); i++)
   {
     Serial1.write(ubx_cfg_gnss[i]);
   }
@@ -2546,7 +2816,7 @@ void sendUBX_SET_GNSS() {  // Binäres Paket senden
 String readUBXbin() {
   startTimeout = millis() + 500;
   ver = "";
-    while (millis() < startTimeout) {
+    while ((int32_t)(millis() - startTimeout) < 0) {
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
     while (Serial1.available()) {
       int c = Serial1.read();
@@ -2614,8 +2884,7 @@ unsigned int getGPS(void)
         Serial.printf("newData:%i SAT:%d Fix:%d UPD:%d VAL:%d HDOP:%i\n", newData, tinyGPSPlus.satellites.value(), tinyGPSPlus.sentencesWithFix(), tinyGPSPlus.location.isUpdated(), tinyGPSPlus.location.isValid(), tinyGPSPlus.hdop.value());
 
     posinfo_satcount = tinyGPSPlus.satellites.value();
-    posinfo_hdop = tinyGPSPlus.hdop.value();
-    fposinfo_hdop = tinyGPSPlus.hdop.value();;
+    fposinfo_hdop = tinyGPSPlus.hdop.value();
 
     bool has_gnss_location=false;
 
@@ -2677,16 +2946,34 @@ void checkSerialCommand(void)
         if(Serial.available() > 0)
         {
             char rd = (char)Serial.read();
-            printdeb(rd);   // echo to USB + net console via MSerial
-            strText[iTxtPos] = rd;
-            if(iTxtPos < (int)sizeof(strText) - 1)
+            // Drop NUL bytes: UART RX noise (e.g. unpowered USB-UART bridge on battery
+            // supply) delivers 0x00 which strlen() cannot see and wedges the parser
+            // (DRY-22 — ported from the ESP32 copy of this function).
+            if(rd != 0x00)
             {
-                iTxtPos++;
+                printdeb(rd);   // echo to USB + net console via MSerial
+                strText[iTxtPos] = rd;
+                if(iTxtPos < (int)sizeof(strText) - 1)
+                {
+                    iTxtPos++;
+                }
             }
         }
     }
 
     iTxtLen = strlen(strText);
+
+    // Self-healing: normally every stored byte is non-NUL, so strlen == iTxtPos.
+    // A stray NUL in the buffer breaks that invariant and would block command
+    // processing forever (early return below never reaches the memset). Discard.
+    // (DRY-22 — ported from the ESP32 copy of this function.)
+    if(iTxtLen != iTxtPos)
+    {
+        memset(strText, 0x00, sizeof(strText));
+        iTxtPos = 0;
+        return;
+    }
+
     if(iTxtLen == 0)
         return;
 
@@ -2702,7 +2989,11 @@ void checkSerialCommand(void)
             msg_text[sizeof(msg_text) - 1] = '\0';
 
             int inext=0;
-            char msg_buffer[600];
+            // N-22: 600 B vom knappen 4-KB-Loop-Task-Stack in BSS verlagert —
+            // checkSerialCommand() laeuft nur im Loop-Task, und der Pfad
+            // ueber sendMessage() -> sendExtern() lief mit Watermark 0
+            // (Details: STATUS-Box N-22 im Defektkatalog).
+            static char msg_buffer[600];
             iTxtLen = strlen(strText);
             for(int itx=0; itx<iTxtLen; itx++)
             {
@@ -2728,7 +3019,10 @@ void checkSerialCommand(void)
 
             if(strText[0] == ':' && strText[1] == ':')
             {
-                sendMessage(msg_buffer, inext);
+                // BP-01: origin serial -- the notice comes back on the console.
+                setMsgOrigin(ORIGIN_SERIAL);
+                (void)sendMessage(msg_buffer, inext);
+                setMsgOrigin(ORIGIN_NONE);
             }
             else
                 if(strText[0] == '-' && strText[1] == '-')
@@ -2759,26 +3053,41 @@ void checkSerialCommand(void)
  */
 void sendUDP()
 {
-    if(udpWrite != udpRead)
+    if(!bf_empty(&udpOutRing))
     {
         if(bDisplayCont)
-            Serial.printf("udpWrite:%i udpRead:%i neth.udp_is_busy:%i\n", udpWrite, udpRead, neth.udp_is_busy);
+            Serial.printf("udpOutRing unread:%u used:%u neth.udp_is_busy:%i\n", bf_unread(&udpOutRing), bf_used(&udpOutRing), neth.udp_is_busy);
 
         if(!neth.udp_is_busy)
         {
-            uint16_t msg_len = ringBufferUDPout[udpRead][0];
-            
-            
-            if(msg_len != 23)
-            {
-                //Serial.printf("UDP TX out:%i len:%i\n", udpRead, msg_len);
-                //DEBUG_MSG_VAL("UDP", udpRead, "UDP TX out:");
-                //printBuffer(ringBufferUDPout[udpRead] + 1, msg_len);
-            }
-            
+            // CONC-16 (nRF52-Leser): der Schreiber addUdpOutBuffer() laeuft
+            // ueber addNodeData() im dedizierten 16 kB _lora_task (OnRxDone,
+            // siehe C-01, board.cpp:498) und kann den aeltesten Frame per
+            // Ring-voll-Eviction unter uns wegziehen, waehrend hier gesendet
+            // wird. Deshalb: bf_peek() kopiert den Frame in einen Snapshot,
+            // bf_tail_gen() wird direkt danach gemerkt, und erst nach dem
+            // Senden wird gegen den gemerkten Stand geprueft, ob tail noch
+            // auf denselben Frame zeigt, bevor bf_pop() ihn entnimmt --
+            // gleiche Behandlung wie sendMeshComUDP() in udp_functions.cpp
+            // (ESP32).
+            static uint8_t udpSnapshot[UDP_TX_BUF_SIZE+64] = {0};
+            uint16_t msg_len = bf_peek(&udpOutRing, udpSnapshot, (uint16_t)sizeof(udpSnapshot));
+            // bf_peek() liefert die VOLLE Frame-Laenge, auch wenn weniger
+            // als das in outmax kopiert wurde; vor der Verwendung als Index
+            // in udpSnapshot kappen. Der 1..255-Vertrag von bf_push() macht
+            // das in der Praxis zum No-op (255 < sizeof(udpSnapshot)).
+            if (msg_len > sizeof(udpSnapshot))
+                msg_len = (uint16_t)sizeof(udpSnapshot);
+
+            // Generation direkt nach dem peek: verdraengt ein Schreiber
+            // genau diesen Frame, bevor wir unten bf_pop()en, zaehlt
+            // tail_gen() weiter (siehe bf_tail_gen() in byte_fifo.h). Dann
+            // darf NICHT gepopt werden, sonst traefe es den falschen
+            // (naechsten) Frame.
+            uint16_t myGen = bf_tail_gen(&udpOutRing);
 
             // send it over UDP
-            if (!neth.sendUDP(ringBufferUDPout[udpRead] + 1, msg_len))
+            if (!neth.sendUDP(udpSnapshot, msg_len))
             {
                 Serial.printf("Sending UDP Packet failed <%i>!\n", msg_len);
 
@@ -2800,15 +3109,20 @@ void sendUDP()
             }
             else
             {
-                // UDP DATA Header 36 byte
-                memcpy(convBuffer, ringBufferUDPout[udpRead] + 1 + 36, msg_len);
+                // UDP DATA Header 36 Byte. udpSnapshot enthaelt msg_len Bytes
+                // ab Offset 0 (Header + APRS-Frame) -- der alte Schlitzring
+                // hatte hier noch ein Laengen-Byte an Offset 0 und die
+                // Nutzlast begann erst bei 1; bf_peek() liefert sie schon
+                // ohne dieses Byte. Wahre APRS-Laenge ist msg_len-36.
+                uint16_t aprs_len = (msg_len > 36) ? (uint16_t)(msg_len - 36) : 0;
+                memcpy(convBuffer, udpSnapshot + 36, aprs_len);
 
-                if(convBuffer[0] == 0x3A || convBuffer[0] == 0x21 || convBuffer[0] == 0x40)
+                if(aprs_len > 0 && (convBuffer[0] == 0x3A || convBuffer[0] == 0x21 || convBuffer[0] == 0x40))
                 {
                     struct aprsMessage aprsmsg;
-                    
+
                     // print which message type we got
-                    decodeAPRS(convBuffer, msg_len, aprsmsg);
+                    decodeAPRS(convBuffer, aprs_len, aprsmsg);
 
                     // print aprs message
                     if(bDisplayVia)
@@ -2825,12 +3139,14 @@ void sendUDP()
                 }
             }
 
-            // zero out sent buffer
-            memset(ringBufferUDPout[udpRead], 0, UDP_TX_BUF_SIZE);
-
-            udpRead++;
-            if (udpRead >= MAX_RING_UDP) 
-                udpRead = 0;
+            // Frame erst nach dem Senden entnehmen (bf_pop() sperrt intern,
+            // gleiches Schema wie der Writer, CONC-16) -- aber nur, wenn er
+            // noch der ist, den bf_peek() geliefert hat. Guard gegen einen
+            // Schreiber, der ihn waehrend des Sendens per Ring-voll-Eviction
+            // schon verdraengt hat: dann zeigt tail auf einen anderen Frame,
+            // und ein bf_pop() hier wuerde den falschen treffen.
+            if (bf_tail_gen(&udpOutRing) == myGen)
+                bf_pop(&udpOutRing);
 
         }
         else

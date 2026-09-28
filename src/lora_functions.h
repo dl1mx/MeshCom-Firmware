@@ -6,10 +6,24 @@
 #include <debugconf.h>
 #include <aprs_functions.h>
 
+// Issue 962 / --deepsleep: put the RadioLib radio object to sleep so it stops
+// burning RX current before esp_deep_sleep_start(). Only declared/compiled
+// where lora_functions.cpp already has an extern `radio` of a matching
+// RadioLib type in scope (see the #ifdef ladder at the top of that file) --
+// a no-op declaration would either fail to link or bind to the wrong object.
+// WP_DISP boards (Wireless Paper, Vision Master E213) are excluded: they
+// keep their own Platform::loraToSleep() call at the --deepsleep call site.
+#if (defined(SX127X) || defined(BOARD_E220) || defined(SX1262X) || defined(SX126X) || \
+     defined(SX1262_E22) || defined(USING_SX1262) || defined(SX1268_E22) || \
+     defined(SX1262_V3) || defined(SX1262_E290) || defined(SX1262_V4) || \
+     defined(BOARD_T5_EPAPER)) && !defined(WP_DISP)
+void loraDeepSleep();
+#endif
+
 void OnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr);
 void OnRxTimeout(void);
 void OnRxError(void);
-bool is_new_packet(uint8_t compBuffer[4]);
+// is_new_packet() wird jetzt in dedup_functions.h deklariert.
 
 void StartReceiveAgain();
 
@@ -22,12 +36,20 @@ void OnHeaderDetect(void);
 
 bool updateRetransmissionStatus(void);
 
+// PN-Wiederholung (Variante a, XOR-Form): stoppt die Wiederholung einer eigenen
+// Meldung. Vergleicht die msg_id mit den beiden Wiederholungsbits 10-11
+// ausmaskiert (PN_RETRY_CORE_MASK, pn_retry.h), damit auch eine bereits
+// mit Wiederholungsbits versehene Ringkopie getroffen wird. Auch vom
+// Server-Pfad (udp_functions.cpp, nrf_eth.cpp) fuer ein :ackNNN aufgerufen.
+// Liefert den Slot oder -1.
+int findAndStopRingSlot(uint32_t msgId);
+
 unsigned long csma_compute_timeout(int attempt);
 unsigned long csma_compute_timeout_prio(int attempt, uint8_t priority);
 void csma_reset(void);
 
-uint8_t getMessagePriority(int slot);
-int getNextTxSlot(void);
+// getMessagePriority/getNextTxSlot: siehe txring_functions.h (verschoben,
+// QA-Welle 2026-08-22, N-14).
 
 #if defined(EXTERNAL_RADIO)
 // --- asynchronous external-radio TX queue ownership -----------------------

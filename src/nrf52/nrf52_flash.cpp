@@ -11,6 +11,8 @@
 #ifdef NRF52_SERIES
 
 #include <debugconf.h>
+#include <settings_sanitize.h>
+#include <lora_setchip.h>
 
 #include "WisBlock-API.h"
 
@@ -33,6 +35,59 @@ void flash_int_reset(void);
  * @brief Initialize access to nRF52 internal file system
  *
  */
+// TM-32 (upstream #661: Brown-out korrumpiert die Einstellungen, Firmware
+// stuerzt ab): Radio-Parameter auf Plausibilitaet, Zeichenketten auf
+// Terminierung pruefen, bevor irgendetwas damit rechnet oder druckt.
+static void sanitize_log(const char *field, const char *oldv, const char *newv)
+{
+	Serial.printf("[FLASH]...sanitized %s: %s -> %s\n", field, oldv, newv);
+}
+
+void sanitize_loaded_settings(void)
+{
+	RadioLimits lim = { TX_POWER_MIN, TX_POWER_MAX, 400.0e6f, 960.0e6f, 1, 1, max_country };
+	RadioParams p = { meshcom_settings.node_power, meshcom_settings.node_freq, meshcom_settings.node_bw,
+	                  meshcom_settings.node_sf, meshcom_settings.node_cr, meshcom_settings.node_country };
+	int fixed = sanitize_radio_params(p, lim, sanitize_log);
+	if(fixed > 0)
+	{
+		meshcom_settings.node_power = p.power;
+		meshcom_settings.node_freq = p.freq;
+		meshcom_settings.node_bw = p.bw;
+		meshcom_settings.node_sf = p.sf;
+		meshcom_settings.node_cr = p.cr;
+		meshcom_settings.node_country = p.country;
+	}
+
+	// CS-01: max_hop_text liegt bereits in der Struktur (die ganze Struktur wird
+	// in die Datei geschrieben), aber eine alte Datei traegt dort eine 0, weil das
+	// Feld frueher bei jedem Boot ueberschrieben wurde. Plausibilitaet wie beim
+	// ESP32; max_hop_pos bleibt bewusst beim Compile-Default (nrf52_main.cpp).
+	if(sanitize_max_hop_text(meshcom_settings.max_hop_text, sanitize_log))
+		fixed++;
+
+	// Die Struktur wird roh aus der Datei gelesen -- ein fehlender Terminator
+	// laesst strlen()/printf ueber das Feld hinauslesen.
+	int strings = 0;
+	#define SANITIZE_STR(f) do { if(sanitize_cstring(meshcom_settings.f, sizeof(meshcom_settings.f))) { strings++; Serial.printf("[FLASH]...sanitized %s: terminator missing\n", #f); } } while(0)
+	SANITIZE_STR(node_call); SANITIZE_STR(node_short); SANITIZE_STR(node_ossid); SANITIZE_STR(node_opwd);
+	SANITIZE_STR(node_extern); SANITIZE_STR(node_atxt); SANITIZE_STR(node_passwd); SANITIZE_STR(node_ownip);
+	SANITIZE_STR(node_owngw); SANITIZE_STR(node_ownms); SANITIZE_STR(node_name); SANITIZE_STR(node_webpwd);
+	SANITIZE_STR(node_ssid); SANITIZE_STR(node_pwd); SANITIZE_STR(node_parm); SANITIZE_STR(node_unit);
+	SANITIZE_STR(node_format); SANITIZE_STR(node_eqns); SANITIZE_STR(node_values); SANITIZE_STR(node_lora_call);
+	SANITIZE_STR(node_gwsrv); SANITIZE_STR(node_owndns); SANITIZE_STR(node_ownntp); SANITIZE_STR(node_fwversion);
+	SANITIZE_STR(node_via); SANITIZE_STR(node_aprsmc); SANITIZE_STR(node_pingcall); SANITIZE_STR(node_ip);
+	SANITIZE_STR(node_dns); SANITIZE_STR(node_gw); SANITIZE_STR(node_subnet);
+	SANITIZE_STR(node_update); SANITIZE_STR(node_parm_1); SANITIZE_STR(node_parm_t); SANITIZE_STR(node_parm_id);
+	#undef SANITIZE_STR
+
+	if(fixed > 0 || strings > 0)
+	{
+		Serial.printf("[FLASH]...%d setting(s), %d string(s) corrected\n", fixed, strings);
+		save_settings();    // einmal zurueckschreiben, sonst meldet jeder Boot dieselbe Korrektur
+	}
+}
+
 void init_flash(void)
 {
 	if (init_flash_done)
@@ -253,6 +308,7 @@ void init_flash(void)
 
 		save_settings();
 		// delay(1000);
+		sanitize_loaded_settings();
 		// sd_nvic_SystemReset();
 	}
 	else
@@ -260,20 +316,35 @@ void init_flash(void)
 		// Found new structure
 		lora_file.close();
 		lora_file.open(settings_name, FILE_O_READ);
+		// Groesse VOR dem Lesen sichern -- close() unten macht sie nicht mehr abfragbar.
+		uint32_t stored_size = lora_file.size();
 		lora_file.read((uint8_t *)&meshcom_settings, sizeof(s_meshcom_settings));
 		lora_file.close();
 
 		//printf("meshcom_settings%s\n", meshcom_settings.node_call);
 
 		// Check if it is LPWAN settings^
-		if ((meshcom_settings.valid_mark_1 != 0xAA) || (meshcom_settings.valid_mark_2 != MESHCOM_DATA_MARKER))
+		// Groessen-Check (N-12): eine Struktur-Layout-Aenderung faellt hier auf, wenn die abgelegte
+		// Datei nicht mehr sizeof(s_meshcom_settings) gross ist -- sonst wuerde stillschweigend mit
+		// verschobenen/fehlinterpretierten Feldern weitergearbeitet. Padding-neutrale Feldvertauschungen,
+		// die sizeof unveraendert lassen, bleiben davon unentdeckt -- Layout-Aenderungen muessen daher
+		// FLASH_VERSION erhoehen. Der 0x57-Kompat-Pfad oben bekommt bewusst KEINE Groessenpruefung,
+		// da alte Dateien diesem Schema vorausgehen.
+		if ((meshcom_settings.valid_mark_1 != 0xAA) || (meshcom_settings.valid_mark_2 != MESHCOM_DATA_MARKER) ||
+			(stored_size != sizeof(s_meshcom_settings)))
 		{
-			// Data is not valid, reset to defaults
-			DEBUG_MSG("FLASH", "Invalid data set, deleting and restart node");
-			InternalFS.format();
-			delay(1000);
-			sd_nvic_SystemReset();
+			// Daten sind ungueltig oder die Dateigroesse passt nicht mehr zur aktuellen Struktur:
+			// sauberer Reset auf Defaults statt stillem Weiterlaufen mit Datenmuell (N-12).
+			// flash_reset() invalidiert dabei init_flash_done, ein erneuter Aufruf hier ist daher
+			// nicht noetig und wuerde auch keine Rekursion ausloesen -- wir lesen direkt die frisch
+			// geschriebene Default-Datei zurueck (einmaliger Reset, kein Retry-Loop).
+			DEBUG_MSG("FLASH", "Invalid data set or size mismatch, resetting to defaults");
+			flash_reset();
+			lora_file.open(settings_name, FILE_O_READ);
+			lora_file.read((uint8_t *)&meshcom_settings, sizeof(s_meshcom_settings));
+			lora_file.close();
 		}
+		sanitize_loaded_settings();
 		log_settings();
 		init_flash_done = true;
 	}
@@ -341,11 +412,19 @@ void flash_reset(void)
 	InternalFS.format();
 	if (lora_file.open(settings_name, FILE_O_WRITE))
 	{
+		// default_settings ist default-konstruiert -> die Member-Initializer in s_meshcom_settings
+		// setzen gueltige Marker (0xAA/MESHCOM_DATA_MARKER) sowie alle Default-Werte.
 		s_meshcom_settings default_settings;
 		lora_file.write((uint8_t *)&default_settings, sizeof(s_meshcom_settings));
 		lora_file.flush();
 		lora_file.close();
 	}
+
+	// Cache invalidieren: ohne dies ist der naechste init_flash()-Aufruf ein No-Op (Guard oben),
+	// und save_settings() wuerde die alte RAM-Kopie zurueckschreiben, obwohl das Log einen
+	// sauberen Reset meldet (N-12). flash_reset() muss also erzwingen, dass frisch von Flash
+	// gelesen wird.
+	init_flash_done = false;
 }
 
 /**

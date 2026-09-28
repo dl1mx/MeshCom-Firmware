@@ -1,4 +1,6 @@
-// (C) 2023 OE1KBC Kurt Baumann, OE1KFR Rainer 
+#pragma once
+
+// (C) 2023 OE1KBC Kurt Baumann, OE1KFR Rainer
 // (C) 2016, 2017, 2018, 2018, 2019, 2020 OE1KBC Kurt Baumann
 //
 // 20230326: Version 4.00: START
@@ -7,7 +9,14 @@
  *  @date        2025-12-03
  */
 
+#include "byte_fifo.h"
 #include <atomic>
+
+// WQ-01 (2026-09-05): queue panel on the rxlog web page -- pulls in
+// struct setlogStatFields (below) for the last-window copy. Plain C-style
+// header (stdint/stdbool/stddef/string only, no Arduino dependency), so it
+// compiles cleanly for every TU that includes this extern header.
+#include "setlog_lines.h"
 
 extern bool gpsDetected;
 extern bool gpsInitDone;
@@ -78,6 +87,8 @@ extern float fBattFaktor;
 
 extern bool bDisplayTrack;
 extern bool bOneButton;
+extern bool bEnterDfu;       // --dfu (nur nRF52): UF2-Bootloader statt normalem Neustart
+extern bool bDisplayDirty;   // ALT-35: Render-Anforderung, unabhaengig vom Tastendruck
 
 extern bool bGPSON;
 extern bool bGPSAutosymbol;
@@ -134,8 +145,13 @@ extern bool bWEBSERVER;
 extern bool bWIFIAP;
 extern bool bEXTUDP;
 extern bool bNETCONSOLE;
+extern bool bKISS;
+extern bool bKISSTX;
+extern bool bKISSMETA;
+extern bool bKISSAUTH;
 
 extern float fBaseAltidude;
+extern float fBaseAltidude680;
 extern float fBasePress;
 
 extern unsigned long onewireTimeWait;
@@ -153,6 +169,7 @@ extern unsigned int msg_counter;
 extern uint8_t RcvBuffer[UDP_TX_BUF_SIZE * 2];
 
 extern uint8_t own_msg_id[MAX_RING][5];
+extern bool bAckInfo;
 
 // TELEMTRY global variables
 extern int iNextTelemetry;
@@ -177,48 +194,113 @@ extern float BATTexp12;
 extern float BATexp12pre;
 extern float BATexp2;
 
+// ring_index_t liegt jetzt in ring_index.h (reine Verschiebung), damit
+// einzelne Ringe in eigene Uebersetzungseinheiten wandern koennen.
+#include "ring_index.h"
+
 // RINGBUFFER for incoming UDP lora packets for lora TX
 extern unsigned char ringBuffer[MAX_RING][UDP_TX_BUF_SIZE+5];
-extern volatile int iWrite;
-extern volatile int iRead;
+extern ring_index_t iWrite;
+extern ring_index_t iRead;
 extern int iRetransmit;
 extern uint8_t retryCount[MAX_RING];
 extern uint8_t ringPriority[MAX_RING];         // Prio 1-5 pro Slot
 extern uint32_t ringEnqueueTime[MAX_RING];     // millis() timestamp when enqueued
 
+// N-14: kanonische Deklaration mit Default-Argumenten steht in loop_functions.h
+// (ein Default darf pro Parameter nur einmal je Uebersetzungseinheit stehen);
+// diese Zeile deckt nur TUs ab, die ausschliesslich dieses Extern-Header ziehen.
+int addTxRingEntry(const uint8_t* frame, uint16_t len, uint8_t ring_status,
+                    const char* source, int retryCountIn, bool clearSlotFirst);
+
+// BP-01 (BACKLOG) / TM-37: back-pressure to the sender, in Q-codes.
+//
+// sendMessage() has no transport parameter, so the only way it can answer on
+// the transport a message came in on is a tag the caller sets immediately
+// before the call and clears right after. Relay, ACK and beacon paths never
+// go through sendMessage() and never set this -- so a station on the air can
+// never push this node into "not accepting".
+#include "backpressure.h"
+
+void setMsgOrigin(MsgOrigin origin);
+MsgOrigin getMsgOrigin(void);
+
+// WQ-01 (2026-09-05): queue panel on the rxlog web page -- read-only view
+// onto bp_state (loop_functions.cpp). Plain int, not BpState, so callers
+// that only need this extern header don't need the enum.
+int bpCurrentState(void);      // (int)BpState: 0 QUIET, 1 QRS, 2 QRT
+int bpRefuseThreshold(void);
+int bpQrsThreshold(void);
+int bpQrsForecast(int depth); // WQ-02: depth at which the next own msgs raise QRS
+const char* bpStateName(void); // "QUIET" / "QRS" / "QRT"
+
+// E5 (2026-09-01): msg_id must stay unique across every BP frame or the chat
+// app's dedup filter swallows whichever of two notices lands in the same
+// millisecond -- see the comment at the definition in loop_functions.cpp.
+// Welle 3 (BP-09) cleanup: this used to be a hand-written extern local to
+// extudp_functions.cpp because loop_functions_extern.h was out of scope for
+// that wave; a header declaration is compiler-checked against the
+// definition, the hand-written one was not.
+uint32_t bpNextMsgId(void);
+
+// Per-loop drain check. Closes a back-pressure episode with QRV once the ring
+// has emptied again, even when no further user message arrives to observe it.
+void bpPollDrain(void);
+
+// BP-01: the EXTUDP reply path for a notice -- framed as a regular text
+// message from the node's own callsign on the same socket the message
+// arrived on. Defined in extudp_functions.cpp; declared here rather than in
+// extudp_functions.h so the whole BP contract sits in one place. No-op
+// unless bEXTUDP and a peer address are set.
+//
+// BP-06: dst is the destination of the triggering message (group, DM call,
+// or "*"), not a hardcoded broadcast.
+void sendExternNotice(const char *text, const char *dst);
+
 extern unsigned char ringbufferRAWLoraRX[MAX_LOG][UDP_TX_BUF_SIZE+5];
 extern int RAWLoRaWrite;
 extern int RAWLoRaRead;
 
-// RINGBUFFER for outgoing UDP lora packets for lora TX
-extern uint8_t ringBufferUDPout[MAX_RING_UDP][UDP_TX_BUF_SIZE+20];
-extern int udpWrite;
-extern int udpRead;
+// Die drei Ausgangsringe -- UDP-Ausgang, Telefon-Daten, Telefon-Kommandos --
+// sind Byte-Ringe (src/byte_fifo.h) statt Schlitzfelder: die Frames liegen
+// dicht hintereinander, nicht in Schlitzen zu je 246 bis 280 Byte, die im
+// Mittel zu 70 % leer standen. Die Lese- und Schreibzeiger sind jetzt
+// Interna des Rings; Aufrufer nehmen bf_push/bf_peek/bf_pop, und der Verlauf
+// fuer die Web-Nachrichtenseite laeuft ueber bf_iter_begin/bf_iter_next.
+// Jede Operation sperrt sich auf nRF52 selbst (BF_LOCK), die frueheren
+// kritischen Abschnitte an den Aufrufstellen sind deshalb entfallen.
+extern byte_fifo_t udpOutRing;
+extern byte_fifo_t phoneRing;
+extern byte_fifo_t phoneComRing;
 
 extern bool hasMsgFromPhone;
 
-// BLE Ringbuffer to phone
-extern unsigned char BLEtoPhoneBuff[MAX_RING][MAX_MSG_LEN_PHONE+5];
-extern int toPhoneWrite;
-extern int toPhoneRead;
+// ringBufferLoraRX/loraWrite werden jetzt in dedup_functions.h deklariert.
 
-// BLE Commands Ringbuffer to phone
-extern unsigned char BLEComToPhoneBuff[MAX_RING][MAX_MSG_LEN_PHONE+5];
-extern int ComToPhoneWrite;
-extern int ComToPhoneRead;
-
-extern uint8_t ringBufferLoraRX[MAX_DEDUP_RING][5]; //Ringbuffer for received msg_id deduplication
-extern std::atomic<uint8_t> loraWrite;   // counter for ringbuffer
-
-extern std::atomic<bool> is_receiving;   // flag to store we are receiving a lora packet.
+// is_receiving: same reasoning as ch_util_rx_start_t below -- on ESP32, OnRxDone()/OnTxDone()
+// and friends run synchronously off the esp32loop() -> checkRX() call chain (no ISR, no
+// second task touches this flag there), so the atomic is unnecessary overhead. nRF52
+// registers these as real interrupt callbacks -- genuine concurrency, keep std::atomic. N-13.
+#if defined(ESP32)
+struct is_receiving_t {
+    bool v = false;
+    is_receiving_t() = default;
+    is_receiving_t(bool nv) : v(nv) {}
+    is_receiving_t &operator=(bool nv) { v = nv; return *this; }
+    operator bool() const { return v; }
+};
+#else
+using is_receiving_t = std::atomic<bool>;
+#endif
+extern is_receiving_t is_receiving;   // flag to store we are receiving a lora packet.
 extern std::atomic<bool> tx_is_active;   // flag to store we are transmitting  a lora packet.
 
 extern int cad_attempt;
 extern unsigned long csma_timeout;
 extern int rx_irq_defer_count;
-extern volatile bool cad_in_progress;
-extern volatile bool cad_done_flag;
-extern volatile bool cad_double_check;
+extern std::atomic<bool> cad_in_progress;
+extern std::atomic<bool> cad_done_flag;
+extern std::atomic<bool> cad_double_check;
 
 
 // RACE-01 fix: spinlock for deferred display update (ISR → main loop)
@@ -227,10 +309,65 @@ extern portMUX_TYPE displayMux;
 #endif
 
 // Channel utilization tracking (10s window)
-extern std::atomic<unsigned long> ch_util_rx_start;
-extern std::atomic<unsigned long> ch_util_tx_start;
-extern std::atomic<unsigned long> ch_util_rx_accum;
-extern std::atomic<unsigned long> ch_util_tx_accum;
+#if defined(ESP32)
+// ESP32 never registers OnHeaderDetect as a radio callback (see esp32_main.cpp),
+// so ch_util_rx_start has no writer reachable from an ISR or any concurrent task
+// on this platform -- no atomic needed. N-13.
+struct ch_util_rx_start_t {
+    unsigned long v = 0;
+    ch_util_rx_start_t() = default;
+    ch_util_rx_start_t(unsigned long nv) : v(nv) {}
+    ch_util_rx_start_t &operator=(unsigned long nv) { v = nv; return *this; }
+    unsigned long exchange(unsigned long nv) { unsigned long old = v; v = nv; return old; }
+};
+
+// Same reasoning for the accumulators/timestamps below: on ESP32 they are only touched
+// from OnRxDone()/OnTxDone()/checkRX(), all called synchronously from esp32loop() -- no
+// ISR, no second task. nRF52 runs these as real interrupt callbacks, keep std::atomic.
+struct ch_util_ulong_t {
+    unsigned long v = 0;
+    ch_util_ulong_t() = default;
+    ch_util_ulong_t(unsigned long nv) : v(nv) {}
+    ch_util_ulong_t &operator=(unsigned long nv) { v = nv; return *this; }
+    operator unsigned long() const { return v; }
+    unsigned long exchange(unsigned long nv) { unsigned long old = v; v = nv; return old; }
+    unsigned long fetch_add(unsigned long nv) { unsigned long old = v; v += nv; return old; }
+};
+#else
+using ch_util_rx_start_t = std::atomic<unsigned long>;
+using ch_util_ulong_t = std::atomic<unsigned long>;
+#endif
+extern ch_util_rx_start_t ch_util_rx_start;
+extern ch_util_ulong_t ch_util_tx_start;
+extern ch_util_ulong_t ch_util_rx_accum;
+extern ch_util_ulong_t ch_util_tx_accum;
+
+// SL-05 -- Zaehler der 5-Minuten-STAT-Zeile unter `--setlog on`.
+// Definitionsstelle ist loop_functions.cpp neben ch_util_*_accum; alle sind
+// std::atomic, weil LORA-Task (SL-01/SL-04) und loop() (SL-03/SL-05) sie
+// gleichzeitig anfassen. Zuruecksetzen im STAT-Druck per exchange(0).
+extern std::atomic<uint32_t> stat_newid;       // neue msg_id im Dedup-Ring
+extern std::atomic<uint32_t> stat_dup;         // erkannte Kopien
+extern std::atomic<uint32_t> stat_rx_err;      // RX-/CRC-Fehler
+extern std::atomic<uint32_t> stat_txn;         // eigene Sendungen
+extern std::atomic<uint32_t> stat_txfail;      // vom TX-Watchdog abgebrochen
+extern std::atomic<uint32_t> stat_util_rx_5m;  // RX-Luftzeit im Fenster (ms)
+extern std::atomic<uint32_t> stat_util_tx_5m;  // TX-Luftzeit im Fenster (ms)
+extern std::atomic<uint8_t>  stat_ring_max;    // Hochwasser von txRingDepth()
+
+// SL: prints `HH:MM:SS [LOG] <body>` via printfdeb without a String allocation
+// (definition in loop_functions.cpp next to getTimeString()).
+void setlogPrint(const char *body);
+// SL-05: fills the STAT fields from the interval counters (drains them), the
+// mheard/trickle/version globals and uptime; heap is platform-specific and passed in.
+// stat_drop_count[] is read, not cleared -- the platform tick clears it.
+void setlogFillStat(struct setlogStatFields *f, uint32_t heap);
+
+// WQ-01 (2026-09-05): queue panel on the rxlog web page -- copy of the last
+// completed 5-minute STAT window, updated at the end of every setlogFillStat()
+// call. stat_last_window_ms == 0 means no window has completed since boot.
+extern struct setlogStatFields stat_last_window;
+extern uint32_t stat_last_window_ms;
 
 
 // Trickle-HEY state
@@ -277,7 +414,6 @@ extern double posinfo_prev_lat;
 extern double posinfo_prev_lon;
 extern double posinfo_last_direction;
 extern uint32_t posinfo_satcount;
-extern int posinfo_hdop;
 extern float fposinfo_hdop;
 extern bool posinfo_fix;
 extern bool posinfo_shot;
@@ -309,7 +445,7 @@ extern int mheardNCount[MAX_MHEARD];
 
 extern char mheardPathCalls[MAX_MHPATH][10]; //Ringbuffer for MHeard Key = Call
 extern unsigned long mheardPathEpoch[MAX_MHPATH];  //Ringbuffer for MHeard EPoch Update Time
-extern unsigned char mheardPathBuffer1[MAX_MHPATH][50]; //Ringbuffer for MHeard Sourcepath
+extern unsigned char mheardPathBuffer1[MAX_MHPATH][52]; //Ringbuffer for MHeard Sourcepath
 extern uint8_t mheardPathLen[MAX_MHPATH];
 
 extern char cTimeSource[10];
@@ -325,7 +461,6 @@ extern int softserFunktion;
 extern String strSOFTSERAPP_ID;    // ID der Messstelle
 extern String strSOFTSERAPP_NAME;  // Name der Messstelle
 
-extern String strSOFTSERAPP_ID;
 extern String strSOFTSERAPP_PEGEL;
 extern String strSOFTSERAPP_PEGEL2;
 extern String strSOFTSERAPP_TEMP;
@@ -350,17 +485,24 @@ extern int iDisplayType;
 #define PAGE_MAX 6
 #endif
 
-extern int pageLine[maxdisplines][3];
+// RAM-Rueckgewinn: Zeilenkoordinaten als int16_t statt int. Werte sind
+// Pixelkoordinaten (x, y, hoechstens 320) und eine Textlaenge (20); y kann
+// -1 sein, daher vorzeichenbehaftet. Halbiert pageLine und pageLastLine.
+extern int16_t pageLine[maxdisplines][3];
 extern char pageText[maxdisplines][25];
 extern char pageTextLong1[25];
 extern char pageTextLong2[200];
 extern int pageLineAnz;
 
 
-extern int pageLastLine[PAGE_MAX][maxdisplines][3];
+extern int16_t pageLastLine[PAGE_MAX][maxdisplines][3];
 extern char pageLastText[PAGE_MAX][maxdisplines][25];
+// Langtext-Seiten nur auf TFT/E-Paper-Boards, siehe display_pages_cfg.h.
+#include "display_pages_cfg.h"
+#if defined(HAS_LONG_PAGE_TEXT)
 extern char pageLastTextLong1[PAGE_MAX][25];
 extern char pageLastTextLong2[PAGE_MAX][200];
+#endif
 extern int pageLastLineAnz[PAGE_MAX];
 extern int pageLastPointer;
 extern int pagePointer;
