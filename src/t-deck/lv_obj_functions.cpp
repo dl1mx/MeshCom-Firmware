@@ -23,12 +23,17 @@
 #include <loop_functions_extern.h>
 #include <math.h>
 #include <cstring>
+#include "msg_input_budget.h"   // TD-25 byte budget of the message input
 #include <cctype>
 #include <vector>
 #include <SD.h>
 #include <SPI.h>
 #include "tdeck_sdmap.h"
+#include "tdeck_text_cover.h"
 #include "pos_persist.h"
+#include "msg_persist_policy.h"
+#include "msg_tab_policy.h"
+#include <esp_heap_caps.h>
 #include "event_functions.h"
 #include "dm_prefill.h"
 #include <lora_setchip.h>
@@ -48,6 +53,8 @@ extern TFT_eSPI tft;
 #ifdef T_DECK_SPIFFS
 #include <SPIFFS.h>
 #endif
+
+#include <msg_body.h>
 
 #if defined(ENABLE_AUDIO)
 #include <esp32/esp32_audio.h>
@@ -122,6 +129,7 @@ lv_obj_t    *dropdown_mapselect;
 lv_obj_t    *btn_clear_messages;
 lv_obj_t    *btn_clear_mh;
 lv_obj_t    *btn_clear_nodes;
+lv_obj_t    *btn_blauto;
 lv_obj_t    *btn_gps;
 lv_obj_t    *btn_mesh;
 lv_obj_t    *btn_noallmsg;
@@ -183,15 +191,20 @@ struct MsgTabEntry
     String group;
     lv_obj_t *button;
     std::vector<MsgBubble> bubbles;
+    uint32_t last_activity = 0; // monotonic counter stamp (msg_tab_stamp), not millis
 };
 
 static std::vector<MsgTabEntry> msg_tab_entries;
 static lv_obj_t *msg_tab_bar = NULL;
 static lv_obj_t *msg_tab_hint_label = NULL;
 static int msg_active_tab_index = -1;
+static uint32_t msg_tab_activity_counter = 0;
+static uint32_t msg_tab_stamp(void) { return ++msg_tab_activity_counter; }
 static const size_t MSG_TAB_MAX_MESSAGES = 50;
 
 // Persistence for recent messages (keeps insertion order, excludes System messages)
+// TD-20: RAM-only staging for /messages.json; without T_DECK_SPIFFS nothing reads it,
+// so msg_persist_stage() leaves it empty (it used to cost ~220 B internal heap per message).
 static std::vector<std::pair<String, MsgBubble>> persisted_msgs;
 static bool loading_messages_from_file = false;
 static const size_t PERSISTED_MSG_LIMIT = 1000;
@@ -264,7 +277,7 @@ static void msg_tabs_clear_all(void);
 static void msg_render_active_tab(void);
 static void msg_list_show_hint(const char *text);
 static void msg_list_append_bubble(const MsgBubble &bubble);
-static void msg_list_trim_view(void);
+static void msg_list_trim_view(size_t target = MSG_TAB_MAX_MESSAGES);
 
 struct HeaderEventData
 {
@@ -521,6 +534,39 @@ lv_obj_t * SET_new_line(lv_obj_t * parent, lv_obj_t * last_line, lv_coord_t dist
 /**
  * defines GUI layout
  */
+// TD-25: the input caps bytes (UTF-8), not characters. Clamp text_input to the budget of the
+// current DM callsign on a code-point boundary and show the remaining bytes.
+static lv_obj_t *msg_budget_label = NULL;
+static bool msg_budget_busy = false;
+
+static void msg_input_budget_cb(lv_event_t *e)
+{
+    (void)e;
+    if(msg_budget_busy || text_input == NULL || dm_callsign == NULL)
+        return;
+
+    msg_budget_busy = true;  // set_text re-fires VALUE_CHANGED
+
+    const char *dm = lv_textarea_get_text(dm_callsign);
+    size_t budget = msg_input_budget(dm);
+    const char *txt = lv_textarea_get_text(text_input);
+    size_t len = strlen(txt);
+    size_t keep = msg_input_clamp(txt, len, budget);
+
+    if(keep < len)
+    {
+        String cut = String(txt).substring(0, keep);
+        lv_textarea_set_text(text_input, cut.c_str());
+        lv_textarea_set_cursor_pos(text_input, LV_TEXTAREA_CURSOR_LAST);
+        len = keep;
+    }
+
+    if(msg_budget_label != NULL)
+        lv_label_set_text_fmt(msg_budget_label, "%u bytes left", (unsigned)(budget - len));
+
+    msg_budget_busy = false;
+}
+
 void setDisplayLayout(lv_obj_t *parent)
 {
     static lv_style_t lable_style;
@@ -530,7 +576,7 @@ void setDisplayLayout(lv_obj_t *parent)
     static lv_style_t bg_style;
     lv_style_init(&bg_style);
     lv_style_set_text_color(&bg_style, lv_color_white());
-    lv_style_set_text_font(&bg_style, &lv_font_montserrat_16);
+    lv_style_set_text_font(&bg_style, &mc_font_latin_16);
     //lv_style_set_bg_img_src(&bg_style, &image);
     lv_style_set_bg_opa(&bg_style, LV_OPA_100);
 
@@ -559,7 +605,7 @@ void setDisplayLayout(lv_obj_t *parent)
 
     tab_menu_icon_label = lv_label_create(tab_menu_button);
     lv_label_set_text(tab_menu_icon_label, LV_SYMBOL_BARS);
-    lv_obj_set_style_text_font(tab_menu_icon_label, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(tab_menu_icon_label, &mc_font_latin_18, LV_PART_MAIN);
     lv_obj_set_style_text_color(tab_menu_icon_label, lv_palette_main(LV_PALETTE_LIGHT_GREEN), LV_PART_MAIN);
     lv_obj_center(tab_menu_icon_label);
 
@@ -574,7 +620,7 @@ void setDisplayLayout(lv_obj_t *parent)
 
     tab_kbl_icon_label = lv_label_create(tab_kbl_button);
     lv_label_set_text(tab_kbl_icon_label, LV_SYMBOL_KEYBOARD);
-    lv_obj_set_style_text_font(tab_kbl_icon_label, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(tab_kbl_icon_label, &mc_font_latin_18, LV_PART_MAIN);
     lv_obj_set_style_text_color(tab_kbl_icon_label, lv_palette_main(LV_PALETTE_GREY), LV_PART_MAIN);
     lv_obj_center(tab_kbl_icon_label);
 
@@ -589,51 +635,51 @@ void setDisplayLayout(lv_obj_t *parent)
 
     tab_standby_icon_label = lv_label_create(tab_standby_button);
     lv_label_set_text(tab_standby_icon_label, LV_SYMBOL_EYE_OPEN);
-    lv_obj_set_style_text_font(tab_standby_icon_label, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(tab_standby_icon_label, &mc_font_latin_18, LV_PART_MAIN);
     lv_obj_set_style_text_color(tab_standby_icon_label, lv_palette_main(LV_PALETTE_GREY), LV_PART_MAIN);
     lv_obj_center(tab_standby_icon_label);
 
     header_time_label = lv_label_create(tab_menu_header);
     lv_label_set_text(header_time_label, "--:--");
-    lv_obj_set_style_text_font(header_time_label, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(header_time_label, &mc_font_latin_18, LV_PART_MAIN);
     lv_label_set_long_mode(header_time_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(header_time_label, lv_palette_main(LV_PALETTE_LIME), LV_PART_MAIN); //ex lv_color_white()
     lv_obj_align(header_time_label, LV_ALIGN_RIGHT_MID, 0, 0);
 
     header_batt_label = lv_label_create(tab_menu_header);
     lv_label_set_text(header_batt_label, "0%");
-    lv_obj_set_style_text_font(header_batt_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(header_batt_label, &mc_font_latin_14, LV_PART_MAIN);
     lv_label_set_long_mode(header_batt_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(header_batt_label, lv_palette_main(LV_PALETTE_LIME), LV_PART_MAIN); //ex lv_color_white()
     lv_obj_align_to(header_batt_label, header_time_label, LV_ALIGN_OUT_LEFT_MID, -35, 0);
 
     header_batt_icon = lv_label_create(tab_menu_header);
     lv_label_set_text(header_batt_icon, LV_SYMBOL_BATTERY_EMPTY);
-    lv_obj_set_style_text_font(header_batt_icon, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(header_batt_icon, &mc_font_latin_18, LV_PART_MAIN);
     lv_obj_align_to(header_batt_icon, header_batt_label, LV_ALIGN_OUT_LEFT_MID, -4, 0);
 
     header_sat_label = lv_label_create(tab_menu_header);
     lv_label_set_text(header_sat_label, "0");
-    lv_obj_set_style_text_font(header_sat_label, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(header_sat_label, &mc_font_latin_14, LV_PART_MAIN);
     lv_label_set_long_mode(header_sat_label, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_color(header_sat_label, lv_palette_main(LV_PALETTE_LIME), LV_PART_MAIN); //ex lv_color_white()
     lv_obj_align_to(header_sat_label, header_batt_icon, LV_ALIGN_OUT_LEFT_MID, -6, 0);
 
     header_sat_icon = lv_label_create(tab_menu_header);
     lv_label_set_text(header_sat_icon, LV_SYMBOL_GPS); // Symbol stammt von WpZoom (CC BY-SA 3.0, siehe README)
-    lv_obj_set_style_text_font(header_sat_icon, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(header_sat_icon, &mc_font_latin_18, LV_PART_MAIN);
     lv_obj_align_to(header_sat_icon, header_sat_label, LV_ALIGN_OUT_LEFT_MID, -6, 0);
     
     /* wifi + bluetooth icons (left of battery) */
     header_wifi_icon = lv_label_create(tab_menu_header);
     lv_label_set_text(header_wifi_icon, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_font(header_wifi_icon, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(header_wifi_icon, &mc_font_latin_18, LV_PART_MAIN);
     // Slightly increase left offset so wifi icon sits closer to battery icon
     lv_obj_align_to(header_wifi_icon, header_sat_icon, LV_ALIGN_OUT_LEFT_MID, -9, 0);
 
     header_bt_icon = lv_label_create(tab_menu_header);
     lv_label_set_text(header_bt_icon, LV_SYMBOL_BLUETOOTH);
-    lv_obj_set_style_text_font(header_bt_icon, &lv_font_montserrat_18, LV_PART_MAIN);
+    lv_obj_set_style_text_font(header_bt_icon, &mc_font_latin_18, LV_PART_MAIN);
     // Match spacing with wifi icon (leave a comfortable gap)
     lv_obj_align_to(header_bt_icon, header_wifi_icon, LV_ALIGN_OUT_LEFT_MID, -7, 0);
 
@@ -701,7 +747,7 @@ void setDisplayLayout(lv_obj_t *parent)
 
     static lv_style_t ta_input_style;
     lv_style_init(&ta_input_style);
-    lv_style_set_text_font(&ta_input_style, &lv_font_montserrat_12);
+    lv_style_set_text_font(&ta_input_style, &mc_font_latin_12);
     lv_style_set_text_color(&ta_input_style, lv_color_black()); // BLAU lv_color_make(0x1C, 0x73, 0xFF));
     lv_style_set_bg_opa(&ta_input_style, LV_OPA_100);
     lv_style_set_bg_color(&ta_input_style, lv_color_white());
@@ -730,7 +776,7 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_style_set_pad_right(&cell_style1, 2);
     lv_style_set_bg_color(&cell_style1, lv_color_white());
     lv_style_set_text_color(&cell_style1, lv_color_black());
-    lv_style_set_text_font(&cell_style1, &lv_font_montserrat_12);
+    lv_style_set_text_font(&cell_style1, &mc_font_latin_12);
     lv_style_set_border_width(&cell_style1, 1);
     lv_style_set_border_color(&cell_style1, lv_color_black());
     lv_style_set_border_side(&cell_style1, LV_BORDER_SIDE_FULL);
@@ -742,7 +788,7 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_style_set_pad_right(&cell_style2, 2);
     lv_style_set_bg_color(&cell_style2, lv_color_white());
     lv_style_set_text_color(&cell_style2, lv_color_black());
-    lv_style_set_text_font(&cell_style2, &lv_font_montserrat_12);
+    lv_style_set_text_font(&cell_style2, &mc_font_latin_12);
     lv_style_set_border_width(&cell_style2, 1);
     lv_style_set_border_color(&cell_style2, lv_color_black());
     lv_style_set_border_side(&cell_style2, LV_BORDER_SIDE_FULL);
@@ -759,7 +805,7 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_obj_set_style_pad_left(t1, 10, LV_PART_MAIN);
     lv_obj_set_style_pad_right(t1, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_top(t1, 5, LV_PART_MAIN);
-    lv_obj_set_style_text_font(t1, &lv_font_montserrat_14, LV_PART_MAIN);
+    lv_obj_set_style_text_font(t1, &mc_font_latin_14, LV_PART_MAIN);
 
     // Line Info
     lv_obj_t * setup_line_info = SET_new_line(t1, NULL, 0);
@@ -1316,8 +1362,33 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_obj_add_event_cb(dropdown_mapselect, btn_event_handler_dropdown_mapselect, LV_EVENT_ALL, NULL);
     lv_dropdown_close(dropdown_mapselect);
 
+    // Line Backlight (TD-23): the callsign and buttons lines are full at 320 px
+    lv_obj_t * setup_line_backlight = SET_new_line(t1, setup_line_buttons, 5);
+
+    lv_obj_t * setup_bl_label = lv_label_create(setup_line_backlight);
+    lv_obj_align(setup_bl_label, LV_ALIGN_LEFT_MID, 0, 0);
+    lv_obj_set_width(setup_bl_label, 75);
+    lv_label_set_text(setup_bl_label, "Display ");
+    lv_obj_set_style_text_align(setup_bl_label, LV_TEXT_ALIGN_RIGHT, LV_PART_MAIN);
+
+    // AUTO DAY/NIGHT BRIGHTNESS (levels are set with SYM+B)
+    btn_blauto = lv_btn_create(setup_line_backlight);
+    lv_obj_align(btn_blauto, LV_ALIGN_TOP_LEFT, 77, 0);
+    lv_obj_set_width(btn_blauto, 140);
+    lv_obj_set_height(btn_blauto, 35);
+
+    /* Make the button checkable (like a toggle) */
+    lv_obj_add_flag(btn_blauto, LV_OBJ_FLAG_CHECKABLE);
+    lv_obj_set_style_bg_color(btn_blauto, lv_color_make(0xd2, 0xd2, 0xd2), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(btn_blauto, lv_color_make(0x00, 0xa3, 0x00), LV_PART_MAIN | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(btn_blauto, btn_event_handler_setup_btn, LV_EVENT_VALUE_CHANGED, NULL);
+
+    lv_obj_t * btn_blauto_label = lv_label_create(btn_blauto);
+    lv_label_set_text(btn_blauto_label, "Auto Day/Night");
+    lv_obj_center(btn_blauto_label);
+
     // StartupTone
-    lv_obj_t * setup_line_starttone = SET_new_line(t1, setup_line_buttons, 5);
+    lv_obj_t * setup_line_starttone = SET_new_line(t1, setup_line_backlight, 5);
 
     // StartupTone
     lv_obj_t * setup_stone_label = lv_label_create(setup_line_starttone);
@@ -1653,12 +1724,18 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_textarea_set_text_selection(text_input, false);
     lv_obj_set_size(text_input, 300, LV_VER_RES * 0.5);
     lv_textarea_set_text(text_input, "");
-    lv_textarea_set_max_length(text_input, 150);
+    lv_textarea_set_max_length(text_input, 300);  // TD-25: LVGL cap stays above the byte budget; msg_input_budget_cb() clamps
     lv_obj_align(text_input, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_add_style(text_input, &ta_input_style, LV_PART_MAIN);
     lv_obj_add_style(text_input, &ta_input_cursor, LV_PART_SELECTED | LV_PART_CURSOR);
 
     lv_textarea_set_placeholder_text(text_input, "Type Message");
+    lv_obj_add_event_cb(text_input, msg_input_budget_cb, LV_EVENT_VALUE_CHANGED, NULL);
+
+    msg_budget_label = lv_label_create(t5);
+    lv_label_set_text(msg_budget_label, "149 bytes left");
+    lv_obj_set_style_text_color(msg_budget_label, lv_palette_darken(LV_PALETTE_GREY, 1), LV_PART_MAIN);
+    lv_obj_align_to(msg_budget_label, text_input, LV_ALIGN_OUT_BOTTOM_RIGHT, 0, 2);
 
     msg_controls = lv_obj_create(t5);
     lv_obj_set_size(msg_controls, screen_w, 40);
@@ -1687,6 +1764,7 @@ void setDisplayLayout(lv_obj_t *parent)
     lv_textarea_set_accepted_chars(dm_callsign, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-");
     lv_textarea_set_placeholder_text(dm_callsign, "To Call or Group");
     lv_obj_clear_flag(dm_callsign, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(dm_callsign, msg_input_budget_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     lv_obj_t * btn = lv_btn_create(msg_controls);
     lv_obj_set_pos(btn, 180, 5);
@@ -1915,7 +1993,7 @@ void add_map_point(String callsign, double dlat, double dlon, bool bHome)
     // Rufzeichen als kleine Beschriftung unter dem Punkt
     map_point_label[ipoint] = lv_label_create(map_ta);
     lv_label_set_text(map_point_label[ipoint], callsign.c_str());
-    lv_obj_set_style_text_font(map_point_label[ipoint], &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(map_point_label[ipoint], &mc_font_latin_12, 0);
     lv_obj_set_style_text_color(map_point_label[ipoint], lv_color_black(), 0);
     lv_obj_set_pos(map_point_label[ipoint], x - 5, y + 6);
 
@@ -2688,6 +2766,21 @@ static void init_msg_tab_bar(lv_obj_t *parent)
     msg_tabs_update_hint();
 }
 
+// Mirror msg_active_tab_index into the LV_STATE_CHECKED state of the tab buttons.
+static void msg_tabs_refresh_checked(void)
+{
+    for(size_t i = 0; i < msg_tab_entries.size(); ++i)
+    {
+        if(msg_tab_entries[i].button == NULL)
+            continue;
+
+        if((int)i == msg_active_tab_index)
+            lv_obj_add_state(msg_tab_entries[i].button, LV_STATE_CHECKED);
+        else
+            lv_obj_clear_state(msg_tab_entries[i].button, LV_STATE_CHECKED);
+    }
+}
+
 static void msg_tabs_select_index(int index)
 {
     if(msg_tab_entries.empty())
@@ -2701,18 +2794,7 @@ static void msg_tabs_select_index(int index)
         index = 0;
 
     msg_active_tab_index = index;
-
-    for(size_t i = 0; i < msg_tab_entries.size(); ++i)
-    {
-        if(msg_tab_entries[i].button == NULL)
-            continue;
-
-        if((int)i == msg_active_tab_index)
-            lv_obj_add_state(msg_tab_entries[i].button, LV_STATE_CHECKED);
-        else
-            lv_obj_clear_state(msg_tab_entries[i].button, LV_STATE_CHECKED);
-    }
-
+    msg_tabs_refresh_checked();
     msg_render_active_tab();
 }
 
@@ -2735,18 +2817,23 @@ static void msg_flush_timer_cb(lv_timer_t *t)
 // gerade offenen Tabs unbegrenzt (2 760 B PSRAM pro Nachricht, tdeck-baseline
 // Run 2). lv_obj_del() loest LV_EVENT_DELETE aus, das HeaderEventData und
 // DeleteEventData der Bubble freigibt.
-static void msg_list_trim_view(void)
+//
+// TD-22: `target` lets the heap trim shrink the view by exactly the bubbles it
+// dropped from the active tab (oldest first) instead of re-rendering. A hint
+// label (never a bubble) is skipped and kept.
+static void msg_list_trim_view(size_t target)
 {
     if(msg_list == NULL)
         return;
 
-    while(lv_obj_get_child_cnt(msg_list) > MSG_TAB_MAX_MESSAGES)
+    size_t excess = msg_view_excess(lv_obj_get_child_cnt(msg_list), msg_list_hint_label != NULL, target);
+    while(excess-- > 0)
     {
         lv_obj_t *oldest = lv_obj_get_child(msg_list, 0);
+        if(oldest != NULL && oldest == msg_list_hint_label)
+            oldest = lv_obj_get_child(msg_list, 1);
         if(oldest == NULL)
             break;
-        if(oldest == msg_list_hint_label)
-            msg_list_hint_label = NULL;
         lv_obj_del(oldest);
     }
 }
@@ -2775,6 +2862,70 @@ static MsgTabEntry *msg_tabs_find_entry(const String &group, int *index_out)
     return NULL;
 }
 
+// Remove tab k (button + entry) and fix the active index, the CHECKED state of the
+// remaining buttons and the hint. Does NOT render: callers that need the view
+// refreshed (bubble delete) do so themselves after their last read of event data;
+// eviction/trim only remove inactive tabs, so the view stays valid. Does not touch
+// persisted_msgs (callers may be iterating it); only the user delete path prunes it.
+static void msg_tabs_remove_index(size_t k)
+{
+    if(k >= msg_tab_entries.size())
+        return;
+
+    if(msg_tab_entries[k].button != NULL)
+    {
+        lv_obj_del(msg_tab_entries[k].button);
+        msg_tab_entries[k].button = NULL;
+    }
+    msg_tab_entries.erase(msg_tab_entries.begin() + k);
+    msg_active_tab_index = msg_tab_index_after_erase(msg_active_tab_index, k, msg_tab_entries.size());
+    msg_tabs_refresh_checked();
+    msg_tabs_update_hint();
+}
+
+// TD-22: while internal free heap is below MSG_HEAP_FLOOR, drop the oldest bubble
+// of the least-recently-active tab. Invalidates entry pointers and tab indices.
+// Never renders: trimming the active tab deletes the same number of oldest view
+// children (view mirrors the active tab 1:1, see msg_list_trim_view). Skipped
+// while loading from file (callers iterate persisted_msgs and the view is not
+// kept in sync during a load).
+static void msg_tabs_heap_trim(void)
+{
+    if(loading_messages_from_file)
+        return;
+
+    int trimmed = 0;
+    bool active_trimmed = false;
+    while(trimmed < 25 && heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) < MSG_HEAP_FLOOR)
+    {
+        size_t counts[32];
+        uint32_t stamps[32];
+        size_t n = msg_tab_entries.size() < 32 ? msg_tab_entries.size() : 32;
+        for(size_t i = 0; i < n; ++i)
+        {
+            counts[i] = msg_tab_entries[i].bubbles.size();
+            stamps[i] = msg_tab_entries[i].last_activity;
+        }
+        size_t k = msg_tab_pick_trim(counts, stamps, n, msg_active_tab_index, MSG_ACTIVE_MIN_KEEP);
+        if(k == MSG_TAB_NPOS)
+            break;
+        std::vector<MsgBubble> &b = msg_tab_entries[k].bubbles;
+        b.erase(b.begin());
+        trimmed++;
+        if((int)k == msg_active_tab_index)
+            active_trimmed = true;
+        else if(b.empty())
+            msg_tabs_remove_index(k);
+    }
+    if(trimmed > 0)
+    {
+        Serial.printf("[TDECK];tab;trim;n;%d;ifree;%u\n", trimmed,
+                      (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        if(active_trimmed && msg_active_tab_index >= 0 && msg_active_tab_index < (int)msg_tab_entries.size())
+            msg_list_trim_view(msg_tab_entries[msg_active_tab_index].bubbles.size());
+    }
+}
+
 static void msg_tab_button_event_cb(lv_event_t * e)
 {
     if(lv_event_get_code(e) != LV_EVENT_CLICKED)
@@ -2785,6 +2936,8 @@ static void msg_tab_button_event_cb(lv_event_t * e)
     {
         if(msg_tab_entries[i].button == btn)
         {
+            // a tab the user just opened is not the next eviction/trim victim
+            msg_tab_entries[i].last_activity = msg_tab_stamp();
             msg_tabs_select_index(static_cast<int>(i));
             break;
         }
@@ -2800,8 +2953,24 @@ static MsgTabEntry *msg_tabs_get_or_create_entry(const String &group, int *index
     if(msg_tab_bar == NULL)
         return NULL;
 
+    if(msg_tab_entries.size() >= MSG_TAB_MAX_TABS)
+    {
+        std::vector<uint32_t> stamps;
+        stamps.reserve(msg_tab_entries.size());
+        for(const MsgTabEntry &e : msg_tab_entries)
+            stamps.push_back(e.last_activity);
+        size_t victim = msg_tab_pick_victim(stamps.data(), stamps.size(), msg_active_tab_index, MSG_TAB_MAX_TABS);
+        if(victim != MSG_TAB_NPOS)
+        {
+            Serial.printf("[TDECK];tab;evict;%s;bubbles;%u\n", msg_tab_entries[victim].group.c_str(),
+                          (unsigned)msg_tab_entries[victim].bubbles.size());
+            msg_tabs_remove_index(victim);
+        }
+    }
+
     MsgTabEntry new_entry;
     new_entry.group = group;
+    new_entry.last_activity = msg_tab_stamp();
     new_entry.button = lv_btn_create(msg_tab_bar);
 
     lv_obj_set_style_bg_color(new_entry.button, lv_palette_lighten(LV_PALETTE_BLUE, 3), LV_PART_MAIN);
@@ -2928,6 +3097,8 @@ static void msg_tabs_add_message(const String &group, const MsgBubble &bubble)
     if(entry == NULL)
         return;
 
+    entry->last_activity = msg_tab_stamp();
+
     // Check if we can merge with the last bubble (System messages only)
     if (bubble.type == MsgBubbleType::System && !entry->bubbles.empty())
     {
@@ -2936,6 +3107,11 @@ static void msg_tabs_add_message(const String &group, const MsgBubble &bubble)
         {
             // Merge bodies
             last.body += "\n" + bubble.body;
+            // bound the merged body: keep the last MSG_SYSTEM_BODY_MAX characters
+            size_t keep_from = msg_utf8_align(last.body.c_str(), last.body.length(),
+                                              msg_system_body_keep_from(last.body.length()));
+            if(keep_from > 0)
+                last.body = last.body.substring(keep_from);
             // Update status to latest
             last.gps = bubble.gps;
             last.sd = bubble.sd;
@@ -2971,6 +3147,7 @@ static void msg_tabs_add_message(const String &group, const MsgBubble &bubble)
                     }
                 }
             }
+            msg_tabs_heap_trim(); // `entry`, `last` are stale after this call
             return; // Done, merged
         }
     }
@@ -2986,12 +3163,10 @@ static void msg_tabs_add_message(const String &group, const MsgBubble &bubble)
             // Log to SD card immediately (append)
             log_message_to_sd(normalized, bubble);
 
-            persisted_msgs.push_back(std::make_pair(normalized, bubble));
-            if(persisted_msgs.size() > PERSISTED_MSG_LIMIT)
-            {
-                size_t overflow = persisted_msgs.size() - PERSISTED_MSG_LIMIT;
-                persisted_msgs.erase(persisted_msgs.begin(), persisted_msgs.begin() + overflow);
-            }
+            // TD-20: stages only when T_DECK_SPIFFS gives it a reader (no String copies otherwise)
+            if(TDECK_MSG_PERSIST)
+                msg_persist_stage(persisted_msgs, std::make_pair(normalized, bubble),
+                                  PERSISTED_MSG_LIMIT, true);
 
             // If configured to immediate save, write to flash now. Otherwise
             // buffer in RAM and flush periodically to reduce flash wear.
@@ -3044,6 +3219,9 @@ static void msg_tabs_add_message(const String &group, const MsgBubble &bubble)
             msg_tabs_select_index(index);
         }
     }
+
+    // `entry` and `index` are stale after this call
+    msg_tabs_heap_trim();
 }
 
 static void msg_render_active_tab(void)
@@ -3117,6 +3295,13 @@ static void msg_list_append_bubble(const MsgBubble &bubble)
         return;
 
     ensure_msg_styles();
+
+    // TD-24: a first bubble replaces the "No messages ..." hint instead of sitting below it.
+    if(msg_list_hint_label != NULL)
+    {
+        lv_obj_del(msg_list_hint_label);
+        msg_list_hint_label = NULL;
+    }
 
     lv_obj_t *wrapper = lv_obj_create(msg_list);
     // TD-11: tag the live object with the msg_id so tdeck_set_msg_status() can find
@@ -3424,18 +3609,7 @@ static void bubble_delete_event_cb(lv_event_t * e)
                 {
                     // remove button and erase entry
                     if(idx >= 0 && idx < (int)msg_tab_entries.size())
-                    {
-                        if(msg_tab_entries[idx].button != NULL)
-                        {
-                            lv_obj_del(msg_tab_entries[idx].button);
-                            msg_tab_entries[idx].button = NULL;
-                        }
-                        msg_tab_entries.erase(msg_tab_entries.begin() + idx);
-                        // adjust active index
-                        if(msg_active_tab_index >= (int)msg_tab_entries.size())
-                            msg_active_tab_index = (int)msg_tab_entries.size() - 1;
-                        msg_tabs_update_hint();
-                    }
+                        msg_tabs_remove_index((size_t)idx);
                 }
 
                 break;
@@ -3459,13 +3633,9 @@ static void bubble_delete_event_cb(lv_event_t * e)
     // Save immediately to reflect deletion
     save_persisted_messages();
 
-    // Re-render the active tab so the UI updates
-    if(msg_active_tab_index >= 0)
-    {
-        if(msg_active_tab_index >= (int)msg_tab_entries.size())
-            msg_active_tab_index = (int)msg_tab_entries.size() - 1;
-        msg_render_active_tab();
-    }
+    // Re-render the active tab so the UI updates. Must stay the LAST statement:
+    // it deletes this bubble's button, which frees `data` (LV_EVENT_DELETE).
+    msg_tabs_select_index(msg_active_tab_index);
 }
 
 static void msg_tabs_clear_all(void)
@@ -4276,6 +4446,11 @@ void tdeck_refresh_SET_view()
         lv_obj_clear_state(btn_soundon, LV_STATE_CHECKED);
     else
         lv_obj_add_state(btn_soundon, LV_STATE_CHECKED);
+    // AUTO DAY/NIGHT BRIGHTNESS (TD-23)
+    if (meshcom_settings.node_bl_auto)
+        lv_obj_add_state(btn_blauto, LV_STATE_CHECKED);
+    else
+        lv_obj_clear_state(btn_blauto, LV_STATE_CHECKED);
     // Save to Flash
     if (meshcom_settings.node_persist_to_flash)
         lv_obj_add_state(btn_persist_to_flash, LV_STATE_CHECKED);
@@ -4524,17 +4699,37 @@ void tdeck_refresh_track_view()
 }
 
 /**
+ * CHARS-01: message text goes to LVGL as UTF-8, no utf8ascii(). The mc_font_latin_* fonts carry
+ * U+00A0..U+017F plus the phone punctuation (src/t-deck/fonts/). Montserrat has no narrow
+ * no-break space U+202F (French puts it before ; : ! ?), so it becomes a plain space instead of
+ * a placeholder box.
+ */
+static String tdeck_display_text(String s)
+{
+    // Everything the mc_font_latin_* set cannot draw (ș, Greek, CJK, emoji, combining marks, bad
+    // bytes) is folded to ASCII / '?' instead of LVGL's placeholder box; see tdeck_text_cover.h.
+    // No LV_SYMBOL_* reaches this function (message text only), so U+F000.. is folded too.
+    struct StrSink {
+        String &str;
+        void append(const char *p, size_t n) { str.concat(p, (unsigned int)n); }
+    };
+    String out;
+    out.reserve(s.length() + 1);
+    StrSink sink{out};
+    tdeck_text_cover(s.c_str(), s.length(), sink);
+    return out;
+}
+
+/**
  * adds an message to the MSG view
  */
 void tdeck_add_MSG(aprsMessage aprsmsg, bool bWithAudio)
 {
     String payload = aprsmsg.msg_payload;
-    int ack_pos = payload.indexOf('{');
-    if(ack_pos > 0)
-        payload = payload.substring(0, ack_pos);
+    // hide only a trailing ACK marker "{NNN"; a '{' inside the text stays (CHARS-01)
+    payload = payload.substring(0, msg_body_visible_len(payload.c_str(), payload.length()));
 
-    payload = utf8ascii(payload);
-
+    payload = tdeck_display_text(payload);
     String local_call = String(meshcom_settings.node_call);
     bool is_outgoing = strcasecmp(aprsmsg.msg_source_path, local_call.c_str()) == 0
         || strcasecmp(aprsmsg.msg_source_call, local_call.c_str()) == 0;
@@ -4610,7 +4805,7 @@ void tdeck_add_MSG(String callsign, String path, String message, bool bWithAudio
     bubble.header = header_source;
     if(header_dest.length() > 0)
         bubble.header += " -> " + header_dest;
-    bubble.body = utf8ascii(message);
+    bubble.body = tdeck_display_text(message);
 
     String tab_override = header_dest;
     tab_override.trim();
