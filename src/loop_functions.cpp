@@ -1,5 +1,6 @@
 #include "mc_text.h"
 #include "uptime_min.h"   // wrap-safe 16-bit uptime minutes (NBR stamps)
+#include "node_position.h"   // nodeSignedLat/Lon: own position as signed degrees (#1279)
 #include "Arduino.h"
 
 #include <atomic>
@@ -9,6 +10,8 @@
 #endif
 
 #include "loop_functions.h"
+#include "display_clock_gate.h"   // sendDisplayTime() redraw decision
+#include "page_ring.h"           // DISP-PAGE-01/03: ring count, WP browse window
 #include "gfx_charmap.h"   // national characters on the GFXfont displays (E290, WP, E213)
 #include "text_fold.h"     // CHARS-01: fold what the display font lacks
 #include "ack_attribution.h"
@@ -16,6 +19,8 @@
 #include "bp_notice_frame.h"
 #include "dedup_functions.h"
 #include "beacon_rate.h"
+#include "autosymbol.h"   // GPS-AUTOSYM-02/03
+#include "posinfo_next.h"   // POSINFO-NEXT-01: clamped NEXT countdown
 #include "hey_policy.h"     // F6: gateway keeps its HG alive through trickle suppression
 #include "nbr_views.h"
 #include "command_functions.h"
@@ -29,17 +34,22 @@
 #include "kiss_functions.h"
 #include "configuration.h"
 #include "loop_functions_extern.h"   // REMOTE_LED_PIN rule + RM LED levels
+#include "cet_age.h"   // CET-AGE-01: back-step limits used by cet_filter.h
+#include "cet_filter.h" // CET-SCATTER-01 Part A: forward-only {CET} filter
+#include "time_rank.h"  // CET-SCATTER-01 Part B: time-source rank with holdover
 #include "board_led.h"
 #if defined(ESP32)
 #include "esp32/esp32_pmu.h"   // chargeLedFitted()
 #endif
 
 #include "TinyGPSPlus.h"
+#include "gps_functions.h"   // WZ_GPS_TimeLive() ({CET} rank gate)
 
 #include "printfdeb_functions.h"
 
 #include "via_functions.h"
 #include "charset_filter.h"
+#include "pos_text_budget.h"
 #include "msgid_counter.h"
 #include <counters_store.h>
 #include "setlog_lines.h"
@@ -56,8 +66,17 @@
 #include "dm_text_escape.h"   // P14/P15: {ping}/{SET}-Ausnahme vom Klammer-Escape
 #include "nbr_matrix.h"   // nbrMatrix, nbrBuildReport(), nbrLog -- sendNbrReport() unten
 #include "ping_target.h"   // One ping-target rule
+#include "pong_format.h"   // {pong} payload id as unsigned, display of last 3 digits
 #include "own_msg_status.h"   // durable delivery state of own text messages (web GUI ticks)
 
+static TimeRankState s_timeRank;   // CET-SCATTER-01 Part B
+static CetFilter s_cetFilter;   // CET-SCATTER-01 Part A (zero-initialised; Part B needs file scope)
+// Called by CLK_SRC() at every set site (clock.h). A higher source also references the
+// {CET} filter, so a later beacon is filtered instead of taken as FIRST.
+void timeRankNoteSrc(const char *src)
+{
+    timeRankNoteRef(&s_timeRank, &s_cetFilter, timeRankOf(src), millis());
+}
 bool gpsDetected = false;
 bool gpsInitDone = false;
 
@@ -114,6 +133,12 @@ int ifalseping = 0;
 
 int BOARD_HARDWARE = MODUL_HARDWARE;
 bool bUSER_BOARD_LED = false;
+
+// WEB-LED-01: stored mode, off / flash / steady (board_led.h); steady bit = node_sset4 0x4000
+int boardLedModeGet(void)
+{
+    return boardLedMode(bUSER_BOARD_LED, (meshcom_settings.node_sset4 & BOARD_LED_STEADY_BIT) != 0);
+}
 
 // LED-08/09/10 (design 6.1): which LEDs exist on this build/node, the one source for --info, BLE SN/SN1 and the web
 // GUI. Board LED = BOARD_LED pin or a NeoPixel-only heartbeat (LED_PIN with pixels, no BOARD_LED); charge LED =
@@ -235,6 +260,16 @@ static void boardLedWhitePulse(void)
             bLED_WEISS = true;   // lit edge only; the NeoPixel handler shows it and clears it again
     }
 }
+
+#if !defined(BOARD_LED)
+// WEB-LED-01: steady re-arm. CLEAR is ignored on purpose: after DELAYVAL the handler sets CLEAR, and a pending WEISS
+// wins over CLEAR there (white again, one show() per second); re-arming only after black would leave a dark gap.
+static void boardLedWhiteRearm(void)
+{
+    if (pixels_delay == 0 && boardLedSteadyRearm(BOARD_LED_MODE_STEADY, bLED_RED, bLED_GREEN, bLED_ORANGE, bLED_BLUE, bLED_CLEAR))
+        bLED_WEISS = true;
+}
+#endif
 #endif
 
 #if defined(BOARD_LED)
@@ -267,7 +302,8 @@ static void boardLedWrite(bool lit)
 
 void boardLedTick(void)
 {
-    if (!bUSER_BOARD_LED || !boardLedPinUsable())
+    const int mode = boardLedModeGet();   // WEB-LED-01: off / flash / steady
+    if (mode == BOARD_LED_MODE_OFF || !boardLedPinUsable())
     {
         if (boardLedLit)   // switched off (or OneWire took the pin) mid-flash: leave dark
         {
@@ -281,11 +317,20 @@ void boardLedTick(void)
         #endif
         return;
     }
-    const BoardLedStep st = boardLedPhase(millis(), boardLedTimer, boardLedLit);
+    // An active RM1 "led" override on the same pad wins until it is released (steady resumes after "led off")
+    bool rmHold = false;
+    #if defined(REMOTE_LED_PIN) && defined(BOARD_LED) && (REMOTE_LED_PIN == BOARD_LED)
+    rmHold = bRemoteLed;
+    #endif
+    const BoardLedStep st = boardLedDecide(mode, true, rmHold, millis(), boardLedTimer, boardLedLit);
     boardLedTimer = st.timer;
     boardLedLit = st.lit;
     if (st.changed)
         boardLedWrite(st.lit);
+    #if !defined(BOARD_LED)
+    if (mode == BOARD_LED_MODE_STEADY)   // NeoPixel-only: the pixel handler clears the white pulse, so re-arm it
+        boardLedWhiteRearm();
+    #endif
 }
 
 void boardLedForceOff(void)   // before deep sleep: LED dark, flasher phase reset
@@ -370,6 +415,8 @@ bool bCHECKMESH = false;
 bool bPosDisplay = true;
 bool bDisplayOff = false;
 bool bDisplayIsOff = false;
+bool bMsgWake = true;       // T114-DARK-01 (D2): --msgwake, false = a message does not wake an off display (node_sset 0x8000 set)
+bool bDisplayDark = false;  // T114-DARK-01 (D1): --theme dark on the T114 (node_sset2 0x2000); auto = light
 bool bDisplayVolt = false;
 bool bDisplayInfo = false;
 bool bDisplayVia = false;
@@ -380,6 +427,8 @@ char LogCallsign[10] = {0};
 
 bool bDisplayRetx = false;
 unsigned long DisplayOffWait = 0;
+unsigned long heldFrameUntilMs = 0;   // PING-HOLD-01: clock-skip deadline of a ping/pong frame (0 = none)
+bool bHeldFrameDrawn = false;   // CLK-PING-01: a held full-screen frame was drawn (DisplayPong, hold text)
 bool bDisplayTrack = false;
 bool bOneButton = false;
 bool bEnterDfu = false;   // --dfu: beim naechsten faelligen rebootAuto in den UF2-Bootloader statt Neustart
@@ -392,6 +441,7 @@ bool bGPSL76K = false;
 bool bBMPON = false;
 bool bBMP3ON = false;
 bool bAHT20ON = false;
+bool bAPRSWX = false;   // MCFW-WX1: APRS-IS weather enabled (mirror of node_aprswx; ESP32 only)
 bool bUVON = false;
 bool bWINDON = false;
 #if defined(ENABLE_LTR390) || defined(ENABLE_WIND)
@@ -565,6 +615,11 @@ bool bWpCompactLayout = false;
 // 0 = kein Index (Home/Status, frische Nachricht). Wird in wpRefreshClock mitgezeichnet, damit
 // der 10-s-Statuszeilen-Refresh die Ziffer nicht wegloescht.
 int wpMsgIdx = 0;
+// DISP-PAGE-03: true exactly while the panel shows the newest message of an arrival that no click has
+// stepped from (set where the slot is stored in sendDisplay1306, cleared by wpShowStoredMessage and
+// sendDisplayHead). The first click then goes to the next older message, not to the same one.
+bool wpLiveNewest = false;
+bool wpArrived = false;        // T114-DARK-01: a message arrived since the last click (also one stored with --msgwake off)
 
 
 void wpApplyLayout(bool compact)
@@ -886,19 +941,22 @@ int gps_refresh_track = 0;
 
 // Loop timers
 unsigned long posinfo_timer = 0;        // we check periodically to send GPS
-unsigned long posinfo_timer_min = 0;    // we check min. periodically to send GPS
+unsigned long posinfo_timer_min = 0;    // time of the last automatic beacon send (POSINFO-LAG-01: stamped on send only)
 // Zeitpunkt des letzten selbst erzeugten Positions-Beacons und ob es ihn schon
-// gab -- Schranke fuer den Sofort-Pfad in sendPosition(), siehe beacon_rate.h.
+// gab -- Schranke fuer den Sofort-Pfad in sendPosition() (BEACON_SHOT_MIN_MS) und,
+// ueber haveOwnPosTx()/lastOwnPosTxMs(), fuer die automatischen Beacons
+// (POSINFO_AUTO_MIN_MS), siehe beacon_rate.h.
 static unsigned long lastOwnPosTx = 0;
 static bool bHaveOwnPosTx = false;
 static unsigned long iShotSuppressed = 0;
+bool haveOwnPosTx(void) { return bHaveOwnPosTx; }
+unsigned long lastOwnPosTxMs(void) { return lastOwnPosTx; }
 // Dasselbe fuer den Sofort-Pfad von sendHey() (FL-02) -- eigener Zeitstempel,
 // unabhaengig vom Positions-Pfad. Siehe sendHeyShot() unten und beacon_rate.h.
 static unsigned long lastOwnHeyTx = 0;
 static bool bHaveOwnHeyTx = false;
 static unsigned long iHeyShotSuppressed = 0;
 unsigned long heyinfo_timer = 0;        // we check periodically to send HEY
-int ncnt_hold = 0;
 unsigned long nbrsnap_timer = 0;        // --nbrdebug: 15-min-Takt fuer nbrLogSnapshot()
 
 // Priority Queue arrays
@@ -1374,6 +1432,52 @@ static bool e290FullRefreshDue()
 }
 #endif
 
+#if defined(WP_DISP)
+static void wpDrawMsgIdx();   // defined below; DISP-PAGE-03 draws the counter on the live render
+#endif
+
+// T114-DARK-01 (D2) store-only mode: an incoming message that may not wake the display (--msgwake off and the
+// display is off) is stored in the page ring exactly as usual, but pushed to NO panel: no u8g2 page loop,
+// no e-paper clear()/update(), no TFT draw or backlight call, no "#C" re-blank afterwards. Set only for the
+// duration of one sendDisplayText() call (DispStoreOnlyScope); consulted at every push point of
+// sendDisplay1306() and sendDisplayText().
+static bool bDispStoreOnly = false;
+struct DispStoreOnlyScope
+{
+    bool prev;
+    explicit DispStoreOnlyScope(bool on) : prev(bDispStoreOnly) { bDispStoreOnly = on; }
+    ~DispStoreOnlyScope() { bDispStoreOnly = prev; }
+};
+
+// T114: may a ping/pong event turn an OFF display on? Same rule as an incoming message (--msgwake, dispMsgWakes()):
+// with --msgwake off an off display stays dark. Other boards keep today's behaviour (DisplayPong draws on them).
+static inline bool dispPingWakes()
+{
+#if defined(BOARD_HELTEC_T114)
+    return dispMsgWakes(bMsgWake, bDisplayIsOff);
+#else
+    return true;
+#endif
+}
+
+#if !defined (BOARD_T_DECK) && !defined (BOARD_T_DECK_PLUS)
+// the ring write every panel branch of sendDisplay1306() does while it draws: same slot, same 25-byte copy
+static void dispStoreRingLines(bool bNeu)
+{
+    if(iDisplayType != 0 || !bNeu)
+        return;
+
+    for(int its=0; its<pageLineAnz; its++)
+    {
+        pageLastLineAnz[pageLastPointer] = pageLineAnz;
+        pageLastLine[pageLastPointer][its][0] = pageLine[its][0];
+        pageLastLine[pageLastPointer][its][1] = pageLine[its][1];
+        pageLastLine[pageLastPointer][its][2] = pageLine[its][2];
+        memcpy(pageLastText[pageLastPointer][its], pageText[its], 25);
+    }
+}
+#endif
+
 void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
 {
     #if !defined (BOARD_T_DECK)  && !defined (BOARD_T_DECK_PLUS)
@@ -1388,9 +1492,14 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
 	if(bClear || (x == 0 && y== 0) || (x == 0 && memcmp(text, "#F", 2) == 0))
     {
         #if defined(BOARD_T_ECHO)
+            if(!bDispStoreOnly)
+            {
             epaper_display.fillScreen(GxEPD_WHITE);
             epaper_display.setFont(&FreeMonoBold9pt7b);
+            }
         #elif defined(HAS_EPAPER)
+            if(!bDispStoreOnly)
+            {
             epaper_display.clearMemory();
 
         	if(memcmp(text, "#F", 2) == 0)
@@ -1407,6 +1516,7 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
             #else
             epaper_display.setFont(&FreeMonoBold12pt7b);
             #endif
+            }
         #elif defined(BOARD_HELTEC_T114) || defined(BOARD_T_CONNECT_PRO)
         #elif defined(BOARD_TRACKER) || defined(BOARD_T_ECHO) || defined(BOARD_T5_EPAPER) || defined(BOARD_T_DECK_PRO)
         #else
@@ -1447,6 +1557,10 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
     if(bTransfer)
     {
         //printlndeb("Transfer");
+        if(bDispStoreOnly)
+            dispStoreRingLines(bNeu);   // store-only: the ring write below, no panel push
+        if(!bDispStoreOnly)
+        {
         #if defined HAS_EPAPER
             if(pageLineAnz > 0)
             {
@@ -1526,6 +1640,15 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
                     bool bE290Full = e290FullRefreshDue();
                     if(bE290Full)
                         epaper_display.fastmodeOff();
+                    #endif
+                    #if defined(WP_DISP)
+                    if(iDisplayType == 0 && bNeu)
+                    {
+                        // DISP-PAGE-03: a fresh message shows its counter (= first click's rank). The slot was
+                        // written above, pageLastPointer has not advanced yet: the newest is pageLastPointer.
+                        wpMsgIdx = wpBrowseShow(pageRingCount(pageLastLineAnz, PAGE_MAX, (pageLastPointer + 1) % PAGE_MAX), WP_MSG_BROWSE_MAX);
+                        wpDrawMsgIdx();
+                    }
                     #endif
                     epaper_display.update();
                     #if defined(BOARD_E290)
@@ -1740,10 +1863,17 @@ void sendDisplay1306(bool bClear, bool bTransfer, int x, int y, char *text)
         }
         
         #endif
+        }   // !bDispStoreOnly
 
         if(iDisplayType == 0 && bNeu)
         {
             pagePointer=pageLastPointer;
+            #if defined(WP_DISP)
+            // DISP-PAGE-03: the panel shows the newest message, no click has stepped from it; a store-only
+            // (suppressed) message is NOT on the panel, so the first click must show it
+            wpLiveNewest = dispArrivalLiveNewest(bDispStoreOnly);
+            wpArrived = true;   // every arrival cancels a pending status step, shown or not
+            #endif
 
             pageLastPointer++;
             if(pageLastPointer >= PAGE_MAX)
@@ -1774,15 +1904,23 @@ void oledStat()
                   , (unsigned long)oled_last_crc, (unsigned long)oled_skipped);
 }
 
+#include "batt_label.h"     // TDECK-VOLT-01: shared battery label (OLED, TFT, T-Deck)
+
+#if defined(BOARD_HELTEC_T114)
+#include "t114_gps_page.h"
+extern bool nrf52LastRxQuality(int16_t *rssi, int8_t *snr);   // nrf52_main.cpp
+#endif
+
 void sendDisplayHead(bool bInit)
 {
-    if((bSetDisplay || pageHold > 0) && !bInit)
+    if(dispHeadBlocked(bSetDisplay, pageHold, bInit))
         return;
 
     bSetDisplay=true;
 
     #if defined(WP_DISP)
     wpMsgIdx = 0;       // Home/Info-Seite -> keine Nachrichten-Ziffer oben rechts
+    wpLiveNewest = false;
     #endif
 
     #ifdef BOARD_T5_EPAPER
@@ -1885,6 +2023,36 @@ void sendDisplayHead(bool bInit)
     sendDisplay1306(false, true, 3, dzeile[izeile], msg_text);
     izeile++;
 
+    #elif defined(BOARD_HELTEC_T114)
+    {
+        // T114 status page, lines 4 and 5 (20 characters per line on the 240 px wide TFT).
+        // GPS: fix state, satellites, HDOP; "off" while the GPS is not switched on.
+        char gpsLine[32];
+        if(bGPSON)
+            snprintf(gpsLine, sizeof(gpsLine), "GPS  : %s %i H%.1f", (posinfo_fix?"fix":"nofix"), (int)posinfo_satcount, fposinfo_hdop);
+        else
+            snprintf(gpsLine, sizeof(gpsLine), "GPS  : off");
+        gpsLine[20] = 0x00;
+        sendDisplay1306(false, false, 3, dzeile[izeile], gpsLine);
+        izeile++;
+
+        // T: time source (GPS, RTC, NTP, HAND, {CET}, INIT = not set yet)
+        // R: RSSI/SNR of the last received frame, "--" until one was received
+        // N: nodes known in the neighbour matrix (without this node)
+        char rxq[16];
+        int16_t lastRssi = 0;
+        int8_t lastSnr = 0;
+        if(nrf52LastRxQuality(&lastRssi, &lastSnr))
+            snprintf(rxq, sizeof(rxq), "%i/%i", (int)lastRssi, (int)lastSnr);
+        else
+            snprintf(rxq, sizeof(rxq), "--");
+
+        char rfLine[40];
+        snprintf(rfLine, sizeof(rfLine), "T:%s R:%s N:%i", cTimeSource, rxq, nbrRowsUsed(nbrMatrix) - 1);
+        rfLine[20] = 0x00;
+        sendDisplay1306(false, true, 3, dzeile[izeile], rfLine);
+        izeile++;
+    }
     #else
     memset(msg_text, 0x00, sizeof(msg_text));
     sendDisplay1306(false, true, 3, dzeile[izeile], msg_text);
@@ -1892,6 +2060,20 @@ void sendDisplayHead(bool bInit)
     #endif
 
     bSetDisplay=false;
+}
+
+static void sendDisplayClockLine();
+
+// Time shown in the OLED / e-paper status line: never a few seconds back (display_clock_gate.h).
+static DispClkShown s_dispClkShown = {false, 0};
+static void dispClkShownHms(int *h, int *m, int *sec)
+{
+    const long now_sod = (long)meshcom_settings.node_date_hour * 3600L + (long)meshcom_settings.node_date_minute * 60L
+                       + (long)meshcom_settings.node_date_second;
+    const long sod = dispClkShownSod(s_dispClkShown, now_sod);
+    *h = (int)(sod / 3600L);
+    *m = (int)((sod / 60L) % 60L);
+    *sec = (int)(sod % 60L);
 }
 
 void sendDisplayTrack()
@@ -1931,11 +2113,33 @@ void sendDisplayTrack()
         #endif
     }
 
-    iDisplayType=9;
-
-    // nur alle 15 sekunden
-    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45 || bOneButton || bDisplayDirty)
+    #if defined(BOARD_HELTEC_T114)
+    // In track mode a click opens the graphic GPS page and the next click closes it
+    // (onebutton_functions.cpp). Without this guard the per-second clock line below
+    // would re-send the track page buffer over the GPS page.
+    if(t114GpsPageActive())
     {
+        bSetDisplay=false;
+        t114GpsPageUpdate();
+        return;
+    }
+    #endif
+
+    // Seite nur alle 15 Sekunden neu aufbauen (Positions-/RATE-Daten). Dazwischen nur die Uhrzeile
+    // (CLK-01 W2, A1 "jede Seite"): sendDisplayClockLine() tauscht pageText[0] und uebertraegt den
+    // Seitenpuffer neu, ohne die Zeilen neu zu formatieren (auf E-Paper ohne Wirkung). iDisplayType
+    // wird erst beim Aufbau auf 9 gesetzt: eine geblaetterte Nachrichtenseite (Typ 0) behaelt so
+    // ihre Kopfzeile, die Uhr bleibt dort eingefroren (F1).
+    if(!(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45 || bOneButton || bDisplayDirty))
+    {
+        bSetDisplay=false;
+        sendDisplayClockLine();
+        return;
+    }
+
+    {
+        iDisplayType=9;
+
         bOneButton    = false;
         bDisplayDirty = false;
 
@@ -1957,7 +2161,7 @@ void sendDisplayTrack()
         snprintf(msg_text, sizeof(msg_text), "LON :%.4lf %c%4i", meshcom_settings.node_lon, meshcom_settings.node_lon_c, (int)posinfo_satcount);
         sendDisplay1306(false, false, 3, dzeile[2], msg_text);
 
-        int pos_seconds = posinfo_interval - ((millis() - (int)posinfo_timer)) / 1000;
+        int pos_seconds = posinfoNextSeconds(millis(), (uint32_t)posinfo_timer, (uint32_t)posinfo_interval);
 
         #if defined(BOARD_T_ECHO)
         snprintf(msg_text, sizeof(msg_text), "RATE:%5i", (int)posinfo_interval);
@@ -2084,24 +2288,62 @@ void sendDisplayTime()
             pagePointer=PAGE_MAX-1;
     }
 
+    #if defined(BOARD_HELTEC_T114)
+    // graphic GPS page: updated here once per second, left when its hold time is over
+    if(t114GpsPageActive())
+    {
+        if(pageHold > 0)
+        {
+            t114GpsPageUpdate();
+            return;
+        }
+        t114GpsPageClose();
+        sendDisplayHead(true);   // back to the status page
+        return;
+    }
+    #endif
+
+    sendDisplayClockLine();
+}
+
+// CLK-01 W2: draws the clock line of the current clock page (also called by sendDisplayTrack() on
+// the seconds between its 15 s page rebuilds). Own function so that the pageHold countdown of
+// sendDisplayTime() is not run a second time or from the track page.
+static void sendDisplayClockLine()
+{
+    // CLK-01: early returns as one pure decision (display_clock_gate.h): no display, off, message
+    // page (iDisplayType == 0: pageText[0] / TFT header bar hold the sender header, the clock stays
+    // frozen there, F1), a drawn held frame (ping/pong page, hold text, CLK-PING-01), draw in
+    // progress. No 15 s gate any more (F2). Board guards stay here as hasDisplay.
+    DispClkInputs dcIn;
+    dcIn.hasDisplay = true;
     #if MC_HAS_U8G2   // GRD-01: war die wortgleiche 11-Term-Liste
         if(u8g2 == NULL)
-            return;
+            dcIn.hasDisplay = false;
     #endif
-
     #if defined (HAS_EPAPER) || defined (BOARD_T_DECK)  || defined (BOARD_T_DECK_PLUS) || defined (BOARD_T5_EPAPER)
-        return;
+        dcIn.hasDisplay = false;
     #endif
+    dcIn.displayIsOff = bDisplayIsOff;
+    dcIn.displayType  = iDisplayType;
+    dcIn.pageHold     = pageHold;
+    dcIn.setDisplay   = bSetDisplay;
+    dcIn.second       = meshcom_settings.node_date_second;
+    dcIn.oneButton    = bOneButton;
+    dcIn.displayDirty = bDisplayDirty;
+    const unsigned long dcNow = millis();   // one read: the expiry edge and the clear must see the same time
+    const bool heldFrameExpired = dispClkFrameExpired(bHeldFrameDrawn, heldFrameUntilMs, dcNow);   // PING-HOLD-02: before the call below clears it
+    (void)heldFrameExpired;   // used only on u8g2 boards (#if below); TFT/e-paper builds would warn -> -Werror
+    dcIn.holdActive   = dispClkHeldFrame(DisplayOffWait, bHeldFrameDrawn, dcNow, heldFrameUntilMs);   // CLK-PING-01: drawn held frame, no clock line
 
-    //TEST ONLY printfdeb("Time bDisplayOff:%i iDisplayType:%i bSetDisplay:%i\n", bDisplayOff, iDisplayType, bSetDisplay);
-
-    if(bDisplayIsOff)
-        return;
-
-    if(iDisplayType == 0)
-        return;
-
-    if(bSetDisplay)
+    const DispClkDecision dcDecision = dispClkDecide(dcIn);
+    #if !defined (BOARD_T5_EPAPER) && !defined (HAS_TFT) && !defined (HAS_TFT_114) && !defined (HAS_TFT_CONNECT)
+    // PING-HOLD-02: ping/pong frame expired on the message page: no clock line there (F1), but the stale frame
+    // must go; re-transfer the cached page buffer ("#N", pageText[0] untouched) once.
+    if(heldFrameExpired && dcDecision == DispClkDecision::SkipType0 && pageLineAnz > 0)
+        sendDisplay1306(false, true, 0, 0, (char*)"#N");
+    #endif
+    if(dcDecision != DispClkDecision::Draw)
         return;
 
     bSetDisplay = true;
@@ -2114,21 +2356,11 @@ void sendDisplayTime()
     char cbatt[10];
     char cstatus[10];
 
+    // TDECK-VOLT-01 (#1312): one label helper for OLED, TFT and T-Deck; OLED output unchanged
     #if defined (HAS_TFT) || defined(HAS_TFT_114) || defined(HAS_TFT_CONNECT) || defined(BOARD_T_ECHO)
-    if(bDisplayVolt)
-        snprintf(cbatt, sizeof(cbatt), "%4.1fV", global_batt/1000.0);
-    else
-        snprintf(cbatt, sizeof(cbatt), "%4d%%", global_proz);
-    if(global_batt == 0.0)
-        snprintf(cbatt, sizeof(cbatt), " USB");
+    batt_label_format(cbatt, sizeof(cbatt), global_batt/1000.0, global_proz, bDisplayVolt, global_batt == 0.0, 4, 1, " USB", false);
     #else
-    if(bDisplayVolt)
-        snprintf(cbatt, sizeof(cbatt), "%5.2fV", global_batt/1000.0);
-    else
-        snprintf(cbatt, sizeof(cbatt), "%5d%%", global_proz);
-
-    if(global_batt == 0.0)
-        snprintf(cbatt, sizeof(cbatt), "   USB");
+    batt_label_format(cbatt, sizeof(cbatt), global_batt/1000.0, global_proz, bDisplayVolt, global_batt == 0.0, 5, 2, "   USB", false);
     #endif
 
     #if defined(XPOWERS_CHIP_AXP192) || defined(HAS_EPAPER) || defined(BOARD_TBEAM_1W) || defined(BOARD_T_CONNECT_PRO)
@@ -2149,16 +2381,22 @@ void sendDisplayTime()
     if(!bGPSON && !bDisplayTrack)
         snprintf(cstatus, sizeof(cstatus),  "%-4.4s%-1.1s ", SOURCE_VERSION, SOURCE_VERSION_SUB);
 
-    // nur alle 15 sekunden
-    if(meshcom_settings.node_date_second == 0 || meshcom_settings.node_date_second == 15 || meshcom_settings.node_date_second == 30 || meshcom_settings.node_date_second == 45 || bOneButton || bDisplayDirty)
+    // CLK-01 W2 (F2): Uhrzeile jede Sekunde auf Seiten mit Uhrzeile (Info/Position/Track/WX); nur
+    // pageText[0] wird getauscht und der Seitenpuffer neu uebertragen. Die Nachrichtenseite
+    // (iDisplayType 0) kommt nie bis hierher (SkipType0 oben): ihre Kopfzeile bleibt erhalten.
+    // Der Frame-CRC-Skip im OLED-Pfad bleibt.
     {
         bOneButton    = false;
         bDisplayDirty = false;
 
         #ifdef BOARD_T_ECHO
-        snprintf(msg_text, sizeof(msg_text), "%02i:%02i:%02i   %s", meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
+        { int dh, dm, ds; dispClkShownHms(&dh, &dm, &ds);
+          snprintf(msg_text, sizeof(msg_text), "%02i:%02i:%02i   %s", dh, dm, ds, cbatt);
+        }
         #else
-        snprintf(msg_text, sizeof(msg_text), "%s%02i:%02i:%02i%s", cstatus, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
+        { int dh, dm, ds; dispClkShownHms(&dh, &dm, &ds);
+          snprintf(msg_text, sizeof(msg_text), "%s%02i:%02i:%02i%s", cstatus, dh, dm, ds, cbatt);
+        }
         #endif
 
         memcpy(pageText[0], msg_text, 20);
@@ -2170,7 +2408,10 @@ void sendDisplayTime()
         #elif defined (HAS_TFT) || defined(HAS_TFT_114) || defined(HAS_TFT_CONNECT)
             displayTFT(msg_text);
         #else
-            sendDisplay1306(false, true, 3, dzeile[0], msg_text);
+            if(pageLineAnz > 0)
+                sendDisplay1306(false, true, 3, dzeile[0], (char*)"#N");   // pageText[0] ist aktualisiert: neu zeichnen, keine Zeile anhaengen
+            else
+                sendDisplay1306(false, true, 3, dzeile[0], msg_text);
         #endif
     }
 
@@ -2191,21 +2432,11 @@ void sendDisplayMainline()
     char cstatus[10];
     char nodetype[5];
 
+    // TDECK-VOLT-01 (#1312): one label helper for OLED, TFT and T-Deck; OLED output unchanged
     #if defined (HAS_TFT) || defined(HAS_TFT_114) || defined(HAS_TFT_CONNECT) || defined(BOARD_T_ECHO)
-    if(bDisplayVolt)
-        snprintf(cbatt, sizeof(cbatt), "%4.1fV", global_batt/1000.0);
-    else
-        snprintf(cbatt, sizeof(cbatt), "%4d%%", global_proz);
-    if(global_batt == 0.0)
-        snprintf(cbatt, sizeof(cbatt), " USB");
+    batt_label_format(cbatt, sizeof(cbatt), global_batt/1000.0, global_proz, bDisplayVolt, global_batt == 0.0, 4, 1, " USB", false);
     #else
-    if(bDisplayVolt)
-        snprintf(cbatt, sizeof(cbatt), "%5.2fV", global_batt/1000.0);
-    else
-        snprintf(cbatt, sizeof(cbatt), "%5d%%", global_proz);
-
-    if(global_batt == 0.0)
-        snprintf(cbatt, sizeof(cbatt), "   USB");
+    batt_label_format(cbatt, sizeof(cbatt), global_batt/1000.0, global_proz, bDisplayVolt, global_batt == 0.0, 5, 2, "   USB", false);
     #endif
 
     if(bGPSON)
@@ -2237,9 +2468,13 @@ void sendDisplayMainline()
     else
     {
         #ifdef BOARD_T_ECHO
-        snprintf(msg_text, sizeof(msg_text), "%02i:%02i:%02i    %s", meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
+        { int dh, dm, ds; dispClkShownHms(&dh, &dm, &ds);
+          snprintf(msg_text, sizeof(msg_text), "%02i:%02i:%02i    %s", dh, dm, ds, cbatt);
+        }
         #else
-        snprintf(msg_text, sizeof(msg_text), "%s%02i:%02i:%02i%s", cstatus, meshcom_settings.node_date_hour, meshcom_settings.node_date_minute, meshcom_settings.node_date_second, cbatt);
+        { int dh, dm, ds; dispClkShownHms(&dh, &dm, &ds);
+          snprintf(msg_text, sizeof(msg_text), "%s%02i:%02i:%02i%s", cstatus, dh, dm, ds, cbatt);
+        }
         #endif
     }
 
@@ -2301,13 +2536,7 @@ void wpRefreshClock()
     char cbatt[10];
     char cstatus[10];
 
-    if(bDisplayVolt)
-        snprintf(cbatt, sizeof(cbatt), "%5.2fV", global_batt/1000.0);
-    else
-        snprintf(cbatt, sizeof(cbatt), "%5d%%", global_proz);
-
-    if(global_batt == 0.0)
-        snprintf(cbatt, sizeof(cbatt), "   USB");
+    batt_label_format(cbatt, sizeof(cbatt), global_batt/1000.0, global_proz, bDisplayVolt, global_batt == 0.0, 5, 2, "   USB", false);   // TDECK-VOLT-01
 
     if(bGPSON)
         snprintf(cstatus, sizeof(cstatus), "G  ");
@@ -2321,9 +2550,9 @@ void wpRefreshClock()
         snprintf(cstatus, sizeof(cstatus),  "%-4.4s%-1.1s ", SOURCE_VERSION, SOURCE_VERSION_SUB);
 
     char st[40];
-    snprintf(st, sizeof(st), "%s%02i:%02i:%02i%s", cstatus,
-             meshcom_settings.node_date_hour, meshcom_settings.node_date_minute,
-             meshcom_settings.node_date_second, cbatt);
+    int dh, dm, ds;
+    dispClkShownHms(&dh, &dm, &ds);
+    snprintf(st, sizeof(st), "%s%02i:%02i:%02i%s", cstatus, dh, dm, ds, cbatt);
 
     if(bV11)
     {
@@ -2393,6 +2622,7 @@ void wpShowStoredMessage(int slot, int idx)
     // 0 = Home-Screen. Global merken, damit der 10-s-wpRefreshClock die Ziffer NICHT wegloescht
     // (er zeichnet sie via wpDrawMsgIdx() jedes Mal mit).
     wpMsgIdx = idx;
+    wpLiveNewest = false;            // DISP-PAGE-03: ein Klick hat die Anzeige bewegt
     wpDrawMsgIdx();                  // VOR dem Voll-Refresh in den Framebuffer
 
     epaper_display.fastmodeOff();   // Voll-Refresh nachschieben -> Status-Screen physisch weg
@@ -2630,13 +2860,7 @@ void mainStartTimeLoop()
                         if(pageLastLineAnz[wpNewest] != 0)
                         {
                             // Index oben rechts = N (neueste Meldung): Anzahl belegter Slots
-                            int wpRank = 0, s = wpNewest;
-                            for(int n = 0; n < PAGE_MAX; n++)
-                            {
-                                if(pageLastLineAnz[s] == 0) break;
-                                wpRank++;
-                                s--; if(s < 0) s += PAGE_MAX;
-                            }
+                            const int wpRank = pageRingCount(pageLastLineAnz, PAGE_MAX, pageLastPointer);
                             wpShowStoredMessage(wpNewest, wpRank);
                         }
                         else
@@ -2649,12 +2873,24 @@ void mainStartTimeLoop()
                         wpRefreshClock();
                     }
                     #else
-                    if(DisplayOffWait == 0)
+                    // TRACK-PING-01: a ping/pong/fail frame (DisplayOffWait = node_pingtime) is replaced by the
+                    // track page at its PING_FRAME_HOLD_MS deadline; DisplayOffWait keeps its full length.
+                    if(dispClkTrackMayDraw(DisplayOffWait, bHeldFrameDrawn, heldFrameUntilMs, millis()))
                     {
+                        const bool bPingFrameExpired = (DisplayOffWait != 0);   // released by the deadline, not by DisplayOffWait
+                        if(bPingFrameExpired)
+                            bDisplayDirty = true;   // rebuild the track page now, do not wait for the 15 s grid
+
                         if(iDisplayChange > 10)
                             sendDisplayWX(); // Show WX
                         else
                             sendDisplayTrack(); // Show Track
+
+                        if(bPingFrameExpired && !bSetDisplay)   // a setdisplay text blocked the draw: keep the hold
+                        {
+                            bHeldFrameDrawn  = false;   // frame consumed: the clock line is free again
+                            heldFrameUntilMs = 0;
+                        }
                     }
                     #endif
                 }
@@ -2667,8 +2903,10 @@ void mainStartTimeLoop()
                     if(!bDisplayIsOff && meshcom_settings.node_date_second % 10 == 0)
                         wpRefreshClock();
                     #else
-                    if(meshcom_settings.node_pingcall[0] == 0x00 || meshcom_settings.node_pingtime == 0 || meshcom_settings.node_pingcount == 0)
-                        sendDisplayTime(); // Time only
+                    // CLK-PING-01: immer aufrufen (Button-Seiten-Haltezaehler in sendDisplayTime());
+                    // eine gehaltene, wirklich gezeichnete Vollbild-Seite (bHeldFrameDrawn) sperrt nur die Uhrzeile
+                    // (dispClkDecide: SkipHold), ein konfigurierter Ping nicht.
+                    sendDisplayTime(); // Time only
                     #endif
                 }
 
@@ -2707,17 +2945,14 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     else
     if(mcStartsWith(aprsmsg.msg_payload, "{pong}") > 0)
     {
-        // R2-04: war msg_payload.substring(14,17). substring() KLEMMT, wenn die
-        // Zeichenkette kuerzer als 14 ist, und liefert "". Ein blankes
-        // `msg_payload + 14` tut das nicht -- die Wache oben prueft nur das
-        // Praefix "{pong}" (6 Zeichen), eine genau so lange Nutzlast wuerde also
-        // hinter dem Terminator weiterlesen. Innerhalb des Feldes, aber
-        // uninitialisiert: statt nichts stuende dort Muell. Die Klemmung bleibt.
-        const char *cPongId = (strlen(aprsmsg.msg_payload) > 14) ? aprsmsg.msg_payload + 14 : "";
+        // R2-04: pongDisplayId() never reads past the payload terminator (the guard
+        // above only checks the 6-char prefix); shows the last 3 id digits.
+        char cPongId[4];
+        pongDisplayId(aprsmsg.msg_payload, cPongId);
 
-        printfdeb("[PONG] from:%s <%.3s> rssi:%i snr:%i\n", aprsmsg.msg_source_call, cPongId, rssi, snr);
+        printfdeb("[PONG] from:%s <%s> rssi:%i snr:%i\n", aprsmsg.msg_source_call, cPongId, rssi, snr);
 
-        snprintf(cmsg, sizeof(cmsg), "PONG %.3s", cPongId);
+        snprintf(cmsg, sizeof(cmsg), "PONG %s", cPongId);
         snprintf(cset, sizeof(cset), "R:%i S:%i", rssi, snr);
 
         meshcom_settings.node_pingduration = millis() - meshcom_settings.node_pingduration;
@@ -2728,8 +2963,12 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
         DisplayPong((char*)cmsg, (char*)aprsmsg.msg_source_call, (char*)cset, (char*)cdur);
 
         // text immer meshcom_settings.node_pingtime stehenlassen und Display immer ON
-        DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
-        bDisplayIsOff=false;
+        // T114: with --display off and --msgwake off the PONG is still received, but the display stays dark
+        if(dispPingWakes())
+        {
+            DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
+            bDisplayIsOff=false;
+        }
 
         return;
     }
@@ -2860,8 +3099,8 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     else
     if(mcStartsWith(aprsmsg.msg_payload, "{CET}") > 0)
     {
-        // CET Meldungen nur annehmen wenn nichr GPS, RTC oder Handyverbindung vorhanden ist
-        if(!bRTCON && !posinfo_fix && !bNTPDateTimeValid) // !!!! erst aktivieren wenn PHone regelmässig zeit liefert  && !bPhoneTimeValid)
+        // CET-SCATTER-01 Part B: rank gate inside the filter call below (cetBeaconGate); a higher
+        // source (live flag or holdover) holds the beacon.
         {
             uint16_t Year=2000;
             uint16_t Month=1;
@@ -2884,8 +3123,50 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
             if(Year > 2023)
             {
-                MyClock.setCurrentTime(meshcom_settings.node_utcoff, Year, Month, Day, Hour, Minute, Second);
-                snprintf(cTimeSource, sizeof(cTimeSource), (char*)"{CET}");
+                // CET-SCATTER-01 Part A: forward-only filter. Delay only adds to the payload age, so
+                // a forward step never overshoots; a step back needs a quorum of stale beacons.
+                // delta = payload UTC - node clock UTC (node_date_* is local, minus node_utcoff).
+                static unsigned long cetLastAcceptMs = 0;
+                long cetDeltaS = 0;
+                uint32_t cetPlLocal = 0, cetNowLocal = 0;
+                const unsigned long cetSinceMs = millis() - cetLastAcceptMs;
+                const bool cetPlOk = cetEpochFromFields(Year, Month, Day, Hour, Minute, Second, &cetPlLocal);
+                const bool cetNowOk = cetEpochFromFields((uint32_t)meshcom_settings.node_date_year, (uint32_t)meshcom_settings.node_date_month,
+                                      (uint32_t)meshcom_settings.node_date_day, (uint32_t)meshcom_settings.node_date_hour,
+                                      (uint32_t)meshcom_settings.node_date_minute, (uint32_t)meshcom_settings.node_date_second,
+                                      &cetNowLocal);
+                if(cetPlOk && cetNowOk)
+                {
+                    const int32_t cetOffS = (int32_t)(meshcom_settings.node_utcoff * 3600.0f + (meshcom_settings.node_utcoff < 0 ? -0.5f : 0.5f));
+                    cetDeltaS = (long)((int32_t)cetPlLocal - ((int32_t)cetNowLocal - cetOffS));
+                }
+                // live rank: NTP > GPS (fix, or valid module time without fix) > RTC
+                bool cetGpsLive = posinfo_fix;
+                #ifdef ENABLE_GPS
+                if(!cetGpsLive) cetGpsLive = WZ_GPS_TimeLive();
+                #endif
+                TimeRank cetLive = bNTPDateTimeValid ? TR_NTP : (cetGpsLive ? TR_GPS : (bRTCON ? TR_RTC : TR_NONE));
+                TimeRankState *cetRank = &s_timeRank;
+                const CetGateOut cetG = cetBeaconGate(cetRank, &s_cetFilter, cetLive, cetPlOk, cetNowOk, (int32_t)cetDeltaS, millis());
+                const CetVerdict cetV = cetG.v;
+
+                if(cetG.action == CETG_HOLD_RANK)
+                    Serial.printf("[CET];hold;why;rank;by;%s;held_s;%lu;src;%s;ms;%lu\n", timeRankName(cetG.by), (unsigned long)cetG.held_s, aprsmsg.msg_source_call, (unsigned long)millis());
+                else if(cetG.action == CETG_BAD_PAYLOAD)
+                    Serial.printf("[CET];skip;why;bad_payload;src;%s;ms;%lu\n", aprsmsg.msg_source_call, (unsigned long)millis());
+                else if(cetV == CET_V_BACK)
+                    Serial.printf("[CET];skip;back_s;%ld;since_s;%lu;quorum;%u;src;%s;ms;%lu\n", -cetDeltaS, cetSinceMs / 1000UL, (unsigned)s_cetFilter.n_back, aprsmsg.msg_source_call, (unsigned long)millis());
+                else if(cetV == CET_V_BAND)
+                    Serial.printf("[CET];hold;why;band;delta_s;%ld;src;%s;ms;%lu\n", cetDeltaS, aprsmsg.msg_source_call, (unsigned long)millis());
+
+                if(cetG.action == CETG_FILTER && cetVerdictApplies(cetV))
+                {
+                    Serial.printf("[CET];apply;why;%s;delta_s;%ld;src;%s;ms;%lu\n", cetVerdictName(cetV), cetDeltaS, aprsmsg.msg_source_call, (unsigned long)millis());
+                    CLK_SRC("CET");
+                    MyClock.setCurrentTime(meshcom_settings.node_utcoff, Year, Month, Day, Hour, Minute, Second);
+                    snprintf(cTimeSource, sizeof(cTimeSource), (char*)"{CET}");
+                    cetLastAcceptMs = millis();
+                }
             }
         }
 
@@ -2909,8 +3190,20 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     ///////////////////////////////////////////////////////////
     // text immer 30 sec stehenlassen und Display immer ON
-    DisplayOffWait = millis() + (30 * 1000); // 30 seconds
-    bDisplayIsOff=false;
+    // T114-DARK-01 (D2): the single wake site of every display board. With --msgwake off an OFF display
+    // stays off: no timer, flag stays, nothing is pushed to any panel (bDispStoreOnly); the message is
+    // still stored in the page ring below and the next button press shows it.
+    const bool bMsgWakes = dispMsgWakes(bMsgWake, bDisplayIsOff);
+    const DispStoreOnlyScope storeOnlyScope(!bMsgWakes);   // suppressed: stored only, nothing is pushed to a panel
+    if(bMsgWakes)
+    {
+        DisplayOffWait = millis() + (30 * 1000); // 30 seconds
+        bDisplayIsOff=false;
+    }
+
+    #if defined(BOARD_HELTEC_T114)
+    t114GpsPageClose();   // draws nothing: the GPS page must be inactive so the next click shows the message
+    #endif
 
     #if defined(WP_DISP)
     wpMsgIdx = 0;       // frisch eintreffende Nachricht -> kein (alter) Browse-Index oben rechts
@@ -2994,8 +3287,11 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
 
     sendDisplay1306(false, true, 0, dzeile[0], (char*)"#F");    // not fastmode for CET display
 
-    epaper_display.setCursor(0, dzeile[1]);
-    epaper_display.setFont(WP_FONT9);
+    if(!bDispStoreOnly)
+    {
+        epaper_display.setCursor(0, dzeile[1]);
+        epaper_display.setFont(WP_FONT9);
+    }
 
     String strPath = String("M* <") + aprsmsg.msg_source_call + ">";
     // DM
@@ -3019,9 +3315,12 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     #endif
 
     msg_text[20]=0x00;
-    epaper_display.println(msg_text);
+    if(!bDispStoreOnly)
+    {
+        epaper_display.println(msg_text);
 
-    epaper_display.setCursor(0, dzeile[2]);
+        epaper_display.setCursor(0, dzeile[2]);
+    }
 
     String strAscii = "";//aprsmsg.msg_payload;
 
@@ -3040,10 +3339,16 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     #if defined(WP_DISP)
     // Nachrichtentext mit kompakter Schrift (enger Zeilenabstand 15 statt 22) -> bis zu 160
     // Zeichen passen auf das Panel. Gleicher Font wie beim Durchblaettern -> Browse == Live.
-    epaper_display.setFont(wpMsgFont());
+    if(!bDispStoreOnly)
+    {
+        epaper_display.setFont(wpMsgFont());
+    }
     #endif
 
-    epaper_display.println(strAscii);
+    if(!bDispStoreOnly)
+    {
+        epaper_display.println(strAscii);
+    }
 
     strncpy(pageLastTextLong1[pagePointer], msg_text, sizeof(pageLastTextLong1[pagePointer]) - 1);
     pageLastTextLong1[pagePointer][sizeof(pageLastTextLong1[pagePointer]) - 1] = '\0';
@@ -3053,8 +3358,13 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     #if defined(WP_DISP)
     // Neue Nachricht per Voll-Refresh aufbauen -> gestochen scharf, tiefschwarz,
     // kein Ghosting. Die schnellen Partial-Updates (Uhrzeit) bleiben unberuehrt.
-    epaper_display.fastmodeOff();
+    if(!bDispStoreOnly)
+    {
+        epaper_display.fastmodeOff();
+    }
     #endif
+    if(!bDispStoreOnly)   // store-only: no refresh at all (the ring slots above are already written)
+    {
     #if defined(BOARD_E290)
     bool bE290Full = e290FullRefreshDue();   // E290: partial refresh, full one only now and then
     if(bE290Full)
@@ -3065,6 +3375,7 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     if(bE290Full)
         epaper_display.fastmodeOn();   // back to fastmode ON, see sendDisplay1306
     #endif
+    }
 
     #elif defined (BOARD_T5_EPAPER)
     // extra source
@@ -3106,7 +3417,10 @@ void sendDisplayText(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     strncpy(pageLastTextLong2[pagePointer], strAscii.c_str(), sizeof(pageLastTextLong2[pagePointer]) - 1);
     pageLastTextLong2[pagePointer][sizeof(pageLastTextLong2[pagePointer]) - 1] = '\0';
 
-    displayTFT(strPath, strAscii);
+    if(!bDispStoreOnly)
+    {
+        displayTFT(strPath, strAscii);
+    }
 
     #elif defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
     
@@ -3373,16 +3687,21 @@ void sendDisplayPosition(struct aprsMessage &aprsmsg, int16_t rssi, int8_t snr)
     decodeAPRSPOS(aprsmsg.msg_payload, aprspos);
 
     // Display Distance, Direction
+    // signed degrees on both sides, otherwise course and distance are mirrored west/south (#1279)
     lat = conv_coord_to_dec(aprspos.lat);
+    if(aprspos.lat_c == 'S')
+        lat = -lat;
     lon = conv_coord_to_dec(aprspos.lon);
+    if(aprspos.lon_c == 'W')
+        lon = -lon;
 
     // d_dir_to wird weiter unten im HAS_EPAPER-Block (DrawDirection) genutzt - daher
     // immer deklarieren, nicht nur unter ENABLE_GPS. Sonst bricht ein E-Paper-Board
     // ohne GPS (z.B. Wireless Paper) die Kompilierung.
     float d_dir_to = 0;
-    d_dir_to = gps.courseTo(meshcom_settings.node_lat, meshcom_settings.node_lon, lat, lon);
+    d_dir_to = gps.courseTo(nodeSignedLat(meshcom_settings.node_lat, meshcom_settings.node_lat_c), nodeSignedLon(meshcom_settings.node_lon, meshcom_settings.node_lon_c), lat, lon);
     dir_to = d_dir_to;
-    dist_to = gps.distanceBetween(lat, lon, meshcom_settings.node_lat, meshcom_settings.node_lon)/1000.0;
+    dist_to = gps.distanceBetween(lat, lon, nodeSignedLat(meshcom_settings.node_lat, meshcom_settings.node_lat_c), nodeSignedLon(meshcom_settings.node_lon, meshcom_settings.node_lon_c))/1000.0;
 
     sendDisplayMainline();
 
@@ -3868,6 +4187,8 @@ void DisplayPong(char line1[20], char line2[20], char line3[20], char line4[20])
             u8g2->drawStr(5, 60, line4);
         #endif
     } while (u8g2->nextPage());
+    bHeldFrameDrawn = true;   // CLK-PING-01: the clock line keeps off this frame for PING_FRAME_HOLD_MS
+    heldFrameUntilMs = dispClkFrameDeadline(millis(), dispClkPingHoldMs(meshcom_settings.node_pingtime));
 
     #endif
 }
@@ -3997,8 +4318,12 @@ PingResult sendPing(char msg_call[10])
     }
 
     // text immer meshcom_settings.node_pingtime stehenlassen und Display immer ON
-    DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
-    bDisplayIsOff=false;
+    // T114: --display off + --msgwake off keeps the display dark; the ping is sent regardless
+    if(dispPingWakes())
+    {
+        DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
+        bDisplayIsOff=false;
+    }
 
     meshcom_settings.node_pingduration = millis();
     bPingSend=true;
@@ -4011,8 +4336,12 @@ void PongFail(String msg_call)
     DisplayPong((char*)"PONG", (char*)msg_call.c_str(), (char*)"FAILED", (char*)"");
 
     // text immer meshcom_settings.node_pingtime stehenlassen und Display immer ON
-    DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
-    bDisplayIsOff=false;
+    // T114: --display off + --msgwake off keeps the display dark; the ping is sent regardless
+    if(dispPingWakes())
+    {
+        DisplayOffWait = millis() + (meshcom_settings.node_pingtime * 1000);
+        bDisplayIsOff=false;
+    }
 }
 
 void SendPong(String msg_call, unsigned int msg_id)
@@ -4050,7 +4379,7 @@ void SendPong(String msg_call, unsigned int msg_id)
     mcSet(aprsmsg.msg_destination_path, sizeof(aprsmsg.msg_destination_path), msg_call.c_str());
 
     memset(msg_text, 0x00, sizeof(msg_text));
-    snprintf(msg_text, sizeof(msg_text), "{pong}{%03i}", msg_id);
+    pongFormatPayload(msg_text, sizeof(msg_text), msg_id);
 
     mcSet(aprsmsg.msg_payload, sizeof(aprsmsg.msg_payload), msg_text);
     
@@ -4742,22 +5071,22 @@ int sendMessage(char *msg_text, int len, const char *src_override, unsigned int 
             mcSet(aprsmsg.msg_payload, sizeof(aprsmsg.msg_payload), strMsg.c_str());
         else
         {
-        char cAckId[4] = {0};
-        snprintf(cAckId, sizeof(cAckId), "%03i", meshcom_settings.node_msgid);
-        snprintf(aprsmsg.msg_payload, sizeof(aprsmsg.msg_payload), "%s{%s", strMsg.c_str(), cAckId);
+            char cAckId[4] = {0};
+            snprintf(cAckId, sizeof(cAckId), "%03i", meshcom_settings.node_msgid);
+            snprintf(aprsmsg.msg_payload, sizeof(aprsmsg.msg_payload), "%s{%s", strMsg.c_str(), cAckId);
 
-        // 0.4: DM outcome counters (docs/dm-transport-impl-plan-20260913.md).
-        // nnn is the same node_msgid value just written into cAckId, before
-        // the increment below.
-        //
-        // P14/P15: nicht fuer ein {ping} -- die Gegenstelle antwortet mit
-        // {pong}, nie mit einem ACK, also stuende es fuer immer als
-        // sent-nie-acked in der DM-Statistik.
-        if(!bPingMsg)
-        {
-            dmstat_sent.fetch_add(1);
-            dmStatNoteSent((uint16_t)meshcom_settings.node_msgid, millis());
-        }
+            // 0.4: DM outcome counters (docs/dm-transport-impl-plan-20260913.md).
+            // nnn is the same node_msgid value just written into cAckId, before
+            // the increment below.
+            //
+            // P14/P15: nicht fuer ein {ping} -- die Gegenstelle antwortet mit
+            // {pong}, nie mit einem ACK, also stuende es fuer immer als
+            // sent-nie-acked in der DM-Statistik.
+            if(!bPingMsg)
+            {
+                dmstat_sent.fetch_add(1);
+                dmStatNoteSent((uint16_t)meshcom_settings.node_msgid, millis());
+            }
         }
     }
 
@@ -4805,7 +5134,12 @@ int sendMessage(char *msg_text, int len, const char *src_override, unsigned int 
         user_msg_status = 0xFF; // non-text frames: no retransmission (unchanged)
     }
 
-    int w = bUseOnce ? addTxRingEntryOnce(msg_buffer, (uint16_t)aprsmsg.msg_len, "user_msg", 0)
+    int w;
+    // own replies only: a KISS client's frame (src_override) never gets the ACK eviction
+    if(bUseOnce && bDM && !(src_override && src_override[0]) && dmTextIsRm1Reply(aprsmsg.msg_payload))
+        w = addTxRingEntryRmReply(msg_buffer, (uint16_t)aprsmsg.msg_len, "user_msg");   // RM-LOSTREPLY-01
+    else
+        w = bUseOnce ? addTxRingEntryOnce(msg_buffer, (uint16_t)aprsmsg.msg_len, "user_msg", 0)
                       : addTxRingEntry(msg_buffer, (uint16_t)aprsmsg.msg_len, user_msg_status, "user_msg", 0);
 
     if(bDisplayRetx && w >= 0)
@@ -5088,14 +5422,11 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
     if(strcmp(meshcom_settings.node_atxt, "none") != 0 && meshcom_settings.node_atxt[0] != 0x00)
     {
         // CHR-02: strip APRS structure separators and truncate on a UTF-8
-        // boundary at the same 25-byte cap decodeAPRSPOS() applies on
-        // receive (aprs_functions.cpp:632) -- otherwise a receiver's
-        // byte-counting parser can inherit a split multi-byte sequence.
+        // boundary at APRS_ATXT_WIRE_MAX bytes, the cap decodeAPRSPOS()
+        // applies on receive -- otherwise a receiver's byte-counting parser
+        // can inherit a split multi-byte sequence.
         char catxt_src[sizeof(meshcom_settings.node_atxt)];
-        snprintf(catxt_src, sizeof(catxt_src), "%s", meshcom_settings.node_atxt);
-        size_t iatxt = charset_filter_apply(catxt_src, strlen(catxt_src), CHARSET_FILTER_STRIP_SEPARATORS);
-        iatxt = charset_utf8_safe_truncate(catxt_src, iatxt, 25);
-        catxt_src[iatxt] = 0x00;
+        charset_wire_field(meshcom_settings.node_atxt, catxt_src, sizeof(catxt_src), APRS_ATXT_WIRE_MAX, nullptr);
 
         snprintf(catxt,  sizeof(catxt), "%s", catxt_src);
     }
@@ -5300,18 +5631,20 @@ String PositionToAPRS(bool bConvPos, bool bSsendTele, bool bFuss, double plat, c
     strncat(strconcat, cdigital, sizeof(strconcat) - strlen(strconcat) - 1);
     strncat(strconcat, ctele, sizeof(strconcat) - strlen(strconcat) - 1);
 
-    // wenn die concatenation zu lang ist, dann catxt und cname löschen
-    if((strlen(strconcat) + strlen(catxt) + strlen(cname)) > 100)
+    // Tags + Kommentar + Name sind auf POS_TEXT_BUDGET Bytes begrenzt: zuerst entfaellt
+    // der Kommentar, dann der Name (pos_text_budget.h). APRS-TXT-03: nicht mehr still,
+    // sondern mit Marker, einmal je Wechsel des Ergebnisses (Rohes Serial.printf wie bei
+    // [POS];shot, damit der Marker auch bei --debug off sichtbar ist).
     {
-        catxt[0]=0x00;
+        const PosTextFit txtFit = posTextFit(strlen(strconcat), catxt, cname, POS_TEXT_BUDGET);
+        if(posTextDropRecord(txtFit, strlen(strconcat)))
+        {
+            char cmark[64];
+            if(posTextDropMarker(cmark, sizeof(cmark), txtFit, strlen(strconcat), POS_TEXT_BUDGET) > 0)
+                Serial.print(cmark);
+        }
     }
 
-    // wenn die concatenation zu lang ist, dann catxt und cname löschen
-    if((strlen(strconcat) + strlen(catxt) + strlen(cname)) > 100)
-    {
-        cname[0]=0x00;
-    }
-    
     snprintf(msg_start, sizeof(msg_start), "%07.2lf%c%c%08.2lf%c%c%s%s%s", slat, lat_c, meshcom_settings.node_symid, slon, lon_c, meshcom_settings.node_symcd, catxt, cname, strconcat);
 
     return String(msg_start);
@@ -5492,7 +5825,7 @@ void sendPosition(unsigned long uintervall, double lat, char lat_c, double lon, 
                     u8g2->drawStr(5, 30, (char*)"");
                     u8g2->drawStr(5, 40, (char*)"       TRACK");
                     u8g2->drawStr(5, 50, (char*)"   POSITION SENT");
-                    snprintf(cvers, sizeof(cvers), " %.4lf%c %.4lf%c", lat, lat_c, lon, lon_c);
+                    snprintf(cvers, sizeof(cvers), " %.4lf%c %.4lf%c", fabs(lat), lat_c, fabs(lon), lon_c);
                     u8g2->drawStr(5, 60, cvers);
                 } while (u8g2->nextPage());
             }
@@ -6367,6 +6700,33 @@ int GetHeadingDifference(int heading1, int heading2)
 
 unsigned int setSMartBeaconing(double dlat, double dlon)
 {
+    // Automatic symbol (GPS-AUTOSYM-02/03) is evaluated before the TRACK-off return and before the stationary
+    // return, so it also works with TRACK off and the symbol returns to the runner while the node stands still.
+    // It uses its own speed estimate (autoSymbolSpeed): posinfo_last_* is only maintained by the TRACK path and
+    // is stale with TRACK off, and the RAK4631 never feeds the global gps (no valid gps.speed there).
+    // No side effects on the TRACK state.
+    static AutoSymbolState s_autoSym;       // zero-init = nothing seen since boot
+    static AutoSymbolSpeed s_autoSpeed;     // previous sample, refreshed on every call
+
+    const uint32_t now_ms = (uint32_t)millis();
+    const double auto_mps = autoSymbolSpeed(&s_autoSpeed, gps.speed.isValid(), gps.speed.isValid() ? gps.speed.mps() : 0.0, dlat, dlon, now_ms);
+
+    // History is kept while the opt-in is off (switching it on mid-trip behaves as before).
+    autoSymbolNote(&s_autoSym, auto_mps, now_ms);
+
+    if(bGPSAutosymbol)
+    {
+        char target_symbol = autoSymbolPick(&s_autoSym, meshcom_settings.node_symid, meshcom_settings.node_symcd, now_ms);
+
+        if(meshcom_settings.node_symcd != target_symbol)
+        {
+            meshcom_settings.node_symcd = target_symbol;
+
+            if(iGPSDEBUG > 0)
+                printfdeb("Auto-Symbol switch to '%c'\n", target_symbol);
+        }
+    }
+
     // check TRACK Mode on
     if(!bDisplayTrack)
     {
@@ -6433,55 +6793,6 @@ unsigned int setSMartBeaconing(double dlat, double dlon)
     if(iGPSDEBUG > 0)
         printfdeb("%s [POSINFO]...dir:%.1lf° dist:%.1lf speed:%.1lf intervall:%.1lf\n", getTimeString().c_str(), posinfo_direction, distance, speed_mps, gps_refresh_intervall);
 
-    // Moving Logic & Symbol Switching with Hysteresis
-    static unsigned long last_car_speed_ts = 0;
-    static unsigned long last_bike_speed_ts = 0;
-
-    // Update timestamps based on current speed
-    if (speed_mps > 7.0) // > 25 km/h -> Car range
-    {
-        last_car_speed_ts = millis();
-        last_bike_speed_ts = millis(); // Also implies bike speed threshold passed
-    }
-    else if (speed_mps > 1.4) // > 5 km/h -> Bike range
-    {
-        last_bike_speed_ts = millis();
-    }
-
-    // Determine Symbol based on history (2 minutes hysteresis)
-    char target_symbol = 0;
-
-    // use APRS Symbol switching
-    if(bGPSAutosymbol)
-    {
-        if (meshcom_settings.node_symid == '/') // Only auto-switch if using primary table
-        {
-            // Check if we are currently using one of the auto-switchable symbols
-            if (meshcom_settings.node_symcd == '[' || meshcom_settings.node_symcd == 'b' || meshcom_settings.node_symcd == '>')
-            {
-                if ((millis() - last_car_speed_ts) < 120000) // Car speed seen in last 2 mins
-                {
-                    target_symbol = '>';
-                }
-                else if ((millis() - last_bike_speed_ts) < 120000) // Bike speed seen in last 2 mins
-                {
-                    target_symbol = 'b';
-                }
-                else
-                {
-                    target_symbol = '['; // Runner/Hiker default
-                }
-
-                if (target_symbol != 0 && meshcom_settings.node_symcd != target_symbol)
-                {
-                    meshcom_settings.node_symcd = target_symbol;
-
-                    if(iGPSDEBUG > 0)
-                        printfdeb("Auto-Symbol switch to '%c'\n", target_symbol);
-                }
-            }
-        }
-    }
     // WiFi Stationary Check
     // If connected to WiFi AND speed is low, we assume we are indoors/stationary to prevent GPS drift
     // But if moving (e.g. in car with hotspot), we still want updates.

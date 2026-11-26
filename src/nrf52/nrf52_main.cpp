@@ -4,6 +4,8 @@
 
 #include "configuration.h"
 #include "uptime_min.h"   // wrap-safe 16-bit uptime minutes (NBR stamps)
+#include "posinfo_timer.h"   // POSINFO-LAG-01: beacon due / spacing decision
+#include "beacon_rate.h"      // POSINFO_AUTO_MIN_MS
 #include "capture_functions.h"
 
 #include <Arduino.h>
@@ -16,6 +18,7 @@
 #include <time.h>
 #include <nrf52_functions.h>
 #include <nrf52_radio.h>
+#include "lora_syncword.h"     // one-byte -> SX126x two-byte sync word
 #include <settings_sanitize.h> // #1132: resolve_tx_power sentinel normalization
 #include <extudp_functions.h>
 
@@ -236,20 +239,12 @@ String strDate;
 
 /*
 Sync Word Setting in MeshCom
-    MeshCom Syc Word is 0x2b
-
-    Output of the LoRa Sync Word Register 0x0740 in MeshCom:
-
-    Set radio: power level=22
-    Sync Word 1st byte = 24
-    Sync Word 2nd byte = b4
-
-    In our Library it gets set at sx126x.h / radio.cpp
-    Define: sx126x.h line 109:
-    #define LORA_MAC_PUBLIC_SYNCWORD 0x242b
-
-    Radio.SetCustomSyncWord(0x242b); needs to be called, so syncword gets new set in radio.cpp
-    Method
+    MeshCom sync word is SYNC_WORD_SX127x (0x2b, configuration_global.h), the one-byte form
+    that RadioLib uses on the ESP32 boards. RadioLib converts it to the SX126x register form
+    (sw & 0xF0) | 0x04, ((sw & 0x0F) << 4) | 0x04 = 0x24 0xb4 (registers 0x0740/0x0741).
+    SX126x-Arduino writes Radio.SetCustomSyncWord() raw, so the nRF52 code passes
+    loraSyncWordSx126x(SYNC_WORD_SX127x) = 0x24b4 (lora_syncword.h). It has to be called
+    after RadioInit(), which resets the chip to 0x1424.
 */
 
 //NVIC_SystemReset(); resets the device
@@ -281,8 +276,27 @@ static void rxsNoteEvent(bool has_q, int16_t rssi, int8_t snr)
     g_rxs_ev_ms = millis();
     g_rxs_ev_seq = g_rxs_ev_seq + 1;
 }
+// RSSI/SNR of the last frame received without error, for the T114 status page.
+// Kept apart from g_rxs_ev_*, which an RX error resets.
+static volatile bool    g_lastRxValid = false;
+static volatile int16_t g_lastRxRssi = 0;
+static volatile int8_t  g_lastRxSnr = 0;
+
+// Returns false until the first frame was received.
+bool nrf52LastRxQuality(int16_t *rssi, int8_t *snr)
+{
+    if(!g_lastRxValid)
+        return false;
+    *rssi = g_lastRxRssi;
+    *snr = g_lastRxSnr;
+    return true;
+}
+
 static void rxsOnRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 {
+    g_lastRxRssi = rssi;
+    g_lastRxSnr = snr;
+    g_lastRxValid = true;
     rxsNoteEvent(true, rssi, snr);
     OnRxDone(payload, size, rssi, snr);
 }
@@ -463,6 +477,8 @@ void blinkLED2();                                    // blink RED
 // gatewayService_*() likewise (C4 carve-out)
 #include "gateway_service.h"
 #include "gw_reg_runtime.h"
+#include "csma_timing.h"   // CSMA-03: csmaLoopDelayMs()
+#include "ping_budget.h"   // PING-NRF-01: pingBudgetOpen(), pingCountAfterSend()
 
 
 #if defined(ENABLE_RTC)
@@ -749,6 +765,7 @@ void nrf52setup()
     bGATEWAY =  meshcom_settings.node_sset & 0x1000;
     bEXTUDP =  meshcom_settings.node_sset & 0x2000;
     bDisplayCont =  meshcom_settings.node_sset & 0x4000;
+    bMsgWake = (meshcom_settings.node_sset & 0x8000) == 0;   // T114-DARK-01: --msgwake, stored inverted (set = off)
 
     // TRK-01: Warnhinweis einmal beim Boot, wenn Track aus den Settings aktiv geladen wurde
     if(bDisplayTrack)
@@ -768,7 +785,7 @@ void nrf52setup()
     //free !! meshcom_settings.node_sset2 & 0x0200;
     bSOFTSERON =  meshcom_settings.node_sset2 & 0x0400;
     bBOOSTEDGAIN =  meshcom_settings.node_sset2 & 0x0800;
-    //xxxxx = meshcom_settings.node_sset2 & 0x2000;
+    bDisplayDark = (meshcom_settings.node_sset2 & 0x2000) != 0;   // T114-DARK-01: --theme dark (T114; other boards never set the bit)
     bVIA = meshcom_settings.node_sset2 & 0x4000;
 
     // nicht mehr notwendig bMHONLY =  meshcom_settings.node_sset3 & 0x0001;
@@ -778,6 +795,7 @@ void nrf52setup()
     bBMP3ON = meshcom_settings.node_sset3 & 0x0010;
     bAHT20ON = meshcom_settings.node_sset3 & 0x0020;
     bUSER_BOARD_LED = meshcom_settings.node_sset3 & 0x0080;   // LED-07: --board led
+    bGPSAutosymbol = meshcom_settings.node_sset3 & 0x1000;   // --gps autosymbol (as on ESP32)
 
     bDEBUGCSV = meshcom_settings.node_sset4 & 0x0001;
     bDEBUGEN = meshcom_settings.node_sset4 & 0x0002;
@@ -1173,7 +1191,7 @@ void nrf52setup()
 
     // Sets the Syncword new that we can set the MESHCOM SWORD
     DEBUG_MSG("RADIO", "Setting new LoRa Sync Word");
-    Radio.SetCustomSyncWord(0x242b);
+    Radio.SetCustomSyncWord(loraSyncWordSx126x(SYNC_WORD_SX127x));
 
     // set bandwidth 
     Serial.printf("[LoRa]...RF_BANDWIDTH: %.0f kHz\n", getBW());
@@ -1400,6 +1418,7 @@ void nrf52loop()
             // check valid Date & Time
             if(Year > 2023)
             {
+                CLK_SRC("RTC");
                 MyClock.setCurrentTime(0.0, Year, Month, Day, Hour, Minute, Second);
                 snprintf(cTimeSource, sizeof(cTimeSource), (char*)"RTC");
                 bMyClock = true;
@@ -1440,6 +1459,7 @@ void nrf52loop()
             // check valid Date & Time
             if(Year > 2023 && strTime.compareTo("none") != 0)
             {
+                CLK_SRC("NTP");
                 MyClock.setCurrentTime(meshcom_settings.node_utcoff, Year, Month, Day, Hour, Minute, Second);
                 bNTPDateTimeValid = true;
 
@@ -2174,29 +2194,19 @@ void nrf52loop()
         }
     }
 
-    // check NCNT modified -- MeshCom 5 (Welle 4, Konzept 4.8): lokaler
-    // Vergleich, nicht die Sendefassung -- nbrNcnt(), nicht nbrNcntAir().
-    int incnt = nbrNcnt(nbrMatrix, uptimeMin16());
-    if(ncnt_hold != incnt)
-    {
-        INSTR_SECTION("pos_timer");
-        // minimal alle 60 sec
-        if((uint32_t)(millis() - posinfo_timer_min) >= 60000)
-        {
-            posinfo_shot = true;
-            ncnt_hold = incnt;
-        }
-    }
+    // POSINFO-LAG-01: no position beacon on a neighbour count change. The beacon follows the configured
+    // interval; neighbour count and signal go out in the HEY frames. (The old 60 s NCNT trigger never fired:
+    // posinfo_timer_min was refreshed on every idle pass.)
 
     // posinfo
     //Serial.print(getTimeString());
     //Serial.printf(" posinfo_timer:%ld posinfo_interval:%ld timer:%ld millis:%ld\n", posinfo_timer, posinfo_interval, (posinfo_timer + (posinfo_interval * 1000)), millis());
 
     // posinfo_interval in Seconds
-    if (((uint32_t)(millis() - posinfo_timer) >= (uint32_t)(posinfo_interval * 1000)) || (millis() > 100000 && millis() < 130000 && bPosFirst) || posinfo_shot)
+    if (posinfoDue(millis(), posinfo_timer, posinfo_interval, (millis() > 100000 && millis() < 130000 && bPosFirst), posinfo_shot))
     {
-        // minimal transmit time only max 30 sec
-        if((uint32_t)(millis() - posinfo_timer_min) >= 30000)
+        // automatic beacons: at least POSINFO_AUTO_MIN_MS after the last position TX of any kind (D6, aprs.fi)
+        if(posinfoAutoSpacingOk(millis(), posinfo_timer_min, haveOwnPosTx(), lastOwnPosTxMs(), POSINFO_AUTO_MIN_MS))
         {
             if(bDisplayInfo)
             {
@@ -2267,10 +2277,7 @@ void nrf52loop()
             posinfo_timer_min = millis();
         }
     }
-    else
-    {
-        posinfo_timer_min = millis();
-    }
+    // POSINFO-LAG-01: posinfo_timer_min = time of the last send; not refreshed on idle passes
 
     // Trickle-HEY: adaptive interval (RFC 6206)
     if (((uint32_t)(millis() - heyinfo_timer) >= trickle_interval_ms) || bHeyFirst)
@@ -2601,8 +2608,7 @@ void nrf52loop()
                 if(one_found)
                     loop_onewire_ds18();
 
-                if(dht_found)
-                    loop_onewire_dht();
+                loop_onewire_dht();   // DHT-PROBE-01: probes itself (three tries), then reads only a found DHT
 
                 onewireTimeWait = millis();
 
@@ -2789,25 +2795,57 @@ void nrf52loop()
     if (resendPing == 0)
         resendPing = millis();
 
-    if(meshcom_settings.node_pingtime > 29)
+    // LAST-PONG-01: armed after the last send; one more check tick gives it its fail verdict.
+    static bool pingFinalArmed = false;
+    const bool pingBudgetIsOpen = pingBudgetOpen(meshcom_settings.node_pingtime, meshcom_settings.node_pingcall, meshcom_settings.node_pingcount);
+
+    if(pingFailCheckDue(pingFinalArmed, pingBudgetIsOpen, (int32_t)(millis() - (resendPing + meshcom_settings.node_pingtime * 1000)) > 0))
+    {
+        pingFinalArmed = false;
+        // A target cleared since the last send (--pingcall none) gets no verdict.
+        if(bPingSend && meshcom_settings.node_pingcall[0] != 0x00)
+        {
+            printfdeb("[PONG]...fail from %s\n", meshcom_settings.node_pingcall);
+            PongFail(meshcom_settings.node_pingcall);
+        }
+        bPingSend = false;
+    }
+
+    if(pingBudgetIsOpen)
     {
         if((int32_t)(millis() - (resendPing + meshcom_settings.node_pingtime * 1000)) > 0)
         {
+            // PING-NRF-01: previous ping got no pong -> same fail path as ESP32
+            if(bPingSend)
+            {
+                printfdeb("[PONG]...fail from %s\n", meshcom_settings.node_pingcall);
+                PongFail(meshcom_settings.node_pingcall);
+            }
+
             resendPing = millis();
 
             if(bDisplayInfo)
                 printfdeb("[PING]...send Ping to %s\n", meshcom_settings.node_pingcall);
 
-            if(meshcom_settings.node_pingcall[0] != 0x00)
-            {
-                PingResult pingResult = sendPing(meshcom_settings.node_pingcall);
+            PingResult pingResult = sendPing(meshcom_settings.node_pingcall);
 
-                // Fehlschlag außerhalb von bDisplayInfo sichtbar machen, sonst verstummt
-                // der Knoten für jeden, der mit Info aus läuft, ohne jede Meldung.
-                // PING_INVALID_TARGET logs its own notice in sendPing().
-                if(pingResult != PING_QUEUED && pingResult != PING_INVALID_TARGET)
-                    printfdeb("[PING]...FAILED Ping to %s\n", meshcom_settings.node_pingcall);
-            }
+            // PING-FAIL-REPEAT-01: no new ping queued (refused ring, TRACK, invalid target): drop the
+            // stale flag so the unanswered ping is not reported again on the next tick. Cleared after
+            // sendPing(), not before: sendPing() draws "SENT" only while !bPingSend, and the
+            // "PONG FAILED" frame drawn just above must stay on the OLED.
+            if(pingResult != PING_QUEUED)
+                bPingSend = false;
+
+            // Fehlschlag außerhalb von bDisplayInfo sichtbar machen, sonst verstummt
+            // der Knoten für jeden, der mit Info aus läuft, ohne jede Meldung.
+            // PING_INVALID_TARGET logs its own notice in sendPing().
+            if(pingResult != PING_QUEUED && pingResult != PING_INVALID_TARGET)
+                printfdeb("[PING]...FAILED Ping to %s\n", meshcom_settings.node_pingcall);
+
+            // TRACK / INVALID_TARGET are no send attempt: budget untouched (as ESP32).
+            const int pingCountBefore = meshcom_settings.node_pingcount;
+            meshcom_settings.node_pingcount = pingCountAfterSend(meshcom_settings.node_pingcount, pingResult == PING_SUPPRESSED_TRACK, pingResult == PING_INVALID_TARGET);
+            pingFinalArmed = pingFinalArmAfterSend(pingCountBefore, meshcom_settings.node_pingcount, pingResult == PING_QUEUED);
         }
     }
 
@@ -2817,7 +2855,34 @@ void nrf52loop()
     #endif
 
     //  We are on FreeRTOS, give other tasks a chance to run
-    delay(100);
+    // CSMA-03: while a CAD runs or its result waits to be consumed, poll fast so the
+    // result is not 60-97 ms old when TX uses it.
+    {
+        taskENTER_CRITICAL();
+        bool _dl_ip = cad_in_progress;
+        bool _dl_df = cad_done_flag;
+        taskEXIT_CRITICAL();
+        unsigned long _dl_ms = csmaLoopDelayMs(_dl_ip, _dl_df);
+        #if defined(BOARD_HELTEC_T114)
+        // The loop body is cheap (measured: ~0 ms), so this delay IS the loop period: poll the
+        // button every 10 ms so double/triple clicks register (upstream #1265), and empty the
+        // GPS UART ring: with GSV on for the GPS page the L76K sends ~1 kB/s in bursts and the
+        // 250 byte ring would overflow within 100 ms (upstream #1266). The CSMA-03 period stays.
+        while(_dl_ms > 0)
+        {
+            unsigned long _dl_step = _dl_ms < 10UL ? _dl_ms : 10UL;
+            delay(_dl_step);
+            _dl_ms -= _dl_step;
+            btn.tick();
+            #if defined(ENABLE_GPS)
+            if(bGPSON && gpsDetected)
+                WZ_GPS_Feed();
+            #endif
+        }
+        #else
+        delay(_dl_ms);
+        #endif
+    }
 
     yield();
 }
@@ -3221,8 +3286,9 @@ unsigned int getGPS(void)
         dlat = tinyGPSPlus.location.lat();
         dlon = tinyGPSPlus.location.lng();
 
-        meshcom_settings.node_lat = cround4(dlat);
-        meshcom_settings.node_lon = cround4(dlon);
+        // node_lat/node_lon hold magnitudes, the hemisphere is in node_lat_c/node_lon_c
+        meshcom_settings.node_lat = cround4abs(dlat);
+        meshcom_settings.node_lon = cround4abs(dlon);
 
         if(tinyGPSPlus.location.rawLat().negative)
             meshcom_settings.node_lat_c = 'S';
@@ -3236,6 +3302,7 @@ unsigned int getGPS(void)
 
         meshcom_settings.node_alt = ((meshcom_settings.node_alt * 10) + (int)tinyGPSPlus.altitude.meters()) / 11;
 
+        CLK_SRC("GPS");
         MyClock.setCurrentTime(meshcom_settings.node_utcoff, tinyGPSPlus.date.year(), tinyGPSPlus.date.month(), tinyGPSPlus.date.day(), tinyGPSPlus.time.hour(), tinyGPSPlus.time.minute(), tinyGPSPlus.time.second());
         snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
 

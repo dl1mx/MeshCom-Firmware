@@ -76,6 +76,7 @@ extern bool bCHARGE_LED;
 
 // Board LED helpers (loop_functions.cpp, decision logic in board_led.h). No-op bodies on boards without
 // BOARD_LED / LED_PIN, so callers need no guard.
+int boardLedModeGet(void);      // WEB-LED-01: BOARD_LED_MODE_OFF / FLASH / STEADY
 bool boardLedPinUsable(void);   // false while OneWire owns the LED pin (LED-04) or no LED pin exists
 void boardLedTick(void);        // main loop: the 30 ms / 2 s heartbeat while bUSER_BOARD_LED
 void boardLedForceOff(void);    // LED dark + flasher phase reset; call before deep sleep (LED-12)
@@ -118,6 +119,8 @@ extern bool bPingSend;
 extern bool bPosDisplay;
 extern bool bDisplayOff;
 extern bool bDisplayIsOff;
+extern bool bMsgWake;       // T114-DARK-01: --msgwake (default true)
+extern bool bDisplayDark;   // T114-DARK-01: --theme dark on the T114 (default false = light)
 extern bool bDisplayVolt;
 extern bool bDisplayInfo;
 extern bool bDisplayVia;
@@ -162,6 +165,7 @@ extern bool bBMPON;
 extern bool bBMP3ON;
 extern bool bAHT20ON;
 // WX-01 (upstream #999): UV / wind switches (mirrors of node_wx_flags); the state below exists on ESP32 only
+extern bool bAPRSWX;   // MCFW-WX1: mirror of node_aprswx (always false on nRF52)
 extern bool bUVON;
 extern bool bWINDON;
 #if defined(ENABLE_LTR390) || defined(ENABLE_WIND)
@@ -208,6 +212,8 @@ extern int one_start;
 extern bool ina226_found;
 extern bool shtc3_found;
 extern bool dht_found;
+extern uint8_t dht_probe_left;   // onewire_functions.cpp: DHT-PROBE-01 first-read attempts left (0 = decided)
+extern bool dht_ok;      // onewire_functions.cpp: last DHT read gave valid T and H (DHT-PROBE-01, --info)
 
 extern bool bSHORTPATH;
 //extern bool bGPSDEBUG;
@@ -530,7 +536,6 @@ extern int gps_refresh_track;
 extern unsigned long posinfo_timer;      // we check periodically to send GPS
 extern unsigned long posinfo_timer_min;
 extern unsigned long heyinfo_timer;      // we check periodically to send HEY
-extern int ncnt_hold;
 extern unsigned long nbrsnap_timer;      // --nbrdebug: 15-min-Takt fuer nbrLogSnapshot()
 
 void nbrDebugApply(void);                // nbrLog an bNBRDEBUG angleichen (lora_functions.cpp)

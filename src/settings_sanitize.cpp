@@ -139,6 +139,42 @@ bool sanitize_backlight_level(int &v, int def, const char *field, sanitize_log_f
     return true;
 }
 
+bool dht_type_valid(int v)
+{
+    return v == 11 || v == 22;
+}
+
+bool sanitize_dht_type(int &v, sanitize_log_fn log)
+{
+    if (dht_type_valid(v))
+        return false;
+
+    report_int(log, "node_dht", v, 11);
+    v = 11;
+    return true;
+}
+
+void dht_probe_step(bool &found, uint8_t &tries_left, bool read_valid)
+{
+    if (found)
+        return;
+    if (read_valid)
+    {
+        found = true;
+        tries_left = 0;
+        return;
+    }
+    if (tries_left > 0)
+        tries_left--;
+}
+
+const char *dht_status_word(bool found, bool last_read_ok, uint8_t tries_left)
+{
+    if (found)
+        return last_read_ok ? "found" : "read error";
+    return tries_left > 0 ? "probing" : "not found";
+}
+
 int resolve_tx_power(int stored, int board_default)
 {
     if (stored == 0 || stored == POWER_NOT_SET)

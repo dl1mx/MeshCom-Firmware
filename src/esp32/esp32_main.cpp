@@ -11,6 +11,8 @@
  */
 #include <Arduino.h>
 #include "uptime_min.h"   // wrap-safe 16-bit uptime minutes (NBR stamps)
+#include "posinfo_timer.h"   // POSINFO-LAG-01: beacon due / spacing decision
+#include "beacon_rate.h"      // POSINFO_AUTO_MIN_MS
 #include <atomic>
 #include <configuration.h>
 #include "capture_functions.h"
@@ -21,6 +23,7 @@
 #include "loop_breadcrumb.h" // F3: always-on LAST_LOOP_SECTION breadcrumb for TASK_WDT forensics
 #include "track_warning.h" // TRK-01: Warnhinweis bei aktivem Track
 #include <maxhop.h>         // CS-01: plausibility of the persisted text hop limit
+#include "rf_pa.h"          // TBEAM1W-PWR-01: shared SX126x PA setup (boot + runtime)
 #include <RadioLib.h>
 
 #include <Wire.h>               
@@ -37,6 +40,7 @@ SPIClass ethSPI(FSPI);
 #include "esp32_flash.h"
 #include "fw_update.h"       // AU-05 (#1187): update policy (fwTick and friends)
 #include "wifi_start_gate.h" // D15: WiFi start rule for the auto update
+#include "aprs_is_client.h"  // MCFW-WX1: APRS-IS weather
 #include "fw_update_net.h"   // AU-05: CHECK / DOWNLOAD worker (own task)
 #include "rm_au_go.h"        // remote "upd go" state (rm_au_esp32.cpp)
 #include "safeboot/safeboot_ver.h" // AU-12: AU_SAFEBOOT_MIN for the boot demotion
@@ -1046,12 +1050,14 @@ bool is_new_packet(uint8_t compBuffer[4]);     // switch if we have a packet rec
 #include "gateway_service.h"
 #include "gw_reg_runtime.h"
 #include "wx_pins.h"
+#include "pin_board.h"   // GPIO-01
 #ifdef ENABLE_LTR390
 #include "ltr390.h"
 #endif
 #ifdef ENABLE_WIND
 #include "wind_counter.h"
 #endif
+#include "ping_budget.h"   // PING-NRF-01: pingBudgetOpen(), pingCountAfterSend()
 
 bool g_meshcom_initialized;
 bool init_flash_done=false;
@@ -1466,6 +1472,7 @@ void esp32setup()
     bGATEWAY =  meshcom_settings.node_sset & 0x1000;
     bEXTUDP =  meshcom_settings.node_sset & 0x2000;
     bDisplayCont = meshcom_settings.node_sset & 0x4000;
+    bMsgWake = (meshcom_settings.node_sset & 0x8000) == 0;   // T114-DARK-01: --msgwake, stored inverted (set = off)
 
     // TRK-01: Warnhinweis einmal beim Boot, wenn Track aus den Settings aktiv geladen wurde
     if(bDisplayTrack)
@@ -1496,7 +1503,7 @@ void esp32setup()
     // NOTE: externalRadioSetup() runs later, AFTER lora_setcountry() has applied
     // the effective freq/bw/sf/cr/preamble, so the bridge config snapshot is built
     // from the same effective radio settings the local radio path would use.
-    //xxxxxxx   = meshcom_settings.node_sset2 & 0x2000;
+    // node_sset2 0x2000 = T114 --theme dark (read in nrf52_main.cpp only; no ESP32 board uses it)
     bVIA = meshcom_settings.node_sset2 & 0x4000;
 
     // nicht mehr notwendig bMHONLY =  bMHONLY =  meshcom_settings.node_sset3 & 0x0001;
@@ -1506,6 +1513,7 @@ void esp32setup()
     bAnalogCheck = meshcom_settings.node_sset3 & 0x0008;
     bBMP3ON = meshcom_settings.node_sset3 & 0x0010;
     bAHT20ON = meshcom_settings.node_sset3 & 0x0020;
+    bAPRSWX = meshcom_settings.node_aprswx != 0;         // MCFW-WX1
     bUVON = meshcom_settings.node_wx_flags & 0x0001;     // WX-01: UV / wind switches
     bWINDON = meshcom_settings.node_wx_flags & 0x0002;
     bAnalogFilter = meshcom_settings.node_sset3 & 0x0040;
@@ -1824,7 +1832,18 @@ void esp32setup()
     #endif
 
     #if defined(ENABLE_WIND)
-        if(bWINDON && meshcom_settings.node_wind_pin != 0 && wxWindPinOk(meshcom_settings.node_wind_pin))
+        // GPIO-01: a stored forbidden pin is repaired (esp32_flash.cpp sanitize_loaded_settings); strapping/claimed
+        // pins of an existing setup keep working, input-only pins have no pull-up for the anemometer
+        {
+            const int wbd = pinBoardDefault(PIN_FN_WIND);   // -1 = none; pinRepairLoaded() wants the 0 sentinel
+            const int wp = pinRepairLoaded(pinBoardContext(PIN_FN_WIND), meshcom_settings.node_wind_pin, wbd < 0 ? 0 : wbd);
+            if(wp != meshcom_settings.node_wind_pin)
+            {
+                Serial.printf("[WIND]...gpio %i forbidden on this board, reset to off\n", meshcom_settings.node_wind_pin);
+                meshcom_settings.node_wind_pin = wp;
+            }
+        }
+        if(bWINDON && pinBoardLoadedUsable(PIN_FN_WIND, meshcom_settings.node_wind_pin))
             windBegin(meshcom_settings.node_wind_pin);
     #endif
 
@@ -2087,15 +2106,14 @@ void esp32setup()
         bRadio = false;
     #endif
 
-    //#if not defined(BOARD_T_DECK_PRO)
-    // extra source
+    #ifdef BOARD_COUNTRY
+        if(meshcom_settings.node_country == 0)
+            meshcom_settings.node_country = BOARD_COUNTRY;
+    #endif
+
     // > 4.34w we use EU8 instead of EU
     if(meshcom_settings.node_country == 0)
         meshcom_settings.node_country = 8;
-
-    #ifdef BOARD_COUNTRY
-        meshcom_settings.node_country = BOARD_COUNTRY;
-    #endif
 
     lora_setcountry(meshcom_settings.node_country);
 
@@ -2203,19 +2221,11 @@ void esp32setup()
         save_settings();
         printfdeb("[LoRa]...RF_POWER: %d dBm\n", tx_power);
 
-        #if defined(BOARD_T_DECK_PRO)
-        if (radio.setOutputPower(tx_power) == RADIOLIB_ERR_INVALID_OUTPUT_POWER) {
+        if (rfApplyOutputPower(radio, tx_power) == RADIOLIB_ERR_INVALID_OUTPUT_POWER) {
             printlndeb(F("Selected output power is invalid for this module!"));
             Serial.printf("[LoRa] radio config failed, restarting\n");
             esp_restart();
         }
-        #else
-        if (radio.setOutputPower(tx_power, false) == RADIOLIB_ERR_INVALID_OUTPUT_POWER) {
-            printlndeb(F("Selected output power is invalid for this module!"));
-            Serial.printf("[LoRa] radio config failed, restarting\n");
-            esp_restart();
-        }
-        #endif
 
         // set over current protection limit (accepted range is 0 - 140 mA)
         // NOTE: set value to 0 to disable overcurrent protection
@@ -2451,7 +2461,7 @@ void esp32setup()
     // WIFI
     // AU-05 (#1187): the firmware auto update needs the STA link on its own, independent of the gateway flag.
     // D15: for AU alone only with an SSID set and not in AP mode (wifi_start_gate.h)
-    if(wifiStartWanted(bGATEWAY, bEXTUDP, bWEBSERVER, bNETCONSOLE, meshcom_settings.node_autoupd, bWIFIAP, meshcom_settings.node_ssid))
+    if(wifiStartWanted(bGATEWAY, bEXTUDP, bWEBSERVER, bNETCONSOLE, meshcom_settings.node_autoupd, bWIFIAP, meshcom_settings.node_ssid, bAPRSWX))
     {
         bAllStarted=false;
 
@@ -3196,7 +3206,9 @@ void esp32loop()
     static bool s_bootReadyLogged = false;
     if (!s_bootReadyLogged)
     {
-        bool network_wanted = bGATEWAY || bEXTUDP || bWEBSERVER || bNETCONSOLE;
+        // MCFW-WX1: aprswx counts only when it may start Wi-Fi on its own (SSID set, not AP), as at boot
+        const bool aprswx_net = wifiAprsWxWantsStart(bAPRSWX, bWIFIAP, meshcom_settings.node_ssid);
+        bool network_wanted = bGATEWAY || bEXTUDP || bWEBSERVER || bNETCONSOLE || aprswx_net;
         // hasIPaddress (global) kippt bei "now listening at IP"; die Kopie in
         // meshcom_settings wird erst spaeter nachgezogen -- beide pruefen.
         extern bool hasIPaddress;
@@ -4089,6 +4101,7 @@ void esp32loop()
             // check valid Date & Time
             if(Year > 2023 && strTime.compareTo("none") != 0)
             {
+                CLK_SRC("NTP");
                 MyClock.setCurrentTime(meshcom_settings.node_utcoff, Year, Month, Day, Hour, Minute, Second);
                 bNTPDateTimeValid = true;
 
@@ -4143,6 +4156,7 @@ void esp32loop()
             // check valid Date & Time
             if(Year > 2013)
             {
+                CLK_SRC("RTC");
                 MyClock.setCurrentTime(0.0, Year, Month, Day, Hour, Minute, Second);
                 snprintf(cTimeSource, sizeof(cTimeSource), (char*)"RTC");
 
@@ -4232,6 +4246,16 @@ void esp32loop()
     {
         #if defined(GPS_SWITCH)
             digitalWrite(GPS_SWITCH, LOW);
+        #endif
+        #if defined(BOARD_HELTEC_V4)
+            // GPSV4-01: GPS off -> GNSS enable driven inactive once, not left floating. This branch runs every
+            // loop pass, so a latch keeps it to one call per boot (a later --gps off deactivates by itself).
+            static bool s_hv4GpsOffApplied = false;
+            if(!s_hv4GpsOffApplied)
+            {
+                WZ_GPS_Deactivate();
+                s_hv4GpsOffApplied = true;
+            }
         #endif
     }
     #endif
@@ -4586,9 +4610,8 @@ void esp32loop()
             
         if(!bGPSON)
         {
-            #if defined (BOARD_T_DECK_PRO)
-            tdeck_set_gps(false);
-            #endif
+            // T-Deck Pro: no loop-side suspend of gps_task. bGPSON is forced false at boot, so this ran
+            // every 3 s and froze GPS screen 3 (GPS-SKY W4). entry3/exit3 start and stop the task.
 
             if(meshcom_settings.node_postime > 0)
             {
@@ -4706,24 +4729,15 @@ void esp32loop()
         gps_refresh_timer = millis();
     }
 
-    // check NCNT modified -- MeshCom 5 (Welle 4, Konzept 4.8): lokaler
-    // Vergleich, nicht die Sendefassung -- nbrNcnt(), nicht nbrNcntAir().
-    int incnt = nbrNcnt(nbrMatrix, uptimeMin16());
-    if(ncnt_hold != incnt)
-    {
-        // minimal alle 60 sec
-        if((uint32_t)(millis() - posinfo_timer_min) >= 60000)
-        {
-            posinfo_shot = true;
-            ncnt_hold = incnt;
-        }
-    }
+    // POSINFO-LAG-01: no position beacon on a neighbour count change. The beacon follows the configured
+    // interval; neighbour count and signal go out in the HEY frames. (The old 60 s NCNT trigger never fired:
+    // posinfo_timer_min was refreshed on every idle pass.)
 
     // posinfo_interval in Seconds
-    if (((uint32_t)(millis() - posinfo_timer) >= (posinfo_interval * 1000)) || (millis() > 100000 && millis() < 130000 && bPosFirst) || posinfo_shot)
+    if (posinfoDue(millis(), posinfo_timer, posinfo_interval, (millis() > 100000 && millis() < 130000 && bPosFirst), posinfo_shot))
     {
-        // minimal transmit time only max 30 sec
-        if((uint32_t)(millis() - posinfo_timer_min) >= 30000)
+        // automatic beacons: at least POSINFO_AUTO_MIN_MS after the last position TX of any kind (D6, aprs.fi)
+        if(posinfoAutoSpacingOk(millis(), posinfo_timer_min, haveOwnPosTx(), lastOwnPosTxMs(), POSINFO_AUTO_MIN_MS))
         {
             if(bDisplayInfo)
             {
@@ -4791,10 +4805,7 @@ void esp32loop()
             posinfo_timer_min = millis();
         }
     }
-    else
-    {
-        posinfo_timer_min = millis();
-    }
+    // POSINFO-LAG-01: posinfo_timer_min = time of the last send; not refreshed on idle passes
 
 
     // Trickle-HEY: adaptive interval (RFC 6206)
@@ -4894,6 +4905,12 @@ void esp32loop()
         akt_timer = 20 * 1000; // 20 Seconds PARM, UNIT, EQNS and 1st T-Message
     }
         
+    // MCFW-WX1: APRS-IS weather timer + client state machine. Off (default): not a single step is executed.
+    if(bAPRSWX)
+    {
+        aprsWxLoop();
+    }
+
     if (((uint32_t)(millis() - telemetry_timer) >= akt_timer) || (bTeleFirst && bAllStarted))
     {
         bTeleFirst=false;
@@ -4904,8 +4921,8 @@ void esp32loop()
         telemetry_timer = millis();
     }
 
-    if(meshcom_settings.node_pingcall[0] == 0x00 || meshcom_settings.node_pingtime == 0 || meshcom_settings.node_pingcount == 0)
-        { INSTR_SECTION("display_tick"); LOOP_SECTION(LSEC_DISPLAY); mainStartTimeLoop(); }
+    // CLK-PING-01: clock tick always; the clock line skips itself while a held frame is shown.
+    { INSTR_SECTION("display_tick"); LOOP_SECTION(LSEC_DISPLAY); mainStartTimeLoop(); }
 
     #if not defined(BOARD_T_DECK_PRO)
     if(DisplayOffWait > 0)
@@ -4921,8 +4938,7 @@ void esp32loop()
                 digitalWrite(PIN_TFT_LEDA_CTL, HIGH);   // TFT OFF
                 #endif
 
-                if(meshcom_settings.node_pingcall[0] == 0x00 || meshcom_settings.node_pingtime == 0 || meshcom_settings.node_pingcount == 0)
-                    sendDisplay1306(true, true, 0, 0, (char*)"#C");
+                sendDisplay1306(true, true, 0, 0, (char*)"#C");
             }
         }
     }
@@ -5029,8 +5045,7 @@ void esp32loop()
                     }
                 }
 
-                if(dht_found)
-                    loop_onewire_dht();
+                loop_onewire_dht();   // DHT-PROBE-01: gates itself (found or probe tries left)
 
                 onewireTimeWait = millis() - lreduction;
 
@@ -5223,7 +5238,9 @@ void esp32loop()
         stopNetConsole();   // no-op unless started
     #endif
 
-    if(bWEBSERVER || bEXTUDP || bGATEWAY || bNETCONSOLE || bKISS)
+    // MCFW-WX1: aprswx enters the service block under the boot rule (wifiAprsWxWantsStart: SSID set, not AP mode),
+    // so "--aprswx on" at runtime never asks startNetwork() for a STA link it cannot have (review finding 3).
+    if(bWEBSERVER || bEXTUDP || bGATEWAY || bNETCONSOLE || bKISS || wifiAprsWxWantsStart(bAPRSWX, bWIFIAP, meshcom_settings.node_ssid))
     {
         if (web_timer == 0 || (iWlanWait > 0 && ((uint32_t)(millis() - web_timer) >= 1000)) || ((uint32_t)(millis() - web_timer) >= (HEARTBEAT_INTERVAL * 1000 * 10)))   // repeat 5 minutes
         {
@@ -5318,7 +5335,23 @@ void esp32loop()
     if (resendPing == 0)
         resendPing = millis();
 
-    if(meshcom_settings.node_pingtime > 29 && meshcom_settings.node_pingcall[0] != 0x00 && meshcom_settings.node_pingcount > 0)
+    // LAST-PONG-01: armed after the last send; one more check tick gives it its fail verdict.
+    static bool pingFinalArmed = false;
+    const bool pingBudgetIsOpen = pingBudgetOpen(meshcom_settings.node_pingtime, meshcom_settings.node_pingcall, meshcom_settings.node_pingcount);
+
+    if(pingFailCheckDue(pingFinalArmed, pingBudgetIsOpen, (int32_t)(millis() - (resendPing + meshcom_settings.node_pingtime * 1000)) > 0))
+    {
+        pingFinalArmed = false;
+        // A target cleared since the last send (--pingcall none) gets no verdict.
+        if(bPingSend && meshcom_settings.node_pingcall[0] != 0x00)
+        {
+            printfdeb("[PONG]...fail from %s\n", meshcom_settings.node_pingcall);
+            PongFail(meshcom_settings.node_pingcall);
+        }
+        bPingSend = false;
+    }
+
+    if(pingBudgetIsOpen)
     {
         if((int32_t)(millis() - (resendPing + meshcom_settings.node_pingtime * 1000)) > 0)
         {
@@ -5332,6 +5365,13 @@ void esp32loop()
 
             PingResult pingResult = sendPing(meshcom_settings.node_pingcall);
 
+            // PING-FAIL-REPEAT-01: no new ping queued (refused ring, TRACK, invalid target): drop the
+            // stale flag so the unanswered ping is not reported again on the next tick. Cleared after
+            // sendPing(), not before: sendPing() draws "SENT" only while !bPingSend, and the
+            // "PONG FAILED" frame drawn just above must stay on the OLED.
+            if(pingResult != PING_QUEUED)
+                bPingSend = false;
+
             // PING_INVALID_TARGET logs its own once-per-episode notice in sendPing().
             if(pingResult != PING_INVALID_TARGET)
                 printfdeb("[PING]...%s Ping to %s <%i>\n", (pingResult == PING_QUEUED) ? "send" : "FAILED", meshcom_settings.node_pingcall, meshcom_settings.node_pingcount);
@@ -5341,8 +5381,9 @@ void esp32loop()
             // und der Knoten verstummt dauerhaft -- wirkt dann wie ein Einstellungsfehler.
             // Ein abgelehnter Ring ist dagegen ein echter Sendeversuch und zählt mit.
             // PING_INVALID_TARGET is no send attempt either.
-            if(pingResult != PING_SUPPRESSED_TRACK && pingResult != PING_INVALID_TARGET)
-                meshcom_settings.node_pingcount--;
+            const int pingCountBefore = meshcom_settings.node_pingcount;
+            meshcom_settings.node_pingcount = pingCountAfterSend(meshcom_settings.node_pingcount, pingResult == PING_SUPPRESSED_TRACK, pingResult == PING_INVALID_TARGET);
+            pingFinalArmed = pingFinalArmAfterSend(pingCountBefore, meshcom_settings.node_pingcount, pingResult == PING_QUEUED);
         }
     }
 

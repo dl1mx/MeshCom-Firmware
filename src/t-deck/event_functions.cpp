@@ -11,6 +11,7 @@
 
 #include <configuration.h>
 #include "uptime_min.h"   // wrap-safe 16-bit uptime minutes (NBR stamps)
+#include "node_position.h"   // nodeSignedLat/Lon: own position as signed degrees (#1279)
 #include <debugconf.h>
 #include "event_functions.h"
 #include "tdeck_extern.h"
@@ -343,16 +344,6 @@ void btn_event_handler_setup_btn(lv_event_t * e)
             commandAction((char*)"--mute off", false);
         else
             commandAction((char*)"--mute on", false);
-
-        return;
-    }
-    else if (lv_event_get_target(e) == btn_blauto)
-    {
-        // TD-23: same path as the serial "--bl auto on/off" (sets, saves, applies)
-        if (lv_obj_has_state(btn_blauto, LV_STATE_CHECKED))
-            commandAction((char*)"--bl auto on", false);
-        else
-            commandAction((char*)"--bl auto off", false);
 
         return;
     }
@@ -963,8 +954,8 @@ void tabview_event_cb(lv_event_t * e)
 
                 if (sdmap_lastKnownLat == 0.0 && sdmap_lastKnownLon == 0.0)
                 {
-                    sdmap_lastKnownLat = meshcom_settings.node_lat;
-                    sdmap_lastKnownLon = meshcom_settings.node_lon;
+                    sdmap_lastKnownLat = nodeSignedLat(meshcom_settings.node_lat, meshcom_settings.node_lat_c);
+                    sdmap_lastKnownLon = nodeSignedLon(meshcom_settings.node_lon, meshcom_settings.node_lon_c);
                 }
 
                 // TD-14: hide the tab bar before composing so the single

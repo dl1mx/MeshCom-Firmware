@@ -14,9 +14,24 @@
 
 #include "gps_functions.h"
 
+// GSV (satellites in view) feeds the graphic GPS page: Heltec T114 and T-Deck / T-Deck Plus
+#if defined(BOARD_HELTEC_T114) || defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+#define GPS_SKY_FEED 1
+#include "gps_skyplot.h"   // GSV parser for the GPS page
+#endif
+
+// T-Deck / T-Deck Plus: with GSV on, the default 256 B UART RX buffer overflows within ~70 ms at 38400 baud
+// while LVGL renders. setRxBufferSize() only works on a stopped port, hence end() first (no-op if not started).
+#if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+#define GPS_RXBUF_PREPARE() do { GPSSerial.end(); GPSSerial.setRxBufferSize(2048); } while(0)
+#else
+#define GPS_RXBUF_PREPARE() do { } while(0)
+#endif
+
 #include "gps_filter.h"
 #include "alt_fusion.h"
 #include "pos_pipeline.h"
+#include "node_position.h"   // nodeSignedLat/Lon for SmartBeaconing (#1279)
 
 #if defined(ENABLE_BMX280)
 #include "bmx280.h"
@@ -266,6 +281,7 @@ static int gpsScanBauds()
         Serial1.begin(GPS_BAUDS[iGpsBaud]);
         Serial1.flush();
         #else
+        GPS_RXBUF_PREPARE();
         GPSSerial.begin(GPS_BAUDS[iGpsBaud], SERIAL_8N1, s_gpsRxPin, s_gpsTxPin);
         GPSSerial.flush();
         #endif
@@ -650,7 +666,17 @@ void SetupUBLOX()
   }
 
   // 1. Alle Nachrichten (GSV) ausschalten, um Flut an Daten zu reduzieren
+  #if defined(BOARD_T_DECK) || defined(BOARD_T_DECK_PLUS)
+  // T-Deck: GSV on (UART1 rate 1) for the sky plot. GSV is ~1 kB/s and would saturate 9600 baud; the
+  // guard follows the compile-time new_baud (38400 today). If the module stays at 9600 it cannot decode
+  // this 38400 command, so GSV is never enabled on a slow link.
+  if (new_baud >= 38400)
+    sendUBXCommand("$PUBX,40,GSV,0,1,0,0,0,0*58");
+  else
+    sendUBXCommand("$PUBX,40,GSV,0,0,0,0,0,0*59");
+  #else
   sendUBXCommand("$PUBX,40,GSV,0,0,0,0,0,0*59");
+  #endif
   sendUBXCommand("$PUBX,40,VTG,0,0,0,0,0,0*5E");
   sendUBXCommand("$PUBX,40,GSA,0,0,0,0,0,0*4E");
   sendUBXCommand("$PUBX,40,GLL,0,0,0,0,0,0*5C");
@@ -722,10 +748,15 @@ void SetupL76K() {
   #endif
   delay(250);
   // ask for only RMC and GGA
+  #if defined(GPS_SKY_FEED)
+  // T114 / T-Deck: GSV (satellites in view) in addition, for the graphic GPS page
+  Serial.printf("[GPS ]>>> $PCAS03,1,0,0,1,1,0,0,0,0,0,,,0,0*03\n");
+  Serial1.write("$PCAS03,1,0,0,1,1,0,0,0,0,0,,,0,0*03\r\n");
+  #elif defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
   Serial.printf("[GPS ]>>> $PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\n");
-  #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
   Serial1.write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n");
   #else
+  Serial.printf("[GPS ]>>> $PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\n");
   GPSSerial.write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n");
   #endif
   Serial.printf("[GPS ]...L76K config finished\n");
@@ -865,6 +896,19 @@ void WZ_GPS_Deactivate() {
             digitalWrite(GPS_EN_PIN, LOW);
         #endif /*GPS_EN_PIN*/
     #endif
+
+    #if defined(BOARD_HELTEC_V4) && defined(HV4_GPS_EN_PIN)
+        gpio_hold_dis((gpio_num_t) HV4_GPS_EN_PIN);
+        pinMode(HV4_GPS_EN_PIN, OUTPUT);
+        digitalWrite(HV4_GPS_EN_PIN, !HV4_GPS_EN_ACTIVE);   // GNSS off
+        pinMode(HV4_GPS_WAKE_PIN, OUTPUT);
+        digitalWrite(HV4_GPS_WAKE_PIN, LOW);
+        // Release the lines into the unpowered kit (UART TX idles HIGH, reset is HIGH),
+        // so it is not fed through its IO clamp diodes. GPSSerial.end() is not used: on a
+        // UART that was never begun it takes a NULL mutex. A later WZ_GPS_Init re-attaches TX.
+        pinMode(GPS_TX_PIN, INPUT);
+        pinMode(HV4_GPS_RST_PIN, INPUT);
+    #endif
 }
 
 void WZ_GPS_Reset() {
@@ -877,6 +921,28 @@ void WZ_GPS_Reset() {
             digitalWrite(GPS_EN_PIN, HIGH);
             delay(100);
         #endif /*GPS_EN_PIN*/
+    #endif
+
+    #if defined(BOARD_HELTEC_V4) && defined(HV4_GPS_EN_PIN)
+    if(!bGPSON)
+    {
+        // GPS switched off (e.g. `--gps reset` while off): keep the kit unpowered
+        WZ_GPS_Deactivate();
+    }
+    else
+    {
+        // Heltec V4 (GPSV4-01): a deep-sleep hold may still sit on the enable pad
+        gpio_hold_dis((gpio_num_t) HV4_GPS_EN_PIN);
+        pinMode(HV4_GPS_EN_PIN, OUTPUT);
+        digitalWrite(HV4_GPS_EN_PIN, HV4_GPS_EN_ACTIVE);   // GNSS on (active LOW)
+        pinMode(HV4_GPS_WAKE_PIN, OUTPUT);
+        digitalWrite(HV4_GPS_WAKE_PIN, HIGH);
+        delay(1000);   // power-up warm-up, as Meshtastic
+        pinMode(HV4_GPS_RST_PIN, OUTPUT);
+        digitalWrite(HV4_GPS_RST_PIN, LOW);
+        delay(150);
+        digitalWrite(HV4_GPS_RST_PIN, HIGH);
+    }
     #endif
 
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
@@ -951,6 +1017,7 @@ void WZ_GPS_Init()
     #if defined(USE_HELTEC_T114) or defined(BOARD_T_ECHO)
     Serial1.begin(detectedBaud);
     #else
+    GPS_RXBUF_PREPARE();
     GPSSerial.begin(detectedBaud,SERIAL_8N1,s_gpsRxPin,s_gpsTxPin);
     #endif
 
@@ -1002,6 +1069,10 @@ void WZ_GPS_Feed()
         #endif
 
         if (gps.encode(char(ic))) { updateGPSdata = true; }
+
+        #if defined(GPS_SKY_FEED)
+        gpsSkyFeed(char(ic), millis());   // satellites in view for the GPS page
+        #endif
 
         // NMEA-Echo. msg_text ist der globale Kommandopuffer -- diese Schleife
         // laeuft in jedem loop()-Durchlauf, ein memset() darauf waere nicht
@@ -1144,6 +1215,7 @@ int WZ_GPS_Loop() {
                && gpsDatePlausible((int)gpsData.year, (int)gpsData.month, (int)gpsData.day)
                && gpsTimePlausible((int)gpsData.hour, (int)gpsData.minute, (int)gpsData.second))
             {
+                CLK_SRC("GPS");
                 MyClock.setCurrentTime(meshcom_settings.node_utcoff, gpsData.year, gpsData.month, gpsData.day, gpsData.hour, gpsData.minute, gpsData.second);
                 snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
             }
@@ -1277,8 +1349,10 @@ int WZ_GPS_Loop() {
             }
             #endif
 
-            // GPS-11: war cround4abs(roh), jetzt die gespeicherten (gefilterten) Betraege
-            igps = setSMartBeaconing(meshcom_settings.node_lat, meshcom_settings.node_lon);
+            // GPS-11: stored (filtered) position. setSMartBeaconing() needs signed degrees:
+            // the TRACK turn beacon takes the hemisphere from the sign (#1279).
+            igps = setSMartBeaconing(nodeSignedLat(meshcom_settings.node_lat, meshcom_settings.node_lat_c),
+                                     nodeSignedLon(meshcom_settings.node_lon, meshcom_settings.node_lon_c));
         }
         else
         {
@@ -1286,10 +1360,15 @@ int WZ_GPS_Loop() {
             // GPS-02/F1: gleiche Bereichspruefung wie im Fix-Zweig -- dieser
             // Pfad nimmt gerade die Stichproben auf, die das
             // Plausibilitaets-Gate verworfen hat.
-            if(gpsData.year > 2024 && gps.time.isValid()
+            // Ohne Fix ist die Modulzeit nur so gut wie die interne Uhr des GPS-Moduls (bis 1 s
+            // daneben). Ist NTP gueltig, setzt esp32loop/nrf52loop die Uhr bei jedem Durchlauf aus
+            // NTP; dann darf dieser Zweig sie nicht zurueckstellen, sonst springt die sekuendliche
+            // Uhrzeile zwischen beiden Quellen hin und her. Rangfolge: GPS mit Fix, NTP, GPS ohne Fix.
+            if(!bNTPDateTimeValid && gpsData.year > 2024 && gps.time.isValid()
                && gpsDatePlausible((int)gpsData.year, (int)gpsData.month, (int)gpsData.day)
                && gpsTimePlausible((int)gpsData.hour, (int)gpsData.minute, (int)gpsData.second))
             {
+                CLK_SRC("GPS");
                 MyClock.setCurrentTime(meshcom_settings.node_utcoff, gpsData.year, gpsData.month, gpsData.day, gpsData.hour, gpsData.minute, gpsData.second);
                 snprintf(cTimeSource, sizeof(cTimeSource), (char*)"GPS");
                 
@@ -1348,6 +1427,15 @@ bool WZ_GPS_HasFix() {
     return gpsInitDone && gpsData.valid && gpsData.age_ms < 5000;
 }
 
+// CET-SCATTER-01: same validity tests as the no-fix clock branch in WZ_GPS_Loop(), plus freshness.
+// gpsData.* holds the last copy; TinyGPS date/time accessors are not read here (year() clears isUpdated).
+bool WZ_GPS_TimeLive() {
+    return bGPSON && gpsDetected && gps.date.isValid() && gps.time.isValid() && gps.time.age() < 5000
+        && gpsData.year > 2023
+        && gpsDatePlausible((int)gpsData.year, (int)gpsData.month, (int)gpsData.day)
+        && gpsTimePlausible((int)gpsData.hour, (int)gpsData.minute, (int)gpsData.second);
+}
+
 /**
  * @brief Maidenhead-Locator berechnen (6-stellig)
  * Nuetzlich fuer Amateurfunk-Anwendungen (z.B. MeshCom, APRS)
@@ -1390,6 +1478,7 @@ void WZ_L76Kreset() {
 
   // Baudrate-Erkennung: Jede Baudrate kurz ausprobieren
   for (size_t i = 0; i < GPS_BAUD_COUNT; i++) {
+    GPS_RXBUF_PREPARE();
     GPSSerial.begin(GPS_BAUDS[i], SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
     Serial.printf("[GPS ]...test %lu Baud...\n", GPS_BAUDS[i]);
 
@@ -1475,3 +1564,11 @@ bool baroBaseLatchAllowed()
 
     return true;
 }
+
+// Heltec V4 GNSS (Meshtastic variants/esp32s3/heltec_v4/variant.h): GNSS TX -> ESP RX is GPIO39, ESP TX -> GNSS RX
+// is GPIO38, enable GPIO34 (active LOW), reset GPIO42, PPS GPIO41. I2C therefore must not sit on 41/42 (it moved to 4/3).
+#if defined(BOARD_HELTEC_V4)
+static_assert(GPS_RX_PIN == 39 && GPS_TX_PIN == 38, "Heltec V4: GNSS RX must be 39 (GNSS TX) and TX 38 (GNSS RX), not swapped");
+static_assert(HV4_GPS_EN_PIN == 34 && HV4_GPS_RST_PIN == 42, "Heltec V4: GNSS enable must be 34 and reset 42");
+static_assert(I2C_SDA != 41 && I2C_SDA != 42 && I2C_SCL != 41 && I2C_SCL != 42, "Heltec V4: I2C must not use 41/42 (GNSS PPS / reset)");
+#endif
